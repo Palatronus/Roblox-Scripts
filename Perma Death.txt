@@ -1,48 +1,46 @@
--- Client-Sided Reanimation Script with "Perma Death" Concept
--- Use responsibly and only for learning purposes.
+-- Client-Sided Reanimation Script with "Perma Death"
+-- Use responsibly and only for learning or private purposes.
 
 local player = game.Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
 local humanoid = character:WaitForChild("Humanoid")
+local camera = workspace.CurrentCamera
 
 -- Settings
-local permaDeathPart = "Left Arm" -- The limb to "Perma Death"
-local reanimationDelay = 2 -- Delay before reanimation starts
-local anchoredLimb = nil
+local permaDeathPartName = "Left Arm" -- Name of the part to "perma-death"
+local reanimationDelay = 0.1 -- Delay before reanimation starts
 
--- Function to handle reanimation
+-- Function to remove default connections and control parts manually
 local function reanimate()
-    -- Wait for reanimation delay
+    -- Wait for the reanimation delay
     wait(reanimationDelay)
 
     -- Clone the character
     local clone = character:Clone()
     clone.Parent = workspace
-    clone.HumanoidRootPart.CFrame = character.HumanoidRootPart.CFrame
+    clone.Name = "Reanimated_" .. player.Name
 
-    -- Anchor the "Perma Dead" part
-    if permaDeathPart then
-        for _, part in pairs(character:GetChildren()) do
-            if part:IsA("BasePart") and part.Name == permaDeathPart then
-                part.Anchored = true
-                part.BrickColor = BrickColor.new("Really red") -- Change appearance
-                anchoredLimb = part
-            end
+    -- Find the limb for "Perma Death" and anchor it
+    for _, part in pairs(character:GetDescendants()) do
+        if part:IsA("BasePart") and part.Name == permaDeathPartName then
+            part.Anchored = true
+            part.BrickColor = BrickColor.new("Really red") -- Visual cue
         end
     end
 
-    -- Make the original character invisible
-    for _, part in pairs(character:GetChildren()) do
-        if part:IsA("BasePart") and part ~= anchoredLimb then
+    -- Set transparency of the original character to make it "dead"
+    for _, part in pairs(character:GetDescendants()) do
+        if part:IsA("BasePart") and part.Name ~= permaDeathPartName then
             part.Transparency = 1
         end
     end
 
-    -- Attach control to the clone
-    player.Character = clone
-end
+    -- Transfer camera to the clone
+    local rootPart = clone:FindFirstChild("HumanoidRootPart")
+    if rootPart then
+        camera.CameraSubject = clone:FindFirstChild("Humanoid")
+        rootPart.CFrame = character:FindFirstChild("HumanoidRootPart").CFrame
+    end
 
--- Trigger reanimation on humanoid death
-humanoid.Died:Connect(function()
-    reanimate()
-end)
+    -- Replace the player character with the clone for local control
+ 
