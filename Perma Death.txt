@@ -1,73 +1,90 @@
------ [ PART 1: Server-Side Setup (in Tool) ] -----
+-- Server-side (Script)
 local Tool = script.Parent
 local Players = game:GetService("Players")
-local ReanimateEvent = game:GetService("ReplicatedStorage"):WaitForChild("ReanimateEvent")
-local deadPlayers = {} -- Tracks { [player] = corpse }
+local RS = game:GetService("ReplicatedStorage")
+local ReanimateEvent = Instance.new("RemoteEvent", RS)
+ReanimateEvent.Name = "ReanimateEvent"
 
--- Disable auto-respawn
-Players.RespawnTime = 0
+local deadPlayers = {}
+local FlingForce = 5000 -- Adjust fling power
 
--- Handle player death
-local function onPlayerDeath(player)
-    local character = player.Character or player.CharacterAdded:Wait()
-    local humanoid = character:WaitForChild("Humanoid")
-    
-    humanoid.Died:Connect(function()
-        -- Clone corpse and mark it
-        local corpse = character:Clone()
-        corpse:SetAttribute("IsReanimatable", true)
-        corpse:PivotTo(character:GetPivot())
-        corpse.Parent = workspace
-        deadPlayers[player] = corpse
-        
-        -- Delete original character
-        character:Destroy()
-    end)
+-- God Mode Setup
+local function grantGodMode(player)
+    if player.Character then
+        local humanoid = player.Character:FindFirstChild("Humanoid")
+        if humanoid then
+            humanoid.WalkSpeed = 32
+            humanoid.JumpPower = 75
+            humanoid:SetAttribute("Invincible", true)
+            
+            -- Noclip Toggle
+            local noclip = false
+            game:GetService("RunService").Stepped:Connect(function()
+                if noclip and player.Character then
+                    for _, part in pairs(player.Character:GetDescendants()) do
+                        if part:IsA("BasePart") then
+                            part.CanCollide = false
+                        end
+                    end
+                end
+            end)
+            
+            -- Noclip Toggle Keybind (Press G)
+            player:GetMouse().KeyDown:Connect(function(key)
+                if key:lower() == "g" then
+                    noclip = not noclip
+                end
+            end)
+        end
+    end
 end
 
--- Reanimate a corpse
-local function reanimatePlayer(player, corpse)
-    if corpse and corpse:GetAttribute("IsReanimatable") then
-        -- Respawn the dead player
-        local targetPlayer = nil
-        for p, c in pairs(deadPlayers) do
-            if c == corpse then
-                targetPlayer = p
-                break
+-- Handle Death/Reanimation
+Players.PlayerAdded:Connect(function(player)
+    player.CharacterAdded:Connect(function(char)
+        grantGodMode(player)
+        local humanoid = char:WaitForChild("Humanoid")
+        
+        humanoid.Died:Connect(function()
+            local corpse = char:Clone()
+            corpse:SetAttribute("IsDead", true)
+            corpse:PivotTo(char:GetPivot())
+            corpse.Parent = workspace
+            deadPlayers[player] = corpse
+            char:Destroy()
+        end)
+    end)
+end)
+
+ReanimateEvent.OnServerEvent:Connect(function(plr, target)
+    if target:IsA("BasePart") then
+        -- Fling Mechanic
+        if target.Parent:FindFirstChild("Humanoid") then
+            local root = target.Parent:FindFirstChild("HumanoidRootPart")
+            if root then
+                root.Velocity = Vector3.new(0,FlingForce,0)
+                root.RotVelocity = Vector3.new(math.random(-50,50),math.random(-50,50),math.random(-50,50))
+            end
+        -- Reanimation
+        elseif target:GetAttribute("IsDead") then
+            for p, corpse in pairs(deadPlayers) do
+                if corpse == target.Parent then
+                    p:LoadCharacter()
+                    corpse:Destroy()
+                    deadPlayers[p] = nil
+                end
             end
         end
-        
-        if targetPlayer then
-            targetPlayer:LoadCharacter()
-            corpse:Destroy()
-            deadPlayers[targetPlayer] = nil
-        end
-    end
-end
-
--- Listen for reanimation requests
-ReanimateEvent.OnServerEvent:Connect(function(player, corpse)
-    reanimatePlayer(player, corpse)
-end)
-
--- Track players
-Players.PlayerAdded:Connect(onPlayerDeath)
-Players.PlayerRemoving:Connect(function(player)
-    if deadPlayers[player] then
-        deadPlayers[player]:Destroy()
     end
 end)
 
------ [ PART 2: Client-Side Tool Logic (in Tool) ] -----
+-- Client-side (LocalScript)
 if Tool:IsA("Tool") then
-    local localPlayer = Players.LocalPlayer
-    local mouse = localPlayer:GetMouse()
-    
     Tool.Activated:Connect(function()
+        local mouse = game.Players.LocalPlayer:GetMouse()
         local target = mouse.Target
-        if target and target.Parent:GetAttribute("IsReanimatable") then
-            -- Send the corpse to the server for reanimation
-            ReanimateEvent:FireServer(target.Parent)
+        if target then
+            ReanimateEvent:FireServer(target)
         end
     end)
 end
