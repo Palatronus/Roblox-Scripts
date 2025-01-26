@@ -1,0 +1,48 @@
+-- Client-Sided Reanimation Script with "Perma Death" Concept
+-- Use responsibly and only for learning purposes.
+
+local player = game.Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local humanoid = character:WaitForChild("Humanoid")
+
+-- Settings
+local permaDeathPart = "Left Arm" -- The limb to "Perma Death"
+local reanimationDelay = 2 -- Delay before reanimation starts
+local anchoredLimb = nil
+
+-- Function to handle reanimation
+local function reanimate()
+    -- Wait for reanimation delay
+    wait(reanimationDelay)
+
+    -- Clone the character
+    local clone = character:Clone()
+    clone.Parent = workspace
+    clone.HumanoidRootPart.CFrame = character.HumanoidRootPart.CFrame
+
+    -- Anchor the "Perma Dead" part
+    if permaDeathPart then
+        for _, part in pairs(character:GetChildren()) do
+            if part:IsA("BasePart") and part.Name == permaDeathPart then
+                part.Anchored = true
+                part.BrickColor = BrickColor.new("Really red") -- Change appearance
+                anchoredLimb = part
+            end
+        end
+    end
+
+    -- Make the original character invisible
+    for _, part in pairs(character:GetChildren()) do
+        if part:IsA("BasePart") and part ~= anchoredLimb then
+            part.Transparency = 1
+        end
+    end
+
+    -- Attach control to the clone
+    player.Character = clone
+end
+
+-- Trigger reanimation on humanoid death
+humanoid.Died:Connect(function()
+    reanimate()
+end)
