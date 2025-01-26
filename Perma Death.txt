@@ -1,94 +1,109 @@
--- Enhanced FE Reanimation (LocalScript)
+-- FE Combat Reanimation v3 (LocalScript)
 local player = game:GetService("Players").LocalPlayer
 local RS = game:GetService("RunService")
 local UIS = game:GetService("UserInputService")
 
-local character = player.Character or player.CharacterAdded:Wait()
-local humanoid = character:WaitForChild("Humanoid")
-local root = character:WaitForChild("HumanoidRootPart")
-
--- Initial death trigger
-humanoid:ChangeState(Enum.HumanoidStateType.Dead)
-wait(1)
-
-player.CharacterAdded:Connect(function(newChar)
-    -- Immediately kill and hide new character
-    local newHum = newChar:WaitForChild("Humanoid")
-    local newRoot = newChar:WaitForChild("HumanoidRootPart")
-    newHum.Health = 0
+local function createFakeRig()
+    local character = player.Character or player.CharacterAdded:Wait()
+    local root = character:WaitForChild("HumanoidRootPart")
     
-    -- Permanent corpse preservation
+    -- Force initial death state
+    character:BreakJoints()
+    wait(0.5)
+    
+    -- Create preserved corpse
     local fakeChar = character:Clone()
-    for _,v in pairs(fakeChar:GetDescendants()) do
-        if v:IsA("Motor6D") then v:Destroy() end
-    end
+    fakeChar.Name = "ReanimatedCorpse"
     fakeChar.Parent = workspace
-    fakeChar:MoveTo(root.Position)
     
-    -- Create pseudo-humanoid controller
-    local controller = Instance.new("Folder", fakeChar)
-    controller.Name = "Controller"
+    -- Remove original humanoid and joints
+    for _,v in pairs(fakeChar:GetDescendants()) do
+        if v:IsA("Motor6D") or v:IsA("Humanoid") then
+            v:Destroy()
+        end
+    end
     
-    -- Client-side movement physics
-    local bodyGyro = Instance.new("BodyGyro", fakeChar.HumanoidRootPart)
-    local bodyVel = Instance.new("BodyVelocity", fakeChar.HumanoidRootPart)
-    bodyGyro.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
-    bodyVel.MaxForce = Vector3.new(math.huge, 0, math.huge)
+    -- Configure network ownership
+    for _,part in pairs(fakeChar:GetChildren()) do
+        if part:IsA("BasePart") then
+            part:SetNetworkOwner(player)
+            part.CanCollide = false
+            part.Transparency = 0
+        end
+    end
     
-    -- Movement control
+    -- Create custom controller
+    local bodyGyro = Instance.new("BodyGyro", root)
+    local bodyVel = Instance.new("BodyVelocity", root)
+    bodyGyro.MaxTorque = Vector3.new(4000, 4000, 4000)
+    bodyVel.MaxForce = Vector3.new(4000, 0, 4000)
+    
+    -- Movement handler
+    local moveVector = Vector3.new()
     UIS.InputBegan:Connect(function(input)
         local cf = fakeChar.HumanoidRootPart.CFrame
         if input.KeyCode == Enum.KeyCode.W then
-            bodyVel.Velocity = cf.LookVector * 50
+            moveVector = cf.LookVector * 50 + moveVector
         elseif input.KeyCode == Enum.KeyCode.S then
-            bodyVel.Velocity = -cf.LookVector * 50
+            moveVector = -cf.LookVector * 50 + moveVector
         elseif input.KeyCode == Enum.KeyCode.A then
-            bodyVel.Velocity = -cf.RightVector * 50
+            moveVector = -cf.RightVector * 50 + moveVector
         elseif input.KeyCode == Enum.KeyCode.D then
-            bodyVel.Velocity = cf.RightVector * 50
+            moveVector = cf.RightVector * 50 + moveVector
         end
     end)
     
     UIS.InputEnded:Connect(function(input)
-        if input.KeyCode:IsEnum(Enum.KeyCode.W, Enum.KeyCode.A, Enum.KeyCode.S, Enum.KeyCode.D) then
-            bodyVel.Velocity = Vector3.new()
+        if input.KeyCode == Enum.KeyCode.W then
+            moveVector = moveVector - fakeChar.HumanoidRootPart.CFrame.LookVector * 50
+        elseif input.KeyCode == Enum.KeyCode.S then
+            moveVector = moveVector + fakeChar.HumanoidRootPart.CFrame.LookVector * 50
+        elseif input.KeyCode == Enum.KeyCode.A then
+            moveVector = moveVector + fakeChar.HumanoidRootPart.CFrame.RightVector * 50
+        elseif input.KeyCode == Enum.KeyCode.D then
+            moveVector = moveVector - fakeChar.HumanoidRootPart.CFrame.RightVector * 50
         end
     end)
     
-    -- Invincibility mechanism
+    -- Physics update
+    RS.Heartbeat:Connect(function()
+        bodyVel.Velocity = moveVector
+        bodyGyro.CFrame = CFrame.new(fakeChar.HumanoidRootPart.Position, fakeChar.HumanoidRootPart.Position + moveVector)
+    end)
+    
+    -- Invincibility system
     fakeChar.ChildAdded:Connect(function(child)
         if child:IsA("Humanoid") then
-            child.HealthChanged:Connect(function()
-                if child.Health < child.MaxHealth then
-                    child:Destroy()
-                end
-            end)
+            child:Destroy()
         end
     end)
     
-    -- Fling system with network ownership
+    -- Fling mechanism
     local mouse = player:GetMouse()
     mouse.Button1Down:Connect(function()
-        if mouse.Target and mouse.Target.Parent:FindFirstChild("HumanoidRootPart") then
-            local target = mouse.Target.Parent.HumanoidRootPart
-            target:SetNetworkOwner(player)
-            local fling = Instance.new("BodyVelocity", target)
-            fling.Velocity = (target.Position - fakeChar.HumanoidRootPart.Position).Unit * -1000 + Vector3.new(0, 1000, 0)
-            fling.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
-            game:GetService("Debris"):AddItem(fling, 0.1)
+        local target = mouse.Target
+        if target and target.Parent:FindFirstChild("HumanoidRootPart") then
+            local hrp = target.Parent.HumanoidRootPart
+            hrp:SetNetworkOwner(player)
+            local bodyVelocity = Instance.new("BodyVelocity")
+            bodyVelocity.Velocity = (hrp.Position - fakeChar.HumanoidRootPart.Position).Unit * -100 + Vector3.new(0, 100, 0)
+            bodyVelocity.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+            bodyVelocity.Parent = hrp
+            game:GetService("Debris"):AddItem(bodyVelocity, 0.1)
         end
     end)
     
-    -- Corpse visibility synchronization
-    while true do
-        RS.Heartbeat:Wait()
-        fakeChar.HumanoidRootPart.CFrame = newRoot.CFrame
-        for _,v in pairs(fakeChar:GetChildren()) do
-            if v:IsA("BasePart") then
-                v:SetNetworkOwner(player)
-                v.CanCollide = false
+    -- Handle respawned character
+    player.CharacterAdded:Connect(function(newChar)
+        newChar:WaitForChild("Humanoid").Health = 0
+        newChar:WaitForChild("HumanoidRootPart").CFrame = CFrame.new(0, -500, 0)
+        for _,part in pairs(newChar:GetChildren()) do
+            if part:IsA("BasePart") then
+                part.Transparency = 1
             end
         end
-        newRoot.CFrame = CFrame.new(0, 5000, 0)
-    end
-end)
+    end)
+end
+
+-- Initial execution
+createFakeRig()
