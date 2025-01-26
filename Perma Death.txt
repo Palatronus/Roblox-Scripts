@@ -1,46 +1,74 @@
--- Client-Sided Reanimation Script with "Perma Death"
--- Use responsibly and only for learning or private purposes.
+-- Client-Sided Reanimation Script
+-- This script reanimates the player who executes it.
+-- Use responsibly for private or educational purposes.
 
 local player = game.Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
 local humanoid = character:WaitForChild("Humanoid")
+local rootPart = character:WaitForChild("HumanoidRootPart")
 local camera = workspace.CurrentCamera
 
 -- Settings
-local permaDeathPartName = "Left Arm" -- Name of the part to "perma-death"
-local reanimationDelay = 0.1 -- Delay before reanimation starts
+local reanimationDelay = 0.1 -- Delay before reanimation begins
+local cloneName = "Reanimated_" .. player.Name -- Name of the clone
 
--- Function to remove default connections and control parts manually
-local function reanimate()
-    -- Wait for the reanimation delay
-    wait(reanimationDelay)
-
-    -- Clone the character
-    local clone = character:Clone()
-    clone.Parent = workspace
-    clone.Name = "Reanimated_" .. player.Name
-
-    -- Find the limb for "Perma Death" and anchor it
+-- Function to prepare the original character for reanimation
+local function prepareOriginalCharacter()
+    -- Make the original character's parts invisible and non-collidable
     for _, part in pairs(character:GetDescendants()) do
-        if part:IsA("BasePart") and part.Name == permaDeathPartName then
+        if part:IsA("BasePart") then
+            part.Transparency = 1
             part.Anchored = true
-            part.BrickColor = BrickColor.new("Really red") -- Visual cue
-        end
-    end
-
-    -- Set transparency of the original character to make it "dead"
-    for _, part in pairs(character:GetDescendants()) do
-        if part:IsA("BasePart") and part.Name ~= permaDeathPartName then
+            part.CanCollide = false
+        elseif part:IsA("Decal") then
             part.Transparency = 1
         end
     end
+end
 
-    -- Transfer camera to the clone
-    local rootPart = clone:FindFirstChild("HumanoidRootPart")
-    if rootPart then
-        camera.CameraSubject = clone:FindFirstChild("Humanoid")
-        rootPart.CFrame = character:FindFirstChild("HumanoidRootPart").CFrame
+-- Function to create the reanimated clone
+local function createClone()
+    local clone = character:Clone()
+    clone.Parent = workspace
+    clone.Name = cloneName
+
+    -- Adjust the clone's position and ensure all constraints are removed
+    local cloneRoot = clone:FindFirstChild("HumanoidRootPart")
+    if cloneRoot then
+        cloneRoot.CFrame = rootPart.CFrame
     end
 
-    -- Replace the player character with the clone for local control
- 
+    for _, part in pairs(clone:GetDescendants()) do
+        if part:IsA("Motor6D") or part:IsA("Weld") then
+            part:Destroy() -- Remove existing constraints
+        end
+    end
+
+    -- Prevent the clone's humanoid from resetting
+    local cloneHumanoid = clone:FindFirstChild("Humanoid")
+    if cloneHumanoid then
+        cloneHumanoid.BreakJointsOnDeath = false
+    end
+
+    return clone
+end
+
+-- Function to reanimate the player
+local function reanimate()
+    wait(reanimationDelay)
+
+    -- Prepare the original character
+    prepareOriginalCharacter()
+
+    -- Create and position the clone
+    local clone = createClone()
+
+    -- Transfer control to the clone
+    player.Character = clone
+    camera.CameraSubject = clone:FindFirstChild("Humanoid")
+
+    print("Reanimation complete!")
+end
+
+-- Trigger reanimation when the script is executed
+reanimate()
