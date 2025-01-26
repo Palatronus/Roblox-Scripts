@@ -1,65 +1,94 @@
--- FE Reanimation Script (LocalScript)
+-- Enhanced FE Reanimation (LocalScript)
 local player = game:GetService("Players").LocalPlayer
+local RS = game:GetService("RunService")
+local UIS = game:GetService("UserInputService")
+
 local character = player.Character or player.CharacterAdded:Wait()
 local humanoid = character:WaitForChild("Humanoid")
 local root = character:WaitForChild("HumanoidRootPart")
 
--- Kill initial character
-humanoid.Health = 0
+-- Initial death trigger
+humanoid:ChangeState(Enum.HumanoidStateType.Dead)
+wait(1)
 
 player.CharacterAdded:Connect(function(newChar)
-    -- Hide new character
+    -- Immediately kill and hide new character
     local newHum = newChar:WaitForChild("Humanoid")
-    newChar:WaitForChild("HumanoidRootPart")
+    local newRoot = newChar:WaitForChild("HumanoidRootPart")
+    newHum.Health = 0
     
-    for _, v in pairs(newChar:GetDescendants()) do
-        if v:IsA("BasePart") then
-            v.Transparency = 1
-            v.CanCollide = false
-        end
-    end
-    
-    -- Reanimate old corpse
+    -- Permanent corpse preservation
     local fakeChar = character:Clone()
+    for _,v in pairs(fakeChar:GetDescendants()) do
+        if v:IsA("Motor6D") then v:Destroy() end
+    end
     fakeChar.Parent = workspace
     fakeChar:MoveTo(root.Position)
     
-    local fakeHum = fakeChar:FindFirstChild("Humanoid")
-    if fakeHum then fakeHum:Destroy() end
+    -- Create pseudo-humanoid controller
+    local controller = Instance.new("Folder", fakeChar)
+    controller.Name = "Controller"
     
-    -- Network ownership transfer
-    for _, v in pairs(fakeChar:GetDescendants()) do
-        if v:IsA("BasePart") then
-            v:SetNetworkOwner(player)
-            v.CanCollide = true
-            v.Anchored = false
-        end
-    end
+    -- Client-side movement physics
+    local bodyGyro = Instance.new("BodyGyro", fakeChar.HumanoidRootPart)
+    local bodyVel = Instance.new("BodyVelocity", fakeChar.HumanoidRootPart)
+    bodyGyro.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
+    bodyVel.MaxForce = Vector3.new(math.huge, 0, math.huge)
     
-    -- Fling mechanism
-    local flingForce = 5000
-    local function fling(targetRoot)
-        local bodyVelocity = Instance.new("BodyVelocity")
-        bodyVelocity.Velocity = (targetRoot.Position - fakeChar.HumanoidRootPart.Position).Unit * flingForce
-        bodyVelocity.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
-        bodyVelocity.Parent = targetRoot
-        game:GetService("Debris"):AddItem(bodyVelocity, 0.1)
-    end
-    
-    -- Click detection
-    local mouse = player:GetMouse()
-    mouse.Button1Down:Connect(function()
-        local target = mouse.Target
-        if target and target.Parent:FindFirstChild("HumanoidRootPart") then
-            fling(target.Parent.HumanoidRootPart)
+    -- Movement control
+    UIS.InputBegan:Connect(function(input)
+        local cf = fakeChar.HumanoidRootPart.CFrame
+        if input.KeyCode == Enum.KeyCode.W then
+            bodyVel.Velocity = cf.LookVector * 50
+        elseif input.KeyCode == Enum.KeyCode.S then
+            bodyVel.Velocity = -cf.LookVector * 50
+        elseif input.KeyCode == Enum.KeyCode.A then
+            bodyVel.Velocity = -cf.RightVector * 50
+        elseif input.KeyCode == Enum.KeyCode.D then
+            bodyVel.Velocity = cf.RightVector * 50
         end
     end)
     
-    -- Movement control
-    while true do
-        game:GetService("RunService").Heartbeat:Wait()
-        if newChar.PrimaryPart and fakeChar.PrimaryPart then
-            fakeChar:SetPrimaryPartCFrame(newChar.PrimaryPart.CFrame)
+    UIS.InputEnded:Connect(function(input)
+        if input.KeyCode:IsEnum(Enum.KeyCode.W, Enum.KeyCode.A, Enum.KeyCode.S, Enum.KeyCode.D) then
+            bodyVel.Velocity = Vector3.new()
         end
+    end)
+    
+    -- Invincibility mechanism
+    fakeChar.ChildAdded:Connect(function(child)
+        if child:IsA("Humanoid") then
+            child.HealthChanged:Connect(function()
+                if child.Health < child.MaxHealth then
+                    child:Destroy()
+                end
+            end)
+        end
+    end)
+    
+    -- Fling system with network ownership
+    local mouse = player:GetMouse()
+    mouse.Button1Down:Connect(function()
+        if mouse.Target and mouse.Target.Parent:FindFirstChild("HumanoidRootPart") then
+            local target = mouse.Target.Parent.HumanoidRootPart
+            target:SetNetworkOwner(player)
+            local fling = Instance.new("BodyVelocity", target)
+            fling.Velocity = (target.Position - fakeChar.HumanoidRootPart.Position).Unit * -1000 + Vector3.new(0, 1000, 0)
+            fling.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+            game:GetService("Debris"):AddItem(fling, 0.1)
+        end
+    end)
+    
+    -- Corpse visibility synchronization
+    while true do
+        RS.Heartbeat:Wait()
+        fakeChar.HumanoidRootPart.CFrame = newRoot.CFrame
+        for _,v in pairs(fakeChar:GetChildren()) do
+            if v:IsA("BasePart") then
+                v:SetNetworkOwner(player)
+                v.CanCollide = false
+            end
+        end
+        newRoot.CFrame = CFrame.new(0, 5000, 0)
     end
 end)
