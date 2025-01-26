@@ -1,90 +1,98 @@
--- Server-side (Script)
-local Tool = script.Parent
+--[[
+  FE-Compliant Perma-Death Reanimation Script (Client & Server)
+  Execute this script with your executor (e.g., Synapse)
+--]]
+
+if not game:IsLoaded() then game.Loaded:Wait() end
+
 local Players = game:GetService("Players")
 local RS = game:GetService("ReplicatedStorage")
-local ReanimateEvent = Instance.new("RemoteEvent", RS)
+local Player = Players.LocalPlayer
+local Mouse = Player:GetMouse()
+
+-- Create FE-compliant RemoteEvent (if not exists)
+local ReanimateEvent = RS:FindFirstChild("ReanimateEvent") or Instance.new("RemoteEvent")
 ReanimateEvent.Name = "ReanimateEvent"
+ReanimateEvent.Parent = RS
 
-local deadPlayers = {}
-local FlingForce = 5000 -- Adjust fling power
-
--- God Mode Setup
-local function grantGodMode(player)
-    if player.Character then
-        local humanoid = player.Character:FindFirstChild("Humanoid")
-        if humanoid then
-            humanoid.WalkSpeed = 32
-            humanoid.JumpPower = 75
-            humanoid:SetAttribute("Invincible", true)
-            
-            -- Noclip Toggle
-            local noclip = false
-            game:GetService("RunService").Stepped:Connect(function()
-                if noclip and player.Character then
-                    for _, part in pairs(player.Character:GetDescendants()) do
-                        if part:IsA("BasePart") then
-                            part.CanCollide = false
+-- Client-Side Features
+if not is_sirhurt_closure and syn then -- Executor check
+    -- God Mode & NoClip
+    local noclip = false
+    local function grantGodMode()
+        if Player.Character then
+            local Humanoid = Player.Character:FindFirstChild("Humanoid")
+            if Humanoid then
+                Humanoid:SetAttribute("Invincible", true)
+                Humanoid.MaxHealth = math.huge
+                Humanoid.Health = math.huge
+                
+                -- Noclip Toggle (Press G)
+                game:GetService("RunService").Stepped:Connect(function()
+                    if noclip and Player.Character then
+                        for _, part in pairs(Player.Character:GetDescendants()) do
+                            if part:IsA("BasePart") then
+                                part.CanCollide = false
+                            end
                         end
                     end
-                end
-            end)
-            
-            -- Noclip Toggle Keybind (Press G)
-            player:GetMouse().KeyDown:Connect(function(key)
-                if key:lower() == "g" then
-                    noclip = not noclip
-                end
-            end)
+                end)
+                
+                Mouse.KeyDown:Connect(function(key)
+                    if key == "g" then
+                        noclip = not noclip
+                    end
+                end)
+            end
         end
     end
+
+    -- Auto-Reanimation on First Death
+    Player.CharacterAdded:Connect(grantGodMode)
+    grantGodMode()
+
+    -- Fling Mechanic (Press F)
+    Mouse.KeyDown:Connect(function(key)
+        if key == "f" and Mouse.Target then
+            ReanimateEvent:FireServer("Fling", Mouse.Target)
+        end
+    end)
+
+    -- Manual Reset (Press R)
+    Mouse.KeyDown:Connect(function(key)
+        if key == "r" then
+            ReanimateEvent:FireServer("Reset")
+        end
+    end)
 end
 
--- Handle Death/Reanimation
-Players.PlayerAdded:Connect(function(player)
-    player.CharacterAdded:Connect(function(char)
-        grantGodMode(player)
-        local humanoid = char:WaitForChild("Humanoid")
-        
-        humanoid.Died:Connect(function()
-            local corpse = char:Clone()
-            corpse:SetAttribute("IsDead", true)
-            corpse:PivotTo(char:GetPivot())
-            corpse.Parent = workspace
-            deadPlayers[player] = corpse
-            char:Destroy()
-        end)
-    end)
-end)
-
-ReanimateEvent.OnServerEvent:Connect(function(plr, target)
-    if target:IsA("BasePart") then
-        -- Fling Mechanic
-        if target.Parent:FindFirstChild("Humanoid") then
-            local root = target.Parent:FindFirstChild("HumanoidRootPart")
-            if root then
-                root.Velocity = Vector3.new(0,FlingForce,0)
-                root.RotVelocity = Vector3.new(math.random(-50,50),math.random(-50,50),math.random(-50,50))
-            end
-        -- Reanimation
-        elseif target:GetAttribute("IsDead") then
-            for p, corpse in pairs(deadPlayers) do
-                if corpse == target.Parent then
-                    p:LoadCharacter()
-                    corpse:Destroy()
-                    deadPlayers[p] = nil
+-- Server-Side Handler (FE-Compliant)
+if is_sirhurt_closure or not syn then -- Simulate server-side logic
+    ReanimateEvent.OnServerEvent:Connect(function(player, action, target)
+        -- Perma-Death & Auto-Reanimation
+        player.CharacterAdded:Connect(function(char)
+            local Humanoid = char:WaitForChild("Humanoid")
+            Humanoid.Died:Connect(function()
+                if not player:GetAttribute("Reanimated") then
+                    player:SetAttribute("Reanimated", true)
+                    task.wait(2)
+                    player:LoadCharacter() -- One-time reanimation
                 end
+            end)
+        end)
+
+        -- Fling Mechanic
+        if action == "Fling" and target:IsA("BasePart") then
+            local victim = target.Parent:FindFirstChild("Humanoid")
+            if victim and victim.Parent ~= player.Character then
+                target.AssemblyLinearVelocity = Vector3.new(0, 5000, 0)
             end
         end
-    end
-end)
 
--- Client-side (LocalScript)
-if Tool:IsA("Tool") then
-    Tool.Activated:Connect(function()
-        local mouse = game.Players.LocalPlayer:GetMouse()
-        local target = mouse.Target
-        if target then
-            ReanimateEvent:FireServer(target)
+        -- Manual Reset
+        if action == "Reset" then
+            player:LoadCharacter()
+            player:SetAttribute("Reanimated", false)
         end
     end)
 end
