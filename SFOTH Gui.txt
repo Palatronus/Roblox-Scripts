@@ -2,8 +2,13 @@ local Players = game:GetService("Players")
 local UIS = game:GetService("UserInputService")
 local LP = Players.LocalPlayer
 local Toggle = true
+local CurrentPadIndex = 1
 
--- Universal toggle system
+-- Color constants
+local ACTIVE_COLOR = Color3.new(0.278431, 0.909804, 0.294118) -- Bright green
+local INACTIVE_COLOR = Color3.new(0.768627, 0.156863, 0.109804) -- Bright red (196,40,28)
+
+-- Toggle system
 UIS.InputBegan:Connect(function(Input)
     if Input.KeyCode == Enum.KeyCode.H then
         Toggle = not Toggle
@@ -14,20 +19,35 @@ UIS.InputBegan:Connect(function(Input)
     end
 end)
 
-local function MassTrigger(models)
-    if not LP.Character then return end
-    local root = LP.Character:FindFirstChild("HumanoidRootPart")
-    if not root then return end
-
-    for _, model in ipairs(models) do
-        local part = model:FindFirstChildWhichIsA("Part")
-        if part then
-            -- Double-tap interaction pattern
-            firetouchinterest(root, part, 0)
-            task.wait(0.05)
-            firetouchinterest(root, part, 1)
+local function GetActivePads()
+    local activePads = {}
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if obj.Name == "HealPad" and obj:IsA("Model") then
+            local padPart = obj:FindFirstChild("Pad") or obj:FindFirstChildWhichIsA("Part")
+            if padPart and padPart.Color == ACTIVE_COLOR then
+                table.insert(activePads, padPart)
+            end
         end
     end
+    return activePads
+end
+
+local function SmartHeal()
+    if not LP.Character then return end
+    local activePads = GetActivePads()
+    if #activePads == 0 then return end
+
+    -- Cycle through active pads
+    CurrentPadIndex = CurrentPadIndex > #activePads and 1 or CurrentPadIndex
+    local pad = activePads[CurrentPadIndex]
+    
+    -- Double-tap activation
+    firetouchinterest(LP.Character.HumanoidRootPart, pad, 0)
+    task.wait(0.1)
+    firetouchinterest(LP.Character.HumanoidRootPart, pad, 1)
+    
+    -- Move to next pad
+    CurrentPadIndex += 1
 end
 
 local function MaintainArmor()
@@ -37,20 +57,20 @@ local function MaintainArmor()
             table.insert(armorStands, obj)
         end
     end
-    MassTrigger(armorStands)
-end
-
-local function MassHeal()
-    local healPads = {}
-    for _, obj in ipairs(workspace:GetDescendants()) do
-        if obj.Name == "HealPad" and obj:IsA("Model") then
-            table.insert(healPads, obj)
+    
+    -- Brute-force collect armor
+    for _, armor in ipairs(armorStands) do
+        local part = armor:FindFirstChildWhichIsA("Part")
+        if part then
+            firetouchinterest(LP.Character.HumanoidRootPart, part, 0)
+            task.wait(0.05)
+            firetouchinterest(LP.Character.HumanoidRootPart, part, 1)
+            if LP.Character:FindFirstChild("BattleArmor") then break end
         end
     end
-    MassTrigger(healPads)
 end
 
--- Core systems
+-- Core system
 task.spawn(function()
     while task.wait(0.5) do
         if Toggle and LP.Character then
@@ -59,10 +79,10 @@ task.spawn(function()
                 MaintainArmor()
             end
             
-            -- Health maintenance
+            -- Smart healing
             if LP.Character:FindFirstChild("Humanoid") and 
                LP.Character.Humanoid.Health < LP.Character.Humanoid.MaxHealth then
-                MassHeal()
+                SmartHeal()
             end
         end
     end
@@ -70,7 +90,7 @@ end)
 
 -- Initial notification
 game:GetService("StarterGui"):SetCore("SendNotification", {
-    Title = "SFOTH ULTIMATE SCRIPT",
-    Text = "Brute-force armor/heal\nAll items utilized",
+    Title = "SFOTH PERFECTED SCRIPT",
+    Text = "Smart pad cycling\nColor detection\nNo waste system",
     Duration = 5
 })
