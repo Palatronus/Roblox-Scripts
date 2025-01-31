@@ -2,15 +2,16 @@ local Players = game:GetService("Players")
 local UIS = game:GetService("UserInputService")
 local LP = Players.LocalPlayer
 local Toggle = true
-local Cooldown = false
+local ArmorCooldown = false
+local HealCooldown = false
 
--- Enhanced toggle system
+-- Toggle system with status display
 UIS.InputBegan:Connect(function(Input)
     if Input.KeyCode == Enum.KeyCode.H then
         Toggle = not Toggle
         game:GetService("StarterGui"):SetCore("SendNotification", {
             Title = "SYSTEM: "..(Toggle and "ON" or "OFF"),
-            Text = Toggle and "Using all items\nAuto-heal with armor" or "System disabled",
+            Text = Toggle and "Full functionality enabled" or "All features disabled",
             Duration = 2
         })
     end
@@ -20,11 +21,12 @@ local function GetAllItems(ModelName)
     local items = {}
     for _, obj in ipairs(workspace:GetDescendants()) do
         if obj.Name == ModelName and obj:IsA("Model") then
-            local touchPart = obj:FindFirstChildWhichIsA("Part")
-            if touchPart then
+            local interactPart = obj:FindFirstChild("TouchInterest") and obj:FindFirstChild("TouchInterest").Parent
+                            or obj:FindFirstChildWhichIsA("Part")
+            if interactPart then
                 table.insert(items, {
-                    part = touchPart,
-                    position = touchPart.Position
+                    part = interactPart,
+                    position = interactPart.Position
                 })
             end
         end
@@ -32,80 +34,85 @@ local function GetAllItems(ModelName)
     return items
 end
 
-local function GetClosestItem(items)
+local function GetBestItem(items)
     if not LP.Character or not LP.Character:FindFirstChild("HumanoidRootPart") then return nil end
-    local closest = nil
-    local closestDist = math.huge
     local charPos = LP.Character.HumanoidRootPart.Position
+    table.sort(items, function(a,b)
+        return (charPos - a.position).Magnitude < (charPos - b.position).Magnitude
+    end)
+    return #items > 0 and items[1].part or nil
+end
+
+local function ForceHeal()
+    if not LP.Character then return end
+    local humanoid = LP.Character:FindFirstChild("Humanoid")
+    if not humanoid then return end
+
+    -- Directly trigger full heal after armor acquisition
+    local healItems = GetAllItems("HealPad")
+    local healPart = GetBestItem(healItems)
     
-    for _, item in pairs(items) do
-        local dist = (charPos - item.position).Magnitude
-        if dist < closestDist then
-            closest = item.part
-            closestDist = dist
-        end
+    if healPart then
+        firetouchinterest(LP.Character.HumanoidRootPart, healPart, 0)
+        task.wait(0.2)
+        firetouchinterest(LP.Character.HumanoidRootPart, healPart, 1)
+        return true
     end
-    return closest
+    return false
 end
 
 local function CollectArmor()
-    if not Toggle or Cooldown then return end
-    Cooldown = true
+    if not Toggle or ArmorCooldown then return end
+    ArmorCooldown = true
     
     local armorItems = GetAllItems("BattleArmorStand")
-    local armorPart = GetClosestItem(armorItems)
+    local armorPart = GetBestItem(armorItems)
     
     if armorPart and LP.Character then
-        local humanoid = LP.Character:FindFirstChild("Humanoid")
-        local root = LP.Character:FindFirstChild("HumanoidRootPart")
+        firetouchinterest(LP.Character.HumanoidRootPart, armorPart, 0)
+        firetouchinterest(LP.Character.HumanoidRootPart, armorPart, 1)
         
-        if humanoid and root then
-            -- Collect armor
-            firetouchinterest(root, armorPart, 0)
-            firetouchinterest(root, armorPart, 1)
-            
-            -- Force heal after armor acquisition
-            task.wait(0.5)
-            if LP.Character:FindFirstChild("BattleArmor") then
-                game:GetService("StarterGui"):SetCore("SendNotification", {
-                    Title = "Armor Equipped",
-                    Text = "Seeking heal pad...",
-                    Duration = 2
-                })
-                -- Trigger immediate heal to max HP
-                humanoid.Health = humanoid.Health + 1 -- Force health change
+        -- Force heal after successful armor acquisition
+        task.wait(0.5)
+        if LP.Character:FindFirstChild("BattleArmor") then
+            for _ = 1, 3 do  -- Triple attempt to heal
+                if ForceHeal() then break end
+                task.wait(0.5)
             end
         end
     end
-    Cooldown = false
+    ArmorCooldown = false
 end
 
 local function AutoHeal()
-    if not Toggle or Cooldown then return end
-    Cooldown = true
+    if not Toggle or HealCooldown then return end
+    HealCooldown = true
     
     local healItems = GetAllItems("HealPad")
-    local healPart = GetClosestItem(healItems)
+    local healPart = GetBestItem(healItems)
     
     if healPart and LP.Character then
         local humanoid = LP.Character:FindFirstChild("Humanoid")
-        local root = LP.Character:FindFirstChild("HumanoidRootPart")
-        
-        if humanoid and humanoid.Health < humanoid.MaxHealth and root then
-            -- Use heal pad
-            firetouchinterest(root, healPart, 0)
-            firetouchinterest(root, healPart, 1)
+        if humanoid and humanoid.Health < humanoid.MaxHealth then
+            firetouchinterest(LP.Character.HumanoidRootPart, healPart, 0)
+            task.wait(0.2)  -- Extended contact time
+            firetouchinterest(LP.Character.HumanoidRootPart, healPart, 1)
         end
     end
-    Cooldown = false
+    HealCooldown = false
 end
 
--- Enhanced character handler
+-- Enhanced health monitoring
 LP.CharacterAdded:Connect(function(char)
-    char:WaitForChild("Humanoid").HealthChanged:Connect(function()
-        if Toggle and char:FindFirstChild("BattleArmor") then
-            -- Immediate heal after armor acquisition
+    local humanoid = char:WaitForChild("Humanoid")
+    
+    humanoid.HealthChanged:Connect(function()
+        if Toggle and humanoid.Health < humanoid.MaxHealth then
             AutoHeal()
+            -- Emergency heal if below 50% HP
+            if humanoid.Health < (humanoid.MaxHealth * 0.5) then
+                ForceHeal()
+            end
         end
     end)
     
@@ -113,21 +120,22 @@ LP.CharacterAdded:Connect(function(char)
     CollectArmor()
 end)
 
--- Smart item cycling system
-while true do
-    if Toggle then
-        -- Check armor every 3 seconds
-        if LP.Character and not LP.Character:FindFirstChild("BattleArmor") then
-            CollectArmor()
-        end
-        
-        -- Check healing every second
-        if LP.Character and LP.Character:FindFirstChild("Humanoid") then
-            local hum = LP.Character.Humanoid
-            if hum.Health < hum.MaxHealth then
-                AutoHeal()
+-- Aggressive item monitoring
+task.spawn(function()
+    while task.wait(1) do
+        if Toggle then
+            -- Armor check
+            if LP.Character and not LP.Character:FindFirstChild("BattleArmor") then
+                CollectArmor()
+            end
+            
+            -- Health maintenance
+            if LP.Character and LP.Character:FindFirstChild("Humanoid") then
+                local hum = LP.Character.Humanoid
+                if hum.Health < (hum.MaxHealth * 0.9) then
+                    AutoHeal()
+                end
             end
         end
     end
-    task.wait(1)
-end
+end)
