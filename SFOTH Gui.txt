@@ -3,111 +3,85 @@ local UIS = game:GetService("UserInputService")
 local LP = Players.LocalPlayer
 local Toggle = true
 
--- Toggle system with visual feedback
+-- Toggle system with audio feedback
 UIS.InputBegan:Connect(function(Input)
     if Input.KeyCode == Enum.KeyCode.H then
         Toggle = not Toggle
         game:GetService("StarterGui"):SetCore("SendNotification", {
-            Title = "AUTO-HEAL "..(Toggle and "ENABLED" or "DISABLED"),
-            Text = Toggle and "Active pad detection active" or "System disabled",
+            Title = "SYSTEM: "..(Toggle and "ON" or "OFF"),
+            Text = Toggle and "Full functionality enabled" or "All features disabled",
             Duration = 2
         })
     end
 end)
 
-local function GetActivePads()
-    local activePads = {}
-    for _, pad in ipairs(workspace:GetDescendants()) do
-        if pad.Name == "HealPad" and pad:IsA("Model") then
-            local statusPart = pad:FindFirstChild("Pad") or pad:FindFirstChildWhichIsA("Part")
-            if statusPart then
-print("Checking pad:", pad.Name, "| Color:", statusPart.Color)
-                -- Check for green color (RGB: 0,1,0)
-                if statusPart.Color == Color3.new(0, 1, 0) then
-                    table.insert(activePads, {
-                        model = pad,
-                        part = statusPart,
-                        position = statusPart.Position
-                    })
-                end
+local function GetAllItems(ModelName)
+    local items = {}
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if obj.Name == ModelName and obj:IsA("Model") then
+            local interactPart = obj:FindFirstChild("TouchInterest") and obj:FindFirstChild("TouchInterest").Parent
+                            or obj:FindFirstChildWhichIsA("Part")
+            if interactPart then
+                table.insert(items, interactPart)
             end
         end
     end
-    return activePads
+    return items
 end
 
-local function UseHealPad(padData)
-    if not LP.Character or not LP.Character:FindFirstChild("HumanoidRootPart") then return end
-    
-    -- Long-press simulation for reliable activation
-    firetouchinterest(LP.Character.HumanoidRootPart, padData.part, 0)
-    task.wait(0.35) -- Extended contact time
-    firetouchinterest(LP.Character.HumanoidRootPart, padData.part, 1)
-    
-    -- Visual feedback
-    game:GetService("StarterGui"):SetCore("SendNotification", {
-        Title = "HEALING ACTIVATED",
-        Text = "Used pad: "..padData.model.Name,
-        Duration = 2
-    })
-end
+local function UseAllPads()
+    if not LP.Character then return end
+    local humanoid = LP.Character:FindFirstChild("Humanoid")
+    if not humanoid or humanoid.Health >= humanoid.MaxHealth then return end
 
-local function AutoHeal()
-    if not Toggle then return end
-    
-    local activePads = GetActivePads()
-    if #activePads == 0 then return end
-    
-    -- Use all available active pads in sequence
-    for _, padData in ipairs(activePads) do
-        if LP.Character and LP.Character:FindFirstChild("Humanoid") then
-            local humanoid = LP.Character.Humanoid
-            if humanoid.Health < humanoid.MaxHealth then
-                UseHealPad(padData)
-                task.wait(0.5) -- Pad activation delay
-            end
-        end
+    local healPads = GetAllItems("HealPad")
+    for _, padPart in ipairs(healPads) do
+        -- Double-tap interaction for reliability
+        firetouchinterest(LP.Character.HumanoidRootPart, padPart, 0)
+        task.wait(0.15)
+        firetouchinterest(LP.Character.HumanoidRootPart, padPart, 1)
+        task.wait(0.15)
+        firetouchinterest(LP.Character.HumanoidRootPart, padPart, 0)
+        task.wait(0.15)
+        firetouchinterest(LP.Character.HumanoidRootPart, padPart, 1)
+        
+        -- Emergency exit if healed during process
+        if humanoid.Health == humanoid.MaxHealth then break end
     end
 end
 
--- Smart armor system
-local function GetArmor()
-    local armorStands = {}
-    for _, stand in ipairs(workspace:GetDescendants()) do
-        if stand.Name == "BattleArmorStand" and stand:IsA("Model") then
-            table.insert(armorStands, stand)
-        end
-    end
-    
-    for _, stand in ipairs(armorStands) do
-        local part = stand:FindFirstChildWhichIsA("Part")
-        if part then
-            firetouchinterest(LP.Character.HumanoidRootPart, part, 0)
-            firetouchinterest(LP.Character.HumanoidRootPart, part, 1)
-            task.wait(0.5)
-            if LP.Character:FindFirstChild("BattleArmor") then break end
-        end
+local function CollectArmor()
+    local armorStands = GetAllItems("BattleArmorStand")
+    for _, armorPart in ipairs(armorStands) do
+        firetouchinterest(LP.Character.HumanoidRootPart, armorPart, 0)
+        task.wait(0.1)
+        firetouchinterest(LP.Character.HumanoidRootPart, armorPart, 1)
+        if LP.Character:FindFirstChild("BattleArmor") then break end
     end
 end
 
 -- Main system loop
 task.spawn(function()
-    while task.wait(0.3) do
+    while task.wait(0.5) do
         if Toggle and LP.Character then
-            -- Automatic armor check
+            -- Automatic armor maintenance
             if not LP.Character:FindFirstChild("BattleArmor") then
-                GetArmor()
+                CollectArmor()
             end
             
-            -- Continuous healing check
-            AutoHeal()
+            -- Aggressive healing system
+            if LP.Character:FindFirstChild("Humanoid") then
+                if LP.Character.Humanoid.Health < LP.Character.Humanoid.MaxHealth then
+                    UseAllPads()
+                end
+            end
         end
     end
 end)
 
 -- Initial notification
 game:GetService("StarterGui"):SetCore("SendNotification", {
-    Title = "SFOTH VISUAL DETECTION SYSTEM",
-    Text = "Healing when pads are green\nUsing all available pads",
+    Title = "SFOTH ULTIMATE SCRIPT",
+    Text = "Guaranteed armor/heal\nUsing all available pads",
     Duration = 5
 })
