@@ -2,101 +2,104 @@ local Players = game:GetService("Players")
 local UIS = game:GetService("UserInputService")
 local LP = Players.LocalPlayer
 local Toggle = true
-local HealActive = false
-local ArmorActive = false
+local PadQueue = {}
+local CurrentPadIndex = 1
 
--- Toggle system with light feedback
+-- Toggle system with queue reset
 UIS.InputBegan:Connect(function(Input)
     if Input.KeyCode == Enum.KeyCode.H then
         Toggle = not Toggle
+        PadQueue = {}
+        CurrentPadIndex = 1
     end
 end)
 
-local function GetPads()
-    local pads = {}
-    for _,v in ipairs(workspace:GetDescendants()) do
-        if v.Name == "HealPad" and v:IsA("Model") then
-            local part = v:FindFirstChild("Main") or v:FindFirstChildWhichIsA("BasePart")
-            if part then
-                table.insert(pads, part)
+local function RefreshPadQueue()
+    PadQueue = {}
+    for _, pad in ipairs(workspace:GetDescendants()) do
+        if pad.Name == "HealPad" and pad:IsA("Model") then
+            local statusPart = pad:FindFirstChild("Pad") or pad:FindFirstChildWhichIsA("Part")
+            if statusPart and statusPart.Color == Color3.new(0, 1, 0) then
+                table.insert(PadQueue, {
+                    model = pad,
+                    part = statusPart,
+                    position = statusPart.Position
+                })
             end
         end
     end
-    return pads
+    table.sort(PadQueue, function(a,b)
+        return (LP.Character.HumanoidRootPart.Position - a.position).Magnitude <
+               (LP.Character.HumanoidRootPart.Position - b.position).Magnitude
+    end)
+end
+
+local function UseNextAvailablePad()
+    if #PadQueue == 0 then return false end
+    
+    local padData = PadQueue[CurrentPadIndex]
+    if padData and padData.part.Color == Color3.new(0, 1, 0) then
+        -- Use current pad
+        firetouchinterest(LP.Character.HumanoidRootPart, padData.part, 0)
+        task.wait(0.25)
+        firetouchinterest(LP.Character.HumanoidRootPart, padData.part, 1)
+        
+        -- Move to next pad for subsequent uses
+        CurrentPadIndex = (CurrentPadIndex % #PadQueue) + 1
+        return true
+    end
+    return false
 end
 
 local function SmartHeal()
-    if not Toggle or HealActive then return end
-    HealActive = true
+    if not Toggle then return end
     
-    local character = LP.Character
-    if not character then return end
-    local humanoid = character:FindFirstChild("Humanoid")
-    if not humanoid or humanoid.Health >= humanoid.MaxHealth then
-        HealActive = false
-        return
-    end
-
-    -- Batch-process pads with controlled timing
-    local pads = GetPads()
-    for _, pad in ipairs(pads) do
-        if humanoid.Health < humanoid.MaxHealth then
-            -- Double-tap with optimized timing
-            firetouchinterest(character.HumanoidRootPart, pad, 0)
-            task.wait(0.1)
-            firetouchinterest(character.HumanoidRootPart, pad, 1)
-            task.wait(0.15) -- Reduced frequency
-        end
-    end
-    HealActive = false
-end
-
-local function GetArmors()
-    local armors = {}
-    for _,v in ipairs(workspace:GetDescendants()) do
-        if v.Name == "BattleArmorStand" and v:IsA("Model") then
-            local part = v:FindFirstChild("ArmorPart") or v:FindFirstChildWhichIsA("BasePart")
-            if part then
-                table.insert(armors, part)
+    RefreshPadQueue()
+    
+    if #PadQueue > 0 then
+        for _ = 1, #PadQueue do
+            if UseNextAvailablePad() then
+                if LP.Character.Humanoid.Health == LP.Character.Humanoid.MaxHealth then
+                    break
+                end
             end
+            task.wait(0.15)
         end
     end
-    return armors
 end
 
+-- Armor system (unchanged from working version)
 local function MaintainArmor()
-    if not Toggle or ArmorActive then return end
-    ArmorActive = true
-    
-    local character = LP.Character
-    if character and not character:FindFirstChild("BattleArmor") then
-        local armors = GetArmors()
-        for _, armor in ipairs(armors) do
-            -- Single interaction per check
-            firetouchinterest(character.HumanoidRootPart, armor, 0)
-            task.wait(0.1)
-            firetouchinterest(character.HumanoidRootPart, armor, 1)
-            if character:FindFirstChild("BattleArmor") then break end
+    local armors = {}
+    for _, stand in ipairs(workspace:GetDescendants()) do
+        if stand.Name == "BattleArmorStand" and stand:IsA("Model") then
+            local part = stand:FindFirstChildWhichIsA("Part")
+            if part then table.insert(armors, part) end
         end
     end
-    ArmorActive = false
+    
+    for _, armor in ipairs(armors) do
+        firetouchinterest(LP.Character.HumanoidRootPart, armor, 0)
+        task.wait(0.1)
+        firetouchinterest(LP.Character.HumanoidRootPart, armor, 1)
+        if LP.Character:FindFirstChild("BattleArmor") then break end
+    end
 end
 
 -- Optimized main loop
-task.spawn(function()
-    while task.wait() do
-        if Toggle then
-            -- Throttled armor checks (every 2 seconds)
-            coroutine.wrap(function()
-                task.wait(2)
-                MaintainArmor()
-            end)()
+LP.CharacterAdded:Connect(function(char)
+    char:WaitForChild("Humanoid").HealthChanged:Connect(function()
+        if Toggle and LP.Character.Humanoid.Health < LP.Character.Humanoid.MaxHealth then
+            SmartHeal()
+        end
+    end)
+end)
 
-            -- Responsive healing system (every 0.3 seconds)
-            if LP.Character and LP.Character:FindFirstChild("Humanoid") then
-                if LP.Character.Humanoid.Health < LP.Character.Humanoid.MaxHealth then
-                    coroutine.wrap(SmartHeal)()
-                end
+task.spawn(function()
+    while task.wait(0.5) do
+        if Toggle then
+            if LP.Character and not LP.Character:FindFirstChild("BattleArmor") then
+                MaintainArmor()
             end
         end
     end
