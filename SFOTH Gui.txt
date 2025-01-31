@@ -21,6 +21,7 @@ local function GetActivePads()
         if pad.Name == "HealPad" and pad:IsA("Model") then
             local statusPart = pad:FindFirstChild("Pad") or pad:FindFirstChildWhichIsA("Part")
             if statusPart then
+print("Checking pad:", pad.Name, "| Color:", statusPart.Color)
                 -- Check for green color (RGB: 0,1,0)
                 if statusPart.Color == Color3.new(0, 1, 0) then
                     table.insert(activePads, {
