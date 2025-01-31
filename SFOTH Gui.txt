@@ -2,86 +2,98 @@ local Players = game:GetService("Players")
 local UIS = game:GetService("UserInputService")
 local LP = Players.LocalPlayer
 local Toggle = true
+local Active = false
 
--- Toggle system with audio feedback
+-- Persistent toggle system
 UIS.InputBegan:Connect(function(Input)
     if Input.KeyCode == Enum.KeyCode.H then
         Toggle = not Toggle
         game:GetService("StarterGui"):SetCore("SendNotification", {
-            Title = "SYSTEM: "..(Toggle and "ON" or "OFF"),
-            Text = Toggle and "Full functionality enabled" or "All features disabled",
+            Title = "ULTRA-MODE: "..(Toggle and "ON" or "OFF"),
+            Text = Toggle and "Spam-heal activated" or "All systems halted",
             Duration = 2
         })
     end
 end)
 
-local function GetAllItems(ModelName)
-    local items = {}
-    for _, obj in ipairs(workspace:GetDescendants()) do
-        if obj.Name == ModelName and obj:IsA("Model") then
-            local interactPart = obj:FindFirstChild("TouchInterest") and obj:FindFirstChild("TouchInterest").Parent
-                            or obj:FindFirstChildWhichIsA("Part")
-            if interactPart then
-                table.insert(items, interactPart)
-            end
-        end
-    end
-    return items
-end
-
-local function UseAllPads()
+local function FloodPads()
     if not LP.Character then return end
     local humanoid = LP.Character:FindFirstChild("Humanoid")
     if not humanoid or humanoid.Health >= humanoid.MaxHealth then return end
 
-    local healPads = GetAllItems("HealPad")
-    for _, padPart in ipairs(healPads) do
-        -- Double-tap interaction for reliability
-        firetouchinterest(LP.Character.HumanoidRootPart, padPart, 0)
-        task.wait(0.15)
-        firetouchinterest(LP.Character.HumanoidRootPart, padPart, 1)
-        task.wait(0.15)
-        firetouchinterest(LP.Character.HumanoidRootPart, padPart, 0)
-        task.wait(0.15)
-        firetouchinterest(LP.Character.HumanoidRootPart, padPart, 1)
-        
-        -- Emergency exit if healed during process
-        if humanoid.Health == humanoid.MaxHealth then break end
+    -- Find all heal pads in the game
+    local pads = {}
+    for _,v in ipairs(workspace:GetDescendants()) do
+        if v.Name == "HealPad" and v:IsA("Model") then
+            local part = v:FindFirstChildWhichIsA("Part") or v:FindFirstChild("Pad")
+            if part then table.insert(pads, part) end
+        end
     end
-end
 
-local function CollectArmor()
-    local armorStands = GetAllItems("BattleArmorStand")
-    for _, armorPart in ipairs(armorStands) do
-        firetouchinterest(LP.Character.HumanoidRootPart, armorPart, 0)
-        task.wait(0.1)
-        firetouchinterest(LP.Character.HumanoidRootPart, armorPart, 1)
-        if LP.Character:FindFirstChild("BattleArmor") then break end
-    end
-end
-
--- Main system loop
-task.spawn(function()
-    while task.wait(0.5) do
-        if Toggle and LP.Character then
-            -- Automatic armor maintenance
-            if not LP.Character:FindFirstChild("BattleArmor") then
-                CollectArmor()
-            end
-            
-            -- Aggressive healing system
-            if LP.Character:FindFirstChild("Humanoid") then
-                if LP.Character.Humanoid.Health < LP.Character.Humanoid.MaxHealth then
-                    UseAllPads()
-                end
+    -- Spam all pads simultaneously
+    for _, pad in ipairs(pads) do
+        for _ = 1, 5 do  -- Quintuple activation pattern
+            if LP.Character and humanoid.Health < humanoid.MaxHealth then
+                firetouchinterest(LP.Character.HumanoidRootPart, pad, 0)
+                task.wait(0.05)
+                firetouchinterest(LP.Character.HumanoidRootPart, pad, 1)
             end
         end
     end
+end
+
+local function ArmorEnforcer()
+    while task.wait(1) and Toggle do
+        if LP.Character and not LP.Character:FindFirstChild("BattleArmor") then
+            -- Find and collect all armor stands
+            local armors = {}
+            for _,v in ipairs(workspace:GetDescendants()) do
+                if v.Name == "BattleArmorStand" and v:IsA("Model") then
+                    local part = v:FindFirstChildWhichIsA("Part")
+                    if part then table.insert(armors, part) end
+                end
+            end
+
+            -- Force collect armor
+            for _, armor in ipairs(armors) do
+                firetouchinterest(LP.Character.HumanoidRootPart, armor, 0)
+                task.wait(0.1)
+                firetouchinterest(LP.Character.HumanoidRootPart, armor, 1)
+                if LP.Character:FindFirstChild("BattleArmor") then break end
+            end
+        end
+    end
+end
+
+-- Health Guardian System
+task.spawn(function()
+    while task.wait() do
+        if Toggle and LP.Character and not Active then
+            Active = true
+            local humanoid = LP.Character:FindFirstChild("Humanoid")
+            
+            if humanoid then
+                humanoid.HealthChanged:Connect(function()
+                    if humanoid.Health < humanoid.MaxHealth then
+                        -- Continuous pad spamming until healed
+                        repeat
+                            FloodPads()
+                            task.wait(0.1)
+                        until humanoid.Health == humanoid.MaxHealth or not Toggle
+                    end
+                end)
+            end
+        end
+        Active = false
+    end
 end)
 
--- Initial notification
+-- Armor Enforcement Loop
+task.spawn(ArmorEnforcer)
+
+-- Initial setup
 game:GetService("StarterGui"):SetCore("SendNotification", {
-    Title = "SFOTH ULTIMATE SCRIPT",
-    Text = "Guaranteed armor/heal\nUsing all available pads",
-    Duration = 5
+    Title = "SFOTH PERMA-HEAL SYSTEM",
+    Text = "Features:\n- Armor auto-enforce\n- Pad spam-healing\n- Damage-responsive",
+    Duration = 7
 })
