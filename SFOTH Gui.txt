@@ -1,132 +1,97 @@
 local Players = game:GetService("Players")
 local UIS = game:GetService("UserInputService")
-local RunService = game:GetService("RunService")
 local LP = Players.LocalPlayer
-local Toggle = false
-local Debounce = false
-local CollectedArmors = {}
+local Toggle = true
+local Cooldown = false
 
 -- Toggle with H key
 UIS.InputBegan:Connect(function(Input)
     if Input.KeyCode == Enum.KeyCode.H then
         Toggle = not Toggle
         game:GetService("StarterGui"):SetCore("SendNotification", {
-            Title = "Auto Armor/Heal",
-            Text = Toggle and "ACTIVATED" or "DEACTIVATED",
-            Duration = 1
+            Title = "SYSTEM: "..(Toggle and "ON" or "OFF"),
+            Text = "Auto Armor/Heal "..(Toggle and "Enabled" or "Disabled"),
+            Duration = 2
         })
     end
 end)
 
-local function FindValidItem(modelName, isArmor)
-    -- Check if armor was already collected
-    if isArmor and CollectedArmors[modelName] then
-        return nil
-    end
-    
-    local items = workspace:FindPartsInRegion3WithIgnoreList(
-        Region3.new(LP.Character.HumanoidRootPart.Position - Vector3.new(500,500,500), 
-                    LP.Character.HumanoidRootPart.Position + Vector3.new(500,500,500)),
-        {LP.Character},
-        500
-    )
-    
-    for _, item in pairs(items) do
-        if item:IsDescendantOf(workspace) and item.Name == modelName then
-            local model = item.Parent
-            if model:IsA("Model") then
-                -- Additional validation for armor
-                if isArmor then
-                    if not CollectedArmors[model] and model:FindFirstChild("Humanoid") then
-                        return model
-                    end
-                else
-                    return model
-                end
+local function GetItem(ModelName)
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if obj.Name == ModelName and obj:IsA("Model") then
+            local touchPart = obj:FindFirstChildWhichIsA("Part")
+            if touchPart then
+                return touchPart
             end
         end
     end
     return nil
 end
 
-local function CollectItem(itemType)
-    if Debounce or not Toggle then return end
-    Debounce = true
+local function CollectArmor()
+    if not Toggle or Cooldown then return end
+    Cooldown = true
     
-    local modelName = itemType == "armor" and "BattleArmorStand" or "HealPad"
-    local isArmor = itemType == "armor"
-    
-    local Model = FindValidItem(modelName, isArmor)
-    
-    if Model and LP.Character and LP.Character:FindFirstChild("HumanoidRootPart") then
-        local interactPart = Model:FindFirstChild("TouchInterest") and Model:FindFirstChild("TouchInterest").Parent
-                        or Model:FindFirstChildOfClass("Part")
+    local armorPart = GetItem("BattleArmorStand")
+    if armorPart and LP.Character then
+        local humanoid = LP.Character:FindFirstChild("Humanoid")
+        local root = LP.Character:FindFirstChild("HumanoidRootPart")
         
-        if interactPart then
-            local originalCF = LP.Character.HumanoidRootPart.CFrame
-            local originalPos = originalCF.Position
+        if humanoid and root then
+            -- Simulate direct interaction
+            firetouchinterest(root, armorPart, 0) -- Begin touch
+            firetouchinterest(root, armorPart, 1) -- End touch
             
-            -- Phase through walls during teleport
-            local oldCollision = LP.Character.HumanoidRootPart.CanCollide
-            LP.Character.HumanoidRootPart.CanCollide = false
-            
-            -- Teleport to item
-            LP.Character.HumanoidRootPart.CFrame = interactPart.CFrame + Vector3.new(0, 3, 0)
-            
-            -- Allow time for collection
-            for _ = 1, 3 do
-                RunService.Heartbeat:Wait()
-                interactPart.CFrame = interactPart.CFrame -- Force position update
-            end
-            
-            -- Return to original position
-            LP.Character.HumanoidRootPart.CFrame = originalCF
-            LP.Character.HumanoidRootPart.CanCollide = oldCollision
-            
-            -- Mark armor as collected
-            if isArmor then
-                CollectedArmors[Model] = true
-                task.delay(60, function() CollectedArmors[Model] = nil end) -- Reset after 60 seconds
-            end
+            game:GetService("StarterGui"):SetCore("SendNotification", {
+                Title = "Armor Collected",
+                Text = "Equipped Battle Armor",
+                Duration = 2
+            })
         end
     end
-    Debounce = false
+    Cooldown = false
 end
 
--- Auto armor on spawn/respawn
-LP.CharacterAdded:Connect(function(Char)
-    if Toggle then
-        repeat task.wait() until Char:FindFirstChild("HumanoidRootPart")
-        for _ = 1, 3 do  -- Retry mechanism
-            CollectItem("armor")
-            if Char:FindFirstChild("BattleArmor") then break end
-            task.wait(0.5)
+local function AutoHeal()
+    if not Toggle or Cooldown then return end
+    Cooldown = true
+    
+    local healPart = GetItem("HealPad")
+    if healPart and LP.Character then
+        local humanoid = LP.Character:FindFirstChild("Humanoid")
+        local root = LP.Character:FindFirstChild("HumanoidRootPart")
+        
+        if humanoid and humanoid.Health < humanoid.MaxHealth and root then
+            -- Direct interaction with heal pad
+            firetouchinterest(root, healPart, 0)
+            firetouchinterest(root, healPart, 1)
+            
+            game:GetService("StarterGui"):SetCore("SendNotification", {
+                Title = "Healing Activated",
+                Text = "Using Regeneration Pad",
+                Duration = 2
+            })
         end
     end
-end)
+    Cooldown = false
+end
 
--- Auto heal when damaged
-LP.CharacterAdded:Connect(function(Char)
-    local Hum = Char:WaitForChild("Humanoid")
-    Hum.HealthChanged:Connect(function()
-        if Toggle and Hum.Health < Hum.MaxHealth then
-            CollectItem("heal")
+-- Main system
+LP.CharacterAdded:Connect(function(char)
+    task.wait(1)
+    CollectArmor()
+    
+    char:WaitForChild("Humanoid").HealthChanged:Connect(function()
+        if Toggle then
+            AutoHeal()
         end
     end)
 end)
 
--- Periodic armor check
-task.spawn(function()
-    while task.wait(5) do
-        if Toggle and LP.Character and not LP.Character:FindFirstChild("BattleArmor") then
-            CollectItem("armor")
-        end
+-- Automatic armor re-acquisition
+while true do
+    if Toggle and LP.Character and not LP.Character:FindFirstChild("BattleArmor") then
+        CollectArmor()
     end
-end)
-
--- Initial notification
-game:GetService("StarterGui"):SetCore("SendNotification", {
-    Title = "SFOTH Ultimate Script",
-    Text = "Fixed armor/heal issues\nIntelligent item tracking\n3x retry system",
-    Duration = 5
-})
+    task.wait(5)
+end
