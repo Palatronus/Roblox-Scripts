@@ -1,73 +1,75 @@
-local Player = game:GetService("Players").LocalPlayer
-local Character = Player.Character or Player.CharacterAdded:Wait()
-local Toggle = true
+local Players = game:GetService("Players")
+local UIS = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local LP = Players.LocalPlayer
+local Toggle = false
 local Debounce = false
 
--- Toggle with H key (you can change the key here)
-game:GetService("UserInputService").InputBegan:Connect(function(input)
-    if input.KeyCode == Enum.KeyCode.H then
+-- Toggle with H key
+UIS.InputBegan:Connect(function(Input)
+    if Input.KeyCode == Enum.KeyCode.H then
         Toggle = not Toggle
-        print("Auto Armor/Heal Toggled:", Toggle)
+        LP.PlayerGui:SetTopbarTransparency(Toggle and 0 or 1)
+        game:GetService("StarterGui"):SetCore("SendNotification", {
+            Title = "Auto Armor/Heal",
+            Text = Toggle and "Enabled" or "Disabled",
+            Duration = 1
+        })
     end
 end)
 
-local function GetItem(itemName)
-    return workspace:FindFirstChild(itemName)
-end
-
-local function CollectItem(item, currentCFrame)
-    if item and Toggle and not Debounce then
-        Debounce = true
+local function CollectItem(Name)
+    if Debounce or not Toggle then return end
+    Debounce = true
+    
+    local Item = workspace:FindFirstChild(Name)
+    if Item and LP.Character and LP.Character:FindFirstChild("HumanoidRootPart") then
+        local OriginalCF = LP.Character.HumanoidRootPart.CFrame
+        local OriginalPos = OriginalCF.Position
+        
         -- Teleport to item
-        Character:SetPrimaryPartCFrame(item.CFrame + Vector3.new(0, 3, 0))
-        wait(0.1)
+        LP.Character.HumanoidRootPart.CFrame = Item.CFrame + Vector3.new(0,3,0)
+        
+        -- Wait for item collection
+        RunService.RenderStepped:Wait()
+        task.wait(0.15)
+        
         -- Return to original position
-        Character:SetPrimaryPartCFrame(currentCFrame)
-        Debounce = false
+        LP.Character.HumanoidRootPart.CFrame = OriginalCF
+        
+        -- Delete item locally
+        if Item.Parent == workspace then
+            Item:Destroy()
+        end
     end
+    Debounce = false
 end
 
-local function AutoArmor()
-    if not Toggle then return end
-    
-    local armor = GetItem("BattleArmor")
-    local currentPos = Character.PrimaryPart.CFrame
-    
-    if armor then
-        CollectItem(armor, currentPos)
+-- Auto armor on respawn
+LP.CharacterAdded:Connect(function(Char)
+    if Toggle then
+        repeat task.wait() until Char:FindFirstChild("HumanoidRootPart")
+        CollectItem("BattleArmor")
     end
-end
+end)
 
-local function AutoHeal()
-    if not Toggle then return end
-    
-    local pad = GetItem("Pad")
-    local currentPos = Character.PrimaryPart.CFrame
-    
-    if pad then
-        CollectItem(pad, currentPos)
-    end
-end
-
--- Main logic
-Player.CharacterAdded:Connect(function(char)
-    Character = char
-    local humanoid = Character:WaitForChild("Humanoid")
-    
-    -- Get armor on spawn
-    AutoArmor()
-    
-    -- Auto heal when damaged
-    humanoid.HealthChanged:Connect(function()
-        if humanoid.Health < humanoid.MaxHealth and Toggle then
-            AutoHeal()
+-- Auto heal when damaged
+LP.CharacterAdded:Connect(function(Char)
+    local Hum = Char:WaitForChild("Humanoid")
+    Hum.HealthChanged:Connect(function()
+        if Toggle and Hum.Health < Hum.MaxHealth then
+            CollectItem("Pad")
         end
     end)
 end)
 
--- Auto re-equip armor when respawning
-Player.CharacterRemoving:Connect(function()
-    if Toggle then
-        AutoArmor()
-    end
-end)
+-- Initial execution
+if LP.Character then
+    CollectItem("BattleArmor")
+end
+
+game:GetService("StarterGui"):SetCore("SendNotification", {
+    Title = "Auto Armor/Heal Loaded",
+    Text = "Press H to toggle",
+    Duration = 5
+})
