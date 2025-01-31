@@ -2,85 +2,75 @@ local Players = game:GetService("Players")
 local UIS = game:GetService("UserInputService")
 local LP = Players.LocalPlayer
 local Toggle = true
-local HEAL_COOLDOWN = 15 -- Seconds (verified for SFOTH)
-local ARMOR_COOLDOWN = 5
-local lastHealTimes = {}
-local lastArmorTime = 0
 
--- Visual toggle feedback
+-- Toggle system with visual feedback
 UIS.InputBegan:Connect(function(Input)
     if Input.KeyCode == Enum.KeyCode.H then
         Toggle = not Toggle
         game:GetService("StarterGui"):SetCore("SendNotification", {
             Title = "AUTO-HEAL "..(Toggle and "ENABLED" or "DISABLED"),
-            Text = Toggle and "Cooldown-aware system active" or "All automation stopped",
+            Text = Toggle and "Active pad detection active" or "System disabled",
             Duration = 2
         })
     end
 end)
 
-local function GetAvailablePads()
-    local validPads = {}
+local function GetActivePads()
+    local activePads = {}
     for _, pad in ipairs(workspace:GetDescendants()) do
         if pad.Name == "HealPad" and pad:IsA("Model") then
-            local mainPart = pad:FindFirstChildWhichIsA("Part")
-            if mainPart then
-                -- Check if pad is off cooldown (server-side)
-                local lastUsed = lastHealTimes[pad] or 0
-                if (os.time() - lastUsed) >= HEAL_COOLDOWN then
-                    table.insert(validPads, {
+            local statusPart = pad:FindFirstChild("Pad") or pad:FindFirstChildWhichIsA("Part")
+            if statusPart then
+                -- Check for green color (RGB: 0,1,0)
+                if statusPart.Color == Color3.new(0, 1, 0) then
+                    table.insert(activePads, {
                         model = pad,
-                        part = mainPart,
-                        position = mainPart.Position
+                        part = statusPart,
+                        position = statusPart.Position
                     })
                 end
             end
         end
     end
-    return validPads
+    return activePads
 end
 
-local function GetClosestValidPad()
-    if not LP.Character or not LP.Character:FindFirstChild("HumanoidRootPart") then return nil end
-    local availablePads = GetAvailablePads()
-    if #availablePads == 0 then return nil end
+local function UseHealPad(padData)
+    if not LP.Character or not LP.Character:FindFirstChild("HumanoidRootPart") then return end
     
-    local charPos = LP.Character.HumanoidRootPart.Position
-    table.sort(availablePads, function(a,b)
-        return (charPos - a.position).Magnitude < (charPos - b.position).Magnitude
-    end)
-    
-    return availablePads[1]
-end
-
-local function SafeHeal()
-    if not Toggle then return end
-    local padData = GetClosestValidPad()
-    if not padData then return end
-    
-    local humanoid = LP.Character:FindFirstChild("Humanoid")
-    if not humanoid or humanoid.Health >= humanoid.MaxHealth then return end
-
-    -- Record use time before attempting
-    lastHealTimes[padData.model] = os.time()
-    
-    -- Double verification system
+    -- Long-press simulation for reliable activation
     firetouchinterest(LP.Character.HumanoidRootPart, padData.part, 0)
-    task.wait(0.25) -- Required contact duration
+    task.wait(0.35) -- Extended contact time
     firetouchinterest(LP.Character.HumanoidRootPart, padData.part, 1)
     
-    -- Cooldown feedback
+    -- Visual feedback
     game:GetService("StarterGui"):SetCore("SendNotification", {
         Title = "HEALING ACTIVATED",
-        Text = `Next available in {HEAL_COOLDOWN}s`,
-        Duration = 3
+        Text = "Used pad: "..padData.model.Name,
+        Duration = 2
     })
 end
 
-local function ArmorCheck()
-    if os.time() - lastArmorTime < ARMOR_COOLDOWN then return end
-    lastArmorTime = os.time()
+local function AutoHeal()
+    if not Toggle then return end
     
+    local activePads = GetActivePads()
+    if #activePads == 0 then return end
+    
+    -- Use all available active pads in sequence
+    for _, padData in ipairs(activePads) do
+        if LP.Character and LP.Character:FindFirstChild("Humanoid") then
+            local humanoid = LP.Character.Humanoid
+            if humanoid.Health < humanoid.MaxHealth then
+                UseHealPad(padData)
+                task.wait(0.5) -- Pad activation delay
+            end
+        end
+    end
+end
+
+-- Smart armor system
+local function GetArmor()
     local armorStands = {}
     for _, stand in ipairs(workspace:GetDescendants()) do
         if stand.Name == "BattleArmorStand" and stand:IsA("Model") then
@@ -99,27 +89,24 @@ local function ArmorCheck()
     end
 end
 
--- Smart monitoring system
+-- Main system loop
 task.spawn(function()
-    while task.wait(0.5) do
+    while task.wait(0.3) do
         if Toggle and LP.Character then
-            -- Automatic armor maintenance
+            -- Automatic armor check
             if not LP.Character:FindFirstChild("BattleArmor") then
-                ArmorCheck()
+                GetArmor()
             end
             
-            -- Health management with cooldown awareness
-            local humanoid = LP.Character:FindFirstChild("Humanoid")
-            if humanoid and humanoid.Health < humanoid.MaxHealth then
-                SafeHeal()
-            end
+            -- Continuous healing check
+            AutoHeal()
         end
     end
 end)
 
--- Initial setup
+-- Initial notification
 game:GetService("StarterGui"):SetCore("SendNotification", {
-    Title = "SFOTH ENHANCED SYSTEM",
-    Text = `Heal cooldown: {HEAL_COOLDOWN}s\nArmor refresh: {ARMOR_COOLDOWN}s`,
+    Title = "SFOTH VISUAL DETECTION SYSTEM",
+    Text = "Healing when pads are green\nUsing all available pads",
     Duration = 5
 })
