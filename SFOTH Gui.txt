@@ -2,50 +2,48 @@ local Players = game:GetService("Players")
 local UIS = game:GetService("UserInputService")
 local LP = Players.LocalPlayer
 local Toggle = true
-local PadQueue = {}
-local CurrentPadIndex = 1
+local HealQueue = {}
+local CurrentHealIndex = 1
 
--- Toggle system with queue reset
+-- Toggle System
 UIS.InputBegan:Connect(function(Input)
     if Input.KeyCode == Enum.KeyCode.H then
         Toggle = not Toggle
-        PadQueue = {}
-        CurrentPadIndex = 1
+        game:GetService("StarterGui"):SetCore("SendNotification", {
+            Title = "AUTO-HEAL "..(Toggle and "ENABLED" or "DISABLED"),
+            Duration = 1
+        })
     end
 end)
 
-local function RefreshPadQueue()
-    PadQueue = {}
+local function RefreshHealQueue()
+    HealQueue = {}
     for _, pad in ipairs(workspace:GetDescendants()) do
         if pad.Name == "HealPad" and pad:IsA("Model") then
             local statusPart = pad:FindFirstChild("Pad") or pad:FindFirstChildWhichIsA("Part")
             if statusPart and statusPart.Color == Color3.new(0, 1, 0) then
-                table.insert(PadQueue, {
-                    model = pad,
+                table.insert(HealQueue, {
                     part = statusPart,
                     position = statusPart.Position
                 })
             end
         end
     end
-    table.sort(PadQueue, function(a,b)
-        return (LP.Character.HumanoidRootPart.Position - a.position).Magnitude <
+    table.sort(HealQueue, function(a,b)
+        return (LP.Character.HumanoidRootPart.Position - a.position).Magnitude < 
                (LP.Character.HumanoidRootPart.Position - b.position).Magnitude
     end)
 end
 
-local function UseNextAvailablePad()
-    if #PadQueue == 0 then return false end
+local function UseBestPad()
+    if #HealQueue == 0 then return false end
     
-    local padData = PadQueue[CurrentPadIndex]
-    if padData and padData.part.Color == Color3.new(0, 1, 0) then
-        -- Use current pad
+    local padData = HealQueue[CurrentHealIndex]
+    if padData then
         firetouchinterest(LP.Character.HumanoidRootPart, padData.part, 0)
-        task.wait(0.25)
+        task.wait(0.15)
         firetouchinterest(LP.Character.HumanoidRootPart, padData.part, 1)
-        
-        -- Move to next pad for subsequent uses
-        CurrentPadIndex = (CurrentPadIndex % #PadQueue) + 1
+        CurrentHealIndex = (CurrentHealIndex % #HealQueue) + 1
         return true
     end
     return false
@@ -53,22 +51,16 @@ end
 
 local function SmartHeal()
     if not Toggle then return end
+    RefreshHealQueue()
     
-    RefreshPadQueue()
-    
-    if #PadQueue > 0 then
-        for _ = 1, #PadQueue do
-            if UseNextAvailablePad() then
-                if LP.Character.Humanoid.Health == LP.Character.Humanoid.MaxHealth then
-                    break
-                end
-            end
-            task.wait(0.15)
+    for _ = 1, #HealQueue do
+        if LP.Character.Humanoid.Health >= LP.Character.Humanoid.MaxHealth then break end
+        if UseBestPad() then
+            task.wait(0.25)
         end
     end
 end
 
--- Armor system (unchanged from working version)
 local function MaintainArmor()
     local armors = {}
     for _, stand in ipairs(workspace:GetDescendants()) do
@@ -82,24 +74,30 @@ local function MaintainArmor()
         firetouchinterest(LP.Character.HumanoidRootPart, armor, 0)
         task.wait(0.1)
         firetouchinterest(LP.Character.HumanoidRootPart, armor, 1)
-        if LP.Character:FindFirstChild("BattleArmor") then break end
+        if LP.Character:FindFirstChild("BattleArmor") then
+            -- Force heal after armor acquisition
+            coroutine.wrap(SmartHeal)()
+            break
+        end
     end
 end
 
--- Optimized main loop
+-- Main Systems
 LP.CharacterAdded:Connect(function(char)
     char:WaitForChild("Humanoid").HealthChanged:Connect(function()
-        if Toggle and LP.Character.Humanoid.Health < LP.Character.Humanoid.MaxHealth then
-            SmartHeal()
+        if Toggle then
+            coroutine.wrap(SmartHeal)()
         end
     end)
 end)
 
 task.spawn(function()
-    while task.wait(0.5) do
-        if Toggle then
-            if LP.Character and not LP.Character:FindFirstChild("BattleArmor") then
+    while task.wait(1) do
+        if Toggle and LP.Character then
+            if not LP.Character:FindFirstChild("BattleArmor") then
                 MaintainArmor()
+            elseif LP.Character.Humanoid.Health < LP.Character.Humanoid.MaxHealth then
+                SmartHeal()
             end
         end
     end
