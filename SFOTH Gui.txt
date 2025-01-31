@@ -20,6 +20,7 @@ local function GetItem(ModelName)
     for _, obj in ipairs(workspace:GetDescendants()) do
         if obj.Name == ModelName and obj:IsA("Model") then
             local touchPart = obj:FindFirstChildWhichIsA("Part")
+print("Found interactable part for", ModelName, ":", armorPart and armorPart:GetFullName() or "NOT FOUND")
             if touchPart then
                 return touchPart
             end
