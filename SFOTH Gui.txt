@@ -2,98 +2,102 @@ local Players = game:GetService("Players")
 local UIS = game:GetService("UserInputService")
 local LP = Players.LocalPlayer
 local Toggle = true
-local Active = false
+local HealActive = false
+local ArmorActive = false
 
--- Persistent toggle system
+-- Toggle system with light feedback
 UIS.InputBegan:Connect(function(Input)
     if Input.KeyCode == Enum.KeyCode.H then
         Toggle = not Toggle
-        game:GetService("StarterGui"):SetCore("SendNotification", {
-            Title = "ULTRA-MODE: "..(Toggle and "ON" or "OFF"),
-            Text = Toggle and "Spam-heal activated" or "All systems halted",
-            Duration = 2
-        })
     end
 end)
 
-local function FloodPads()
-    if not LP.Character then return end
-    local humanoid = LP.Character:FindFirstChild("Humanoid")
-    if not humanoid or humanoid.Health >= humanoid.MaxHealth then return end
-
-    -- Find all heal pads in the game
+local function GetPads()
     local pads = {}
     for _,v in ipairs(workspace:GetDescendants()) do
         if v.Name == "HealPad" and v:IsA("Model") then
-            local part = v:FindFirstChildWhichIsA("Part") or v:FindFirstChild("Pad")
-            if part then table.insert(pads, part) end
+            local part = v:FindFirstChild("Main") or v:FindFirstChildWhichIsA("BasePart")
+            if part then
+                table.insert(pads, part)
+            end
         end
     end
+    return pads
+end
 
-    -- Spam all pads simultaneously
+local function SmartHeal()
+    if not Toggle or HealActive then return end
+    HealActive = true
+    
+    local character = LP.Character
+    if not character then return end
+    local humanoid = character:FindFirstChild("Humanoid")
+    if not humanoid or humanoid.Health >= humanoid.MaxHealth then
+        HealActive = false
+        return
+    end
+
+    -- Batch-process pads with controlled timing
+    local pads = GetPads()
     for _, pad in ipairs(pads) do
-        for _ = 1, 5 do  -- Quintuple activation pattern
-            if LP.Character and humanoid.Health < humanoid.MaxHealth then
-                firetouchinterest(LP.Character.HumanoidRootPart, pad, 0)
-                task.wait(0.05)
-                firetouchinterest(LP.Character.HumanoidRootPart, pad, 1)
+        if humanoid.Health < humanoid.MaxHealth then
+            -- Double-tap with optimized timing
+            firetouchinterest(character.HumanoidRootPart, pad, 0)
+            task.wait(0.1)
+            firetouchinterest(character.HumanoidRootPart, pad, 1)
+            task.wait(0.15) -- Reduced frequency
+        end
+    end
+    HealActive = false
+end
+
+local function GetArmors()
+    local armors = {}
+    for _,v in ipairs(workspace:GetDescendants()) do
+        if v.Name == "BattleArmorStand" and v:IsA("Model") then
+            local part = v:FindFirstChild("ArmorPart") or v:FindFirstChildWhichIsA("BasePart")
+            if part then
+                table.insert(armors, part)
             end
         end
     end
+    return armors
 end
 
-local function ArmorEnforcer()
-    while task.wait(1) and Toggle do
-        if LP.Character and not LP.Character:FindFirstChild("BattleArmor") then
-            -- Find and collect all armor stands
-            local armors = {}
-            for _,v in ipairs(workspace:GetDescendants()) do
-                if v.Name == "BattleArmorStand" and v:IsA("Model") then
-                    local part = v:FindFirstChildWhichIsA("Part")
-                    if part then table.insert(armors, part) end
-                end
-            end
-
-            -- Force collect armor
-            for _, armor in ipairs(armors) do
-                firetouchinterest(LP.Character.HumanoidRootPart, armor, 0)
-                task.wait(0.1)
-                firetouchinterest(LP.Character.HumanoidRootPart, armor, 1)
-                if LP.Character:FindFirstChild("BattleArmor") then break end
-            end
+local function MaintainArmor()
+    if not Toggle or ArmorActive then return end
+    ArmorActive = true
+    
+    local character = LP.Character
+    if character and not character:FindFirstChild("BattleArmor") then
+        local armors = GetArmors()
+        for _, armor in ipairs(armors) do
+            -- Single interaction per check
+            firetouchinterest(character.HumanoidRootPart, armor, 0)
+            task.wait(0.1)
+            firetouchinterest(character.HumanoidRootPart, armor, 1)
+            if character:FindFirstChild("BattleArmor") then break end
         end
     end
+    ArmorActive = false
 end
 
--- Health Guardian System
+-- Optimized main loop
 task.spawn(function()
     while task.wait() do
-        if Toggle and LP.Character and not Active then
-            Active = true
-            local humanoid = LP.Character:FindFirstChild("Humanoid")
-            
-            if humanoid then
-                humanoid.HealthChanged:Connect(function()
-                    if humanoid.Health < humanoid.MaxHealth then
-                        -- Continuous pad spamming until healed
-                        repeat
-                            FloodPads()
-                            task.wait(0.1)
-                        until humanoid.Health == humanoid.MaxHealth or not Toggle
-                    end
-                end)
+        if Toggle then
+            -- Throttled armor checks (every 2 seconds)
+            coroutine.wrap(function()
+                task.wait(2)
+                MaintainArmor()
+            end)()
+
+            -- Responsive healing system (every 0.3 seconds)
+            if LP.Character and LP.Character:FindFirstChild("Humanoid") then
+                if LP.Character.Humanoid.Health < LP.Character.Humanoid.MaxHealth then
+                    coroutine.wrap(SmartHeal)()
+                end
             end
         end
-        Active = false
     end
 end)
-
--- Armor Enforcement Loop
-task.spawn(ArmorEnforcer)
-
--- Initial setup
-game:GetService("StarterGui"):SetCore("SendNotification", {
-    Title = "SFOTH PERMA-HEAL SYSTEM",
-    Text = "Features:\n- Armor auto-enforce\n- Pad spam-healing\n- Damage-responsive",
-    Duration = 7
-})
