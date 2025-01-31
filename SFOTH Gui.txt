@@ -5,46 +5,51 @@ local LP = Players.LocalPlayer
 local Toggle = false
 local Debounce = false
 
--- Toggle with H key (visual feedback)
+-- Toggle with H key
 UIS.InputBegan:Connect(function(Input)
     if Input.KeyCode == Enum.KeyCode.H then
         Toggle = not Toggle
         game:GetService("StarterGui"):SetCore("SendNotification", {
             Title = "Auto Armor/Heal",
             Text = Toggle and "ACTIVATED" or "DEACTIVATED",
-            Icon = Toggle and "rbxassetid://9594108935" or "rbxassetid://9594110550",
             Duration = 1
         })
     end
 end)
 
 local function FindModel(Name)
-    return workspace:FindFirstChild(Name, true) -- Search recursively
+    return workspace:FindFirstChild(Name, true)
 end
 
-local function CollectItem(ModelName, PartName)
+local function CollectItem(ModelName, IsArmor)
     if Debounce or not Toggle then return end
     Debounce = true
     
     local Model = FindModel(ModelName)
     if Model and LP.Character and LP.Character:FindFirstChild("HumanoidRootPart") then
-        local ItemPart = Model:FindFirstChild(PartName) or Model:FindFirstChildOfClass("Part")
+        local ItemPart = Model:FindFirstChild("Main") or Model:FindFirstChildOfClass("Part")
         local OriginalCF = LP.Character.HumanoidRootPart.CFrame
         
         if ItemPart then
+            -- Store original transparency
+            local originalTransparency = ItemPart.Transparency
+            ItemPart.Transparency = 1
+            
             -- Teleport to item
             LP.Character.HumanoidRootPart.CFrame = ItemPart.CFrame + Vector3.new(0, 3, 0)
             
-            -- Wait for collection
+            -- Simulate collection without destroying
             RunService.Heartbeat:Wait()
-            task.wait(0.2)
+            task.wait(0.15)
             
             -- Return to original position
             LP.Character.HumanoidRootPart.CFrame = OriginalCF
             
-            -- Remove item locally
-            if Model.Parent == workspace then
+            -- Only destroy armor, restore heal pad visibility
+            if IsArmor then
                 Model:Destroy()
+            else
+                ItemPart.Transparency = originalTransparency
             end
         end
     end
@@ -55,7 +60,7 @@ end
 LP.CharacterAdded:Connect(function(Char)
     if Toggle then
         repeat task.wait() until Char:FindFirstChild("HumanoidRootPart")
-        CollectItem("BattleArmorStand", "ArmorPart") -- Change "ArmorPart" to actual interactable part name if different
+        CollectItem("BattleArmorStand", true)
     end
 end)
 
@@ -64,18 +69,14 @@ LP.CharacterAdded:Connect(function(Char)
     local Hum = Char:WaitForChild("Humanoid")
     Hum.HealthChanged:Connect(function()
         if Toggle and Hum.Health < Hum.MaxHealth then
-            CollectItem("HealPad", "HealPart") -- Change "HealPart" to actual interactable part name if different
+            CollectItem("HealPad", false)
         end
     end)
 end)
 
--- Initial execution
-if LP.Character then
-    CollectItem("BattleArmorStand", "ArmorPart")
-end
-
+-- Initial notification
 game:GetService("StarterGui"):SetCore("SendNotification", {
-    Title = "SFOTH Auto-Script Loaded",
-    Text = "Press H to toggle system\nArmor: BattleArmorStand\nHeal: HealPad",
+    Title = "SFOTH Script Active",
+    Text = "HealPads remain visible\nArmor auto-collects on respawn\nPress H to toggle",
     Duration = 5
 })
