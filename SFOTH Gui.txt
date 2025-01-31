@@ -3,7 +3,7 @@ local UIS = game:GetService("UserInputService")
 local LP = Players.LocalPlayer
 local Toggle = true
 
--- Toggle System
+-- Universal toggle system
 UIS.InputBegan:Connect(function(Input)
     if Input.KeyCode == Enum.KeyCode.H then
         Toggle = not Toggle
@@ -14,88 +14,63 @@ UIS.InputBegan:Connect(function(Input)
     end
 end)
 
-local function GetActiveHealPads()
-    local activePads = {}
-    for _, padModel in ipairs(workspace:GetDescendants()) do
-        if padModel.Name == "HealPad" and padModel:IsA("Model") then
-            local smoothBlock = padModel:FindFirstChild("Smooth Block Model")
-            if smoothBlock then
-                local snapCount = #smoothBlock:GetChildren()
-                if snapCount >= 3 then  -- Active pad has 3+ snaps
-                    local touchPart = padModel:FindFirstChildWhichIsA("Part")
-                    if touchPart then
-                        table.insert(activePads, touchPart)
-                    end
-                end
-            end
-        end
-    end
-    return activePads
-end
-
-local function ForceHeal()
-    if not Toggle or not LP.Character then return end
-    
-    local healPads = GetActiveHealPads()
-    for _, pad in ipairs(healPads) do
-        if LP.Character.Humanoid.Health < LP.Character.Humanoid.MaxHealth then
-            -- Double activation pattern
-            firetouchinterest(LP.Character.HumanoidRootPart, pad, 0)
-            task.wait(0.1)
-            firetouchinterest(LP.Character.HumanoidRootPart, pad, 1)
-            task.wait(0.1)
-            firetouchinterest(LP.Character.HumanoidRootPart, pad, 0)
-            task.wait(0.1)
-            firetouchinterest(LP.Character.HumanoidRootPart, pad, 1)
-        end
-    end
-end
-
-local function ArmorSystem()
+local function MassTrigger(models)
     if not LP.Character then return end
-    
-    -- Collect from all armor stands
+    local root = LP.Character:FindFirstChild("HumanoidRootPart")
+    if not root then return end
+
+    for _, model in ipairs(models) do
+        local part = model:FindFirstChildWhichIsA("Part")
+        if part then
+            -- Double-tap interaction pattern
+            firetouchinterest(root, part, 0)
+            task.wait(0.05)
+            firetouchinterest(root, part, 1)
+        end
+    end
+end
+
+local function MaintainArmor()
     local armorStands = {}
     for _, obj in ipairs(workspace:GetDescendants()) do
         if obj.Name == "BattleArmorStand" and obj:IsA("Model") then
-            local part = obj:FindFirstChildWhichIsA("Part")
-            if part then
-                table.insert(armorStands, part)
-            end
+            table.insert(armorStands, obj)
         end
     end
-    
-    -- Force armor collection
-    for _, armor in ipairs(armorStands) do
-        firetouchinterest(LP.Character.HumanoidRootPart, armor, 0)
-        task.wait(0.1)
-        firetouchinterest(LP.Character.HumanoidRootPart, armor, 1)
-        if LP.Character:FindFirstChild("BattleArmor") then break end
-    end
+    MassTrigger(armorStands)
 end
 
--- Main systems
-LP.CharacterAdded:Connect(function(char)
-    local humanoid = char:WaitForChild("Humanoid")
-    humanoid.HealthChanged:Connect(function()
-        if Toggle and humanoid.Health < humanoid.MaxHealth then
-            ForceHeal()
+local function MassHeal()
+    local healPads = {}
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if obj.Name == "HealPad" and obj:IsA("Model") then
+            table.insert(healPads, obj)
         end
-    end)
-end)
+    end
+    MassTrigger(healPads)
+end
 
+-- Core systems
 task.spawn(function()
     while task.wait(0.5) do
-        if Toggle then
-            -- Maintain armor
-            if LP.Character and not LP.Character:FindFirstChild("BattleArmor") then
-                ArmorSystem()
+        if Toggle and LP.Character then
+            -- Armor maintenance
+            if not LP.Character:FindFirstChild("BattleArmor") then
+                MaintainArmor()
             end
             
-            -- Emergency heal check
-            if LP.Character and LP.Character.Humanoid.Health < LP.Character.Humanoid.MaxHealth then
-                ForceHeal()
+            -- Health maintenance
+            if LP.Character:FindFirstChild("Humanoid") and 
+               LP.Character.Humanoid.Health < LP.Character.Humanoid.MaxHealth then
+                MassHeal()
             end
         end
     end
 end)
+
+-- Initial notification
+game:GetService("StarterGui"):SetCore("SendNotification", {
+    Title = "SFOTH ULTIMATE SCRIPT",
+    Text = "Brute-force armor/heal\nAll items utilized",
+    Duration = 5
+})
