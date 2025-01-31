@@ -1,0 +1,73 @@
+local Player = game:GetService("Players").LocalPlayer
+local Character = Player.Character or Player.CharacterAdded:Wait()
+local Toggle = true
+local Debounce = false
+
+-- Toggle with H key (you can change the key here)
+game:GetService("UserInputService").InputBegan:Connect(function(input)
+    if input.KeyCode == Enum.KeyCode.H then
+        Toggle = not Toggle
+        print("Auto Armor/Heal Toggled:", Toggle)
+    end
+end)
+
+local function GetItem(itemName)
+    return workspace:FindFirstChild(itemName)
+end
+
+local function CollectItem(item, currentCFrame)
+    if item and Toggle and not Debounce then
+        Debounce = true
+        -- Teleport to item
+        Character:SetPrimaryPartCFrame(item.CFrame + Vector3.new(0, 3, 0))
+        wait(0.1)
+        -- Return to original position
+        Character:SetPrimaryPartCFrame(currentCFrame)
+        Debounce = false
+    end
+end
+
+local function AutoArmor()
+    if not Toggle then return end
+    
+    local armor = GetItem("BattleArmor")
+    local currentPos = Character.PrimaryPart.CFrame
+    
+    if armor then
+        CollectItem(armor, currentPos)
+    end
+end
+
+local function AutoHeal()
+    if not Toggle then return end
+    
+    local pad = GetItem("Pad")
+    local currentPos = Character.PrimaryPart.CFrame
+    
+    if pad then
+        CollectItem(pad, currentPos)
+    end
+end
+
+-- Main logic
+Player.CharacterAdded:Connect(function(char)
+    Character = char
+    local humanoid = Character:WaitForChild("Humanoid")
+    
+    -- Get armor on spawn
+    AutoArmor()
+    
+    -- Auto heal when damaged
+    humanoid.HealthChanged:Connect(function()
+        if humanoid.Health < humanoid.MaxHealth and Toggle then
+            AutoHeal()
+        end
+    end)
+end)
+
+-- Auto re-equip armor when respawning
+Player.CharacterRemoving:Connect(function()
+    if Toggle then
+        AutoArmor()
+    end
+end)
