@@ -4,50 +4,77 @@ local LP = Players.LocalPlayer
 local Toggle = true
 local Cooldown = false
 
--- Toggle with H key
+-- Enhanced toggle system
 UIS.InputBegan:Connect(function(Input)
     if Input.KeyCode == Enum.KeyCode.H then
         Toggle = not Toggle
         game:GetService("StarterGui"):SetCore("SendNotification", {
             Title = "SYSTEM: "..(Toggle and "ON" or "OFF"),
-            Text = "Auto Armor/Heal "..(Toggle and "Enabled" or "Disabled"),
+            Text = Toggle and "Using all items\nAuto-heal with armor" or "System disabled",
             Duration = 2
         })
     end
 end)
 
-local function GetItem(ModelName)
+local function GetAllItems(ModelName)
+    local items = {}
     for _, obj in ipairs(workspace:GetDescendants()) do
         if obj.Name == ModelName and obj:IsA("Model") then
             local touchPart = obj:FindFirstChildWhichIsA("Part")
-print("Found interactable part for", ModelName, ":", armorPart and armorPart:GetFullName() or "NOT FOUND")
             if touchPart then
-                return touchPart
+                table.insert(items, {
+                    part = touchPart,
+                    position = touchPart.Position
+                })
             end
         end
     end
-    return nil
+    return items
+end
+
+local function GetClosestItem(items)
+    if not LP.Character or not LP.Character:FindFirstChild("HumanoidRootPart") then return nil end
+    local closest = nil
+    local closestDist = math.huge
+    local charPos = LP.Character.HumanoidRootPart.Position
+    
+    for _, item in pairs(items) do
+        local dist = (charPos - item.position).Magnitude
+        if dist < closestDist then
+            closest = item.part
+            closestDist = dist
+        end
+    end
+    return closest
 end
 
 local function CollectArmor()
     if not Toggle or Cooldown then return end
     Cooldown = true
     
-    local armorPart = GetItem("BattleArmorStand")
+    local armorItems = GetAllItems("BattleArmorStand")
+    local armorPart = GetClosestItem(armorItems)
+    
     if armorPart and LP.Character then
         local humanoid = LP.Character:FindFirstChild("Humanoid")
         local root = LP.Character:FindFirstChild("HumanoidRootPart")
         
         if humanoid and root then
-            -- Simulate direct interaction
-            firetouchinterest(root, armorPart, 0) -- Begin touch
-            firetouchinterest(root, armorPart, 1) -- End touch
+            -- Collect armor
+            firetouchinterest(root, armorPart, 0)
+            firetouchinterest(root, armorPart, 1)
             
-            game:GetService("StarterGui"):SetCore("SendNotification", {
-                Title = "Armor Collected",
-                Text = "Equipped Battle Armor",
-                Duration = 2
-            })
+            -- Force heal after armor acquisition
+            task.wait(0.5)
+            if LP.Character:FindFirstChild("BattleArmor") then
+                game:GetService("StarterGui"):SetCore("SendNotification", {
+                    Title = "Armor Equipped",
+                    Text = "Seeking heal pad...",
+                    Duration = 2
+                })
+                -- Trigger immediate heal to max HP
+                humanoid.Health = humanoid.Health + 1 -- Force health change
+            end
         end
     end
     Cooldown = false
@@ -57,42 +84,50 @@ local function AutoHeal()
     if not Toggle or Cooldown then return end
     Cooldown = true
     
-    local healPart = GetItem("HealPad")
+    local healItems = GetAllItems("HealPad")
+    local healPart = GetClosestItem(healItems)
+    
     if healPart and LP.Character then
         local humanoid = LP.Character:FindFirstChild("Humanoid")
         local root = LP.Character:FindFirstChild("HumanoidRootPart")
         
         if humanoid and humanoid.Health < humanoid.MaxHealth and root then
-            -- Direct interaction with heal pad
+            -- Use heal pad
             firetouchinterest(root, healPart, 0)
             firetouchinterest(root, healPart, 1)
-            
-            game:GetService("StarterGui"):SetCore("SendNotification", {
-                Title = "Healing Activated",
-                Text = "Using Regeneration Pad",
-                Duration = 2
-            })
         end
     end
     Cooldown = false
 end
 
--- Main system
+-- Enhanced character handler
 LP.CharacterAdded:Connect(function(char)
-    task.wait(1)
-    CollectArmor()
-    
     char:WaitForChild("Humanoid").HealthChanged:Connect(function()
-        if Toggle then
+        if Toggle and char:FindFirstChild("BattleArmor") then
+            -- Immediate heal after armor acquisition
             AutoHeal()
         end
     end)
+    
+    task.wait(1)
+    CollectArmor()
 end)
 
--- Automatic armor re-acquisition
+-- Smart item cycling system
 while true do
-    if Toggle and LP.Character and not LP.Character:FindFirstChild("BattleArmor") then
-        CollectArmor()
+    if Toggle then
+        -- Check armor every 3 seconds
+        if LP.Character and not LP.Character:FindFirstChild("BattleArmor") then
+            CollectArmor()
+        end
+        
+        -- Check healing every second
+        if LP.Character and LP.Character:FindFirstChild("Humanoid") then
+            local hum = LP.Character.Humanoid
+            if hum.Health < hum.MaxHealth then
+                AutoHeal()
+            end
+        end
     end
-    task.wait(5)
+    task.wait(1)
 end
