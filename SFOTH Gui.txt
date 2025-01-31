@@ -3,7 +3,7 @@ local UIS = game:GetService("UserInputService")
 local LP = Players.LocalPlayer
 local Toggle = true
 
--- Universal toggle system
+-- Toggle System
 UIS.InputBegan:Connect(function(Input)
     if Input.KeyCode == Enum.KeyCode.H then
         Toggle = not Toggle
@@ -14,28 +14,39 @@ UIS.InputBegan:Connect(function(Input)
     end
 end)
 
-local function ForceHeal()
-    if not Toggle or not LP.Character then return end
-    
-    -- Find all heal pads regardless of state
-    local healPads = {}
-    for _, obj in ipairs(workspace:GetDescendants()) do
-        if obj.Name == "HealPad" and obj:IsA("Model") then
-            local part = obj:FindFirstChildWhichIsA("Part")
-            if part then
-                table.insert(healPads, part)
+local function GetActiveHealPads()
+    local activePads = {}
+    for _, padModel in ipairs(workspace:GetDescendants()) do
+        if padModel.Name == "HealPad" and padModel:IsA("Model") then
+            local smoothBlock = padModel:FindFirstChild("Smooth Block Model")
+            if smoothBlock then
+                local snapCount = #smoothBlock:GetChildren()
+                if snapCount >= 3 then  -- Active pad has 3+ snaps
+                    local touchPart = padModel:FindFirstChildWhichIsA("Part")
+                    if touchPart then
+                        table.insert(activePads, touchPart)
+                    end
+                end
             end
         end
     end
+    return activePads
+end
+
+local function ForceHeal()
+    if not Toggle or not LP.Character then return end
     
-    -- Brute-force activation pattern
+    local healPads = GetActiveHealPads()
     for _, pad in ipairs(healPads) do
         if LP.Character.Humanoid.Health < LP.Character.Humanoid.MaxHealth then
-            for _ = 1, 3 do  -- Triple activation
-                firetouchinterest(LP.Character.HumanoidRootPart, pad, 0)
-                task.wait(0.1)
-                firetouchinterest(LP.Character.HumanoidRootPart, pad, 1)
-            end
+            -- Double activation pattern
+            firetouchinterest(LP.Character.HumanoidRootPart, pad, 0)
+            task.wait(0.1)
+            firetouchinterest(LP.Character.HumanoidRootPart, pad, 1)
+            task.wait(0.1)
+            firetouchinterest(LP.Character.HumanoidRootPart, pad, 0)
+            task.wait(0.1)
+            firetouchinterest(LP.Character.HumanoidRootPart, pad, 1)
         end
     end
 end
@@ -63,7 +74,7 @@ local function ArmorSystem()
     end
 end
 
--- Main healing driver
+-- Main systems
 LP.CharacterAdded:Connect(function(char)
     local humanoid = char:WaitForChild("Humanoid")
     humanoid.HealthChanged:Connect(function()
@@ -73,7 +84,6 @@ LP.CharacterAdded:Connect(function(char)
     end)
 end)
 
--- Core loop
 task.spawn(function()
     while task.wait(0.5) do
         if Toggle then
