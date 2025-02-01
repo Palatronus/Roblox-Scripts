@@ -5,12 +5,19 @@
 local armorName = "BattleArmorStand"
 local healPadName = "HealPad"
 local player = game.Players.LocalPlayer
-local char = player.Character or player.CharacterAdded:Wait()
 
--- Function to find all instances of a specific name
+-- Wait for character to load
+local function getCharacter()
+    while not player.Character or not player.Character:FindFirstChild("HumanoidRootPart") do
+        task.wait()
+    end
+    return player.Character
+end
+
+-- Function to find objects in the workspace by name
 local function getObjectsByName(name)
     local objects = {}
-    for _, obj in pairs(workspace:GetChildren()) do
+    for _, obj in ipairs(workspace:GetDescendants()) do
         if obj:IsA("BasePart") and obj.Name == name then
             table.insert(objects, obj)
         end
@@ -18,59 +25,56 @@ local function getObjectsByName(name)
     return objects
 end
 
--- Function to determine if a HealPad is active or inactive
+-- Function to check if a HealPad is active
 local function isHealPadActive(pad)
-    if pad and pad:IsA("BasePart") then
-        local color = pad.Color -- Get current color of the heal pad
-        return color == Color3.fromRGB(75, 151, 75) -- True if green (active)
-    end
-    return false -- Default to inactive
+    return pad and pad:IsA("BasePart") and pad.Color == Color3.fromRGB(75, 151, 75)
 end
 
 -- Function to trigger a part using firetouchinterest
 local function triggerPart(part)
-    if char and char:FindFirstChild("HumanoidRootPart") then
-        local hrp = char.HumanoidRootPart
-        firetouchinterest(hrp, part, 0) -- Touch began
-        task.wait(0.2) -- Small delay to prevent spam issues
-        firetouchinterest(hrp, part, 1) -- Touch ended
+    local char = getCharacter()
+    if char then
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        if hrp then
+            firetouchinterest(hrp, part, 0) -- Touch began
+            task.wait(0.1) -- Short delay
+            firetouchinterest(hrp, part, 1) -- Touch ended
+        end
     end
 end
 
--- Function to equip armor automatically
+-- Function to equip armor
 local function equipArmor()
-    for _, armor in pairs(getObjectsByName(armorName)) do
-        triggerPart(armor) -- Attempt to equip armor
-        task.wait(1) -- Wait to avoid unnecessary spam
+    for _, armor in ipairs(getObjectsByName(armorName)) do
+        triggerPart(armor)
+        task.wait(1) -- Prevent excessive triggering
     end
 end
 
 -- Function to heal efficiently
 local function heal()
-    local pads = getObjectsByName(healPadName)
-    for _, pad in pairs(pads) do
+    for _, pad in ipairs(getObjectsByName(healPadName)) do
         if isHealPadActive(pad) then
             triggerPart(pad)
-            task.wait(2) -- Avoid triggering too frequently
+            task.wait(2) -- Prevent excessive triggering
         end
     end
 end
 
--- Main loop to keep checking and executing functions
+-- Main loop to check and execute actions
 spawn(function()
-    while task.wait(1) do
-        if not player.Character or not player.Character:FindFirstChild("Humanoid") then continue end
-        local humanoid = player.Character.Humanoid
-        
-        -- Equip armor if not already acquired
-        if humanoid.MaxHealth == 100 then -- Default HP without armor
-            equipArmor()
+    while true do
+        local char = getCharacter()
+        local humanoid = char and char:FindFirstChildOfClass("Humanoid")
+        if humanoid then
+            if humanoid.MaxHealth == 100 then -- No armor equipped
+                equipArmor()
+            end
+            if humanoid.Health < humanoid.MaxHealth then -- Need healing
+                heal()
+            end
         end
-        
-        -- Heal when taking any damage or after acquiring armor
-        if humanoid.Health < humanoid.MaxHealth then
-            heal()
-        end
+        task.wait(1) -- Prevent excessive CPU usage
     end
 end)
 
