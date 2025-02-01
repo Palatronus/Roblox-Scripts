@@ -1,179 +1,101 @@
-local Players = game:GetService("Players")
-local UIS = game:GetService("UserInputService")
+-- Define Constants
+local player = game.Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local humanoid = character:WaitForChild("Humanoid")
+local workspace = game:GetService("Workspace")
 local RunService = game:GetService("RunService")
-local LP = Players.LocalPlayer
 
--- Configuration
-local ACTIVE_HEAL_COLOR = Color3.new(75/255, 151/255, 75/255)
-local ARMOR_STAND_NAME = "BattleArmorStand"
-local HEAL_PAD_NAME = "HealPad"
-local TOGGLE_KEY = Enum.KeyCode.H
+-- Define Armor Stands and Heal Pads
+local armorStand1 = workspace:WaitForChild("BattleArmorStand1")
+local armorStand2 = workspace:WaitForChild("BattleArmorStand2")
+local healPad1 = workspace:WaitForChild("HealPad1")
+local healPad2 = workspace:WaitForChild("HealPad2")
 
--- System State
-local SystemsActive = true
-local CleanupQueue = {}
-local ArmorSystemActive = true
-local HealSystemActive = true
+-- Variable to track if heal pad is being used
+local isHealPadActive = false
 
--- Core Protection System
-local function SafeCall(func)
-    local success, err = pcall(func)
-    if not success then
-        warn("System error: "..tostring(err))
-        task.wait(1)
-        return true -- Flag for resurrection
+-- Equip armor and double health
+local function equipArmor(armorStand)
+    if humanoid then
+        print("Equipping armor from " .. armorStand.Name)
+        -- Double the player's MaxHealth
+        humanoid.MaxHealth = humanoid.MaxHealth * 2
+        humanoid.Health = humanoid.MaxHealth
     end
-    return false
 end
 
--- Memory Management
-local function CleanupSystems()
-    for _, connection in ipairs(CleanupQueue) do
-        if typeof(connection) == "RBXScriptConnection" then
-            connection:Disconnect()
-        elseif type(connection) == "thread" then
-            task.cancel(connection)
+-- Trigger Heal Pad logic (only one pad can be active at a time)
+local function triggerHealPad(healPad)
+    -- Only trigger if heal pad is not already active
+    if isHealPadActive then return end
+
+    -- Mark heal pad as active
+    isHealPadActive = true
+    healPad.BrickColor = BrickColor.new("Bright green") -- Activate heal pad
+
+    -- Trigger healing
+    humanoid.Health = humanoid.MaxHealth -- Heal the player
+    print("Healing player using " .. healPad.Name)
+
+    -- Wait for healing process (simulate healing time)
+    wait(3) -- Healing time (adjust as needed)
+
+    -- Deactivate heal pad
+    healPad.BrickColor = BrickColor.new("Bright red")
+    isHealPadActive = false
+end
+
+-- Monitor player's health and trigger heal pad when necessary
+local function checkPlayerHealth()
+    -- Trigger heal pad if health is lower than max
+    if humanoid and humanoid.Health < humanoid.MaxHealth then
+        -- Trigger the appropriate heal pad if available
+        if healPad1.BrickColor == BrickColor.new("Bright red") then
+            triggerHealPad(healPad1)
+        elseif healPad2.BrickColor == BrickColor.new("Bright red") then
+            triggerHealPad(healPad2)
         end
     end
-    CleanupQueue = {}
 end
 
--- Armor Core System
-local function MaintainArmor()
-    while ArmorSystemActive and SystemsActive do
-        local needsResurrection = SafeCall(function()
-            if LP.Character and not LP.Character:FindFirstChild("BattleArmor") then
-                local armors = {}
-                local root = LP.Character:FindFirstChild("HumanoidRootPart")
-                
-                if root then
-                    -- Find all armor stands
-                    for _, obj in ipairs(workspace:GetDescendants()) do
-                        if obj.Name == ARMOR_STAND_NAME and obj:IsA("Model") then
-                            local part = obj:FindFirstChildWhichIsA("BasePart")
-                            if part then
-                                table.insert(armors, {
-                                    part = part,
-                                    distance = (root.Position - part.Position).Magnitude
-                                })
-                            end
-                        end
-                    end
-
-                    -- Activate nearest 3 armors
-                    table.sort(armors, function(a,b) return a.distance < b.distance end)
-                    for i = 1, math.min(3, #armors) do
-                        for _ = 1, 2 do -- Double activation
-                            firetouchinterest(root, armors[i].part, 0)
-                            RunService.Heartbeat:Wait()
-                            firetouchinterest(root, armors[i].part, 1)
-                        end
-                        if LP.Character:FindFirstChild("BattleArmor") then break end
-                    end
-                end
-            end
-        end)
-        
-        if needsResurrection then
-            ArmorSystemActive = false
-            task.wait(1)
-            ArmorSystemActive = true
-        end
-        task.wait(2)
+-- Function to handle armor stand interaction and equip armor
+local function onArmorStandTouched(armorStand)
+    -- Equip armor from the stand if the player's health is not full
+    if humanoid and humanoid.Health < humanoid.MaxHealth then
+        equipArmor(armorStand)
+    else
+        print("Already fully equipped or healed.")
     end
 end
 
--- Healing Core System
-local function MaintainHealth()
-    while HealSystemActive and SystemsActive do
-        local needsResurrection = SafeCall(function()
-            if LP.Character and LP.Character:FindFirstChild("Humanoid") then
-                local humanoid = LP.Character.Humanoid
-                if humanoid.Health < humanoid.MaxHealth then
-                    local closestPad
-                    local closestDistance = math.huge
-                    local root = LP.Character:FindFirstChild("HumanoidRootPart")
-                    
-                    if root then
-                        -- Find active heal pads
-                        for _, pad in ipairs(workspace:GetDescendants()) do
-                            if pad.Name == HEAL_PAD_NAME and pad:IsA("Model") then
-                                local padPart = pad:FindFirstChildWhichIsA("BasePart")
-                                if padPart and math.abs(padPart.Color.R - ACTIVE_HEAL_COLOR.R) < 0.01 then
-                                    local distance = (root.Position - padPart.Position).Magnitude
-                                    if distance < closestDistance then
-                                        closestPad = padPart
-                                        closestDistance = distance
-                                    end
-                                end
-                            end
-                        end
+-- Main Loop for auto equip and heal
+local function autoEquipAndHeal()
+    -- Equip armor on spawn
+    equipArmor(armorStand1) -- Equipping armor immediately on spawn
 
-                        -- Activate nearest 2 heal pads
-                        if closestPad then
-                            for _ = 1, 3 do -- Triple activation
-                                firetouchinterest(root, closestPad, 0)
-                                RunService.Heartbeat:Wait()
-                                firetouchinterest(root, closestPad, 1)
-                            end
-                        end
-                    end
-                end
-            end
-        end)
-        
-        if needsResurrection then
-            HealSystemActive = false
-            task.wait(1)
-            HealSystemActive = true
-        end
-        task.wait(0.5)
-    end
+    -- Equip armor again if the player respawns
+    player.CharacterAdded:Connect(function()
+        equipArmor(armorStand1) -- Equip armor on respawn
+    end)
+
+    -- Continuously check health and use healing pads accordingly
+    RunService.Heartbeat:Connect(function()
+        checkPlayerHealth()
+    end)
 end
 
--- System Controller
-local function ControlSystems()
-    CleanupSystems()
-    
-    -- Start independent systems
-    table.insert(CleanupQueue, task.spawn(MaintainArmor))
-    table.insert(CleanupQueue, task.spawn(MaintainHealth))
-    
-    -- Character lifecycle handler
-    local function HandleCharacter()
-        local humanoid = LP.Character:WaitForChild("Humanoid")
-        humanoid.Died:Connect(function()
-            task.wait(2)
-            ControlSystems()
-        end)
-    end
-    
-    if LP.Character then
-        HandleCharacter()
-    end
-    table.insert(CleanupQueue, LP.CharacterAdded:Connect(HandleCharacter))
-end
-
--- Toggle System
-UIS.InputBegan:Connect(function(input)
-    if input.KeyCode == TOGGLE_KEY then
-        SystemsActive = not SystemsActive
-        game:GetService("StarterGui"):SetCore("SendNotification", {
-            Title = "SYSTEM: "..(SystemsActive and "ACTIVE" or "STANDBY"),
-            Duration = 1
-        })
-        if SystemsActive then
-            ControlSystems()
-        else
-            CleanupSystems()
-        end
+-- Set up touch events for armor stands
+armorStand1.Touched:Connect(function(hit)
+    if hit.Parent == player.Character then
+        onArmorStandTouched(armorStand1)
     end
 end)
 
--- Initialization
-ControlSystems()
-game:GetService("StarterGui"):SetCore("SendNotification", {
-    Title = "ULTIMATE SFOTH SYSTEM",
-    Text = "Features:\n- Armor/Heal Independence\n- Auto-Resurrection\n- Crash Protection",
-    Duration = 5
-})
+armorStand2.Touched:Connect(function(hit)
+    if hit.Parent == player.Character then
+        onArmorStandTouched(armorStand2)
+    end
+end)
+
+-- Start the auto equip and heal process
+autoEquipAndHeal()
