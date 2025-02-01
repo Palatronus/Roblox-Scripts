@@ -1,175 +1,195 @@
 local Players = game:GetService("Players")
 local UIS = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
 local LP = Players.LocalPlayer
-local Toggle = true
 
--- System state management
-local Connections = {}
-local ActiveLoops = {}
-local CleanupQueue = {}
+-- System state control
+local SystemsActive = true
+local HeartbeatConnection
+local CharacterConnection
+local HealthConnection
 
--- Verified color values
+-- Configuration
 local ACTIVE_COLOR = Color3.new(75/255, 151/255, 75/255)
-local INACTIVE_COLOR = Color3.new(196/255, 40/255, 28/255)
+local ARMOR_NAME = "BattleArmor"
+local HEALPAD_NAME = "HealPad"
 
--- Error-resistant color comparison
-local function CompareColors(a, b)
-    return math.floor(a.R * 255) == math.floor(b.R * 255) and
-           math.floor(a.G * 255) == math.floor(b.G * 255) and
-           math.floor(a.B * 255) == math.floor(b.B * 255)
+-- Debug logging
+local function Log(message)
+    print("[SFOTH System]", message)
 end
 
--- Memory cleanup system
-local function PerformCleanup()
-    for _, obj in ipairs(CleanupQueue) do
-        if obj.Disconnect then
-            obj:Disconnect()
-        elseif obj.destroy then
-            obj:destroy()
-        end
+-- System resurrection
+local function RestartSystems()
+    Log("Restarting all systems...")
+    
+    -- Cleanup previous connections
+    if HeartbeatConnection then
+        HeartbeatConnection:Disconnect()
+        HeartbeatConnection = nil
     end
-    CleanupQueue = {}
-end
-
--- Toggle system with memory management
-UIS.InputBegan:Connect(function(Input)
-    if Input.KeyCode == Enum.KeyCode.H then
-        Toggle = not Toggle
-        PerformCleanup()
-        
+    if HealthConnection then
+        HealthConnection:Disconnect()
+        HealthConnection = nil
+    end
+    
+    -- Force garbage collection
+    task.defer(function()
+        wait(1)
         game:GetService("StarterGui"):SetCore("SendNotification", {
-            Title = "SYSTEM: "..(Toggle and "ON" or "OFF"),
-            Text = Toggle and "Stabilized system active" or "Full cleanup performed",
+            Title = "SYSTEM RESURRECTION",
+            Text = "Full system reboot completed",
             Duration = 2
         })
-    end
-end)
-
-local function SafeGetCharacter()
-    return LP.Character or LP.CharacterAdded:Wait()
+    end)
 end
 
-local function ForceHeal()
+-- Error-protected core functions
+local function SafeForceHeal()
     pcall(function()
-        local character = SafeGetCharacter()
-        local humanoid = character:WaitForChild("Humanoid")
-        if humanoid.Health >= humanoid.MaxHealth then return end
+        if not LP.Character then return end
+        local humanoid = LP.Character:FindFirstChild("Humanoid")
+        if not humanoid or humanoid.Health >= humanoid.MaxHealth then return end
 
         local closestPad
         local closestDistance = math.huge
-        local charPos = character:WaitForChild("HumanoidRootPart").Position
+        local root = LP.Character:FindFirstChild("HumanoidRootPart")
+        if not root then return end
 
+        -- Active pad detection
         for _, pad in ipairs(workspace:GetDescendants()) do
-            if pad.Name == "HealPad" and pad:IsA("Model") then
-                local padPart = pad:FindFirstChild("Pad") or pad:FindFirstChildWhichIsA("BasePart")
-                if padPart and CompareColors(padPart.Color, ACTIVE_COLOR) then
-                    local distance = (charPos - padPart.Position).Magnitude
+            if pad.Name == HEALPAD_NAME and pad:IsA("Model") then
+                local padPart = pad:FindFirstChildWhichIsA("BasePart")
+                if padPart and math.abs(padPart.Color.R - ACTIVE_COLOR.R) < 0.05 then
+                    local distance = (root.Position - padPart.Position).Magnitude
                     if distance < closestDistance then
-                        closestDistance = distance
                         closestPad = padPart
+                        closestDistance = distance
                     end
                 end
             end
         end
 
         if closestPad then
+            Log("Activating heal pad: "..closestPad:GetFullName())
             for _ = 1, 3 do
-                firetouchinterest(character.HumanoidRootPart, closestPad, 0)
-                task.wait(0.1)
-                firetouchinterest(character.HumanoidRootPart, closestPad, 1)
-                task.wait(0.1)
+                firetouchinterest(root, closestPad, 0)
+                RunService.Heartbeat:Wait()
+                firetouchinterest(root, closestPad, 1)
+                RunService.Heartbeat:Wait()
             end
         end
     end)
 end
 
-local function MaintainArmor()
+local function SafeMaintainArmor()
     pcall(function()
-        local character = SafeGetCharacter()
-        if character:FindFirstChild("BattleArmor") then return end
+        if not LP.Character then return end
+        if LP.Character:FindFirstChild(ARMOR_NAME) then return end
 
         local armors = {}
+        local root = LP.Character:FindFirstChild("HumanoidRootPart")
+        if not root then return end
+
+        -- Armor collection
         for _, obj in ipairs(workspace:GetDescendants()) do
             if obj.Name == "BattleArmorStand" and obj:IsA("Model") then
                 local part = obj:FindFirstChildWhichIsA("BasePart")
-                if part then table.insert(armors, part) end
+                if part then
+                    table.insert(armors, {
+                        part = part,
+                        distance = (root.Position - part.Position).Magnitude
+                    })
+                end
             end
         end
 
-        table.sort(armors, function(a,b)
-            return (character.HumanoidRootPart.Position - a.Position).Magnitude <
-                   (character.HumanoidRootPart.Position - b.Position).Magnitude
-        end)
+        table.sort(armors, function(a,b) return a.distance < b.distance end)
 
         for _, armor in ipairs(armors) do
+            Log("Attempting armor pickup: "..armor.part:GetFullName())
             for _ = 1, 2 do
-                firetouchinterest(character.HumanoidRootPart, armor, 0)
-                task.wait(0.1)
-                firetouchinterest(character.HumanoidRootPart, armor, 1)
+                firetouchinterest(root, armor.part, 0)
+                RunService.Heartbeat:Wait()
+                firetouchinterest(root, armor.part, 1)
+                RunService.Heartbeat:Wait()
             end
-            if character:FindFirstChild("BattleArmor") then break end
+            if LP.Character:FindFirstChild(ARMOR_NAME) then break end
         end
     end)
 end
 
--- Core system with lifecycle management
-local function InitializeSystems()
-    -- Clean previous instances
-    PerformCleanup()
-
-    -- Health monitoring
-    local char = SafeGetCharacter()
-    local humanoid = char:WaitForChild("Humanoid")
-    
-    local healthConnection = humanoid.HealthChanged:Connect(function()
-        if Toggle and humanoid.Health < humanoid.MaxHealth then
-            ForceHeal()
-        end
+-- Core heartbeat system
+local function StartHeartbeat()
+    HeartbeatConnection = RunService.Heartbeat:Connect(function()
+        if not SystemsActive then return end
+        
+        -- System 1: Armor maintenance
+        coroutine.wrap(function()
+            SafeMaintainArmor()
+        end)()
+        
+        -- System 2: Health maintenance
+        coroutine.wrap(function()
+            SafeForceHeal()
+        end)()
     end)
-    table.insert(CleanupQueue, healthConnection)
-
-    -- Main loop
-    local mainLoop = task.spawn(function()
-        while Toggle do
-            MaintainArmor()
-            task.wait(1)
-        end
-    end)
-    table.insert(CleanupQueue, mainLoop)
-
-    -- Secondary loop
-    local healLoop = task.spawn(function()
-        while Toggle do
-            if humanoid.Health < humanoid.MaxHealth then
-                ForceHeal()
-            end
-            task.wait(0.5)
-        end
-    end)
-    table.insert(CleanupQueue, healLoop)
 end
 
--- Character lifecycle handler
-local function HandleCharacter()
-    local charConnection
-    charConnection = LP.CharacterAdded:Connect(function()
-        InitializeSystems()
-        charConnection:Disconnect()
-    end)
-    table.insert(CleanupQueue, charConnection)
+-- Character lifecycle manager
+local function ManageCharacter()
+    Log("Initializing character systems...")
     
-    if LP.Character then
-        InitializeSystems()
+    -- Cleanup existing connections
+    if HealthConnection then
+        HealthConnection:Disconnect()
     end
+    
+    -- Health monitoring
+    local character = LP.Character or LP.CharacterAdded:Wait()
+    local humanoid = character:WaitForChild("Humanoid")
+    
+    HealthConnection = humanoid.HealthChanged:Connect(function()
+        if humanoid.Health < humanoid.MaxHealth then
+            SafeForceHeal()
+        end
+    end)
+    
+    -- Death/respawn handler
+    humanoid.Died:Connect(function()
+        Log("Character died - restarting systems...")
+        RestartSystems()
+        ManageCharacter()
+    end)
 end
+
+-- Toggle system
+UIS.InputBegan:Connect(function(input)
+    if input.KeyCode == Enum.KeyCode.H then
+        SystemsActive = not SystemsActive
+        Log("Main systems "..(SystemsActive and "activated" or "deactivated"))
+        if SystemsActive then
+            ManageCharacter()
+            StartHeartbeat()
+        end
+    end
+end)
 
 -- Initial startup
-HandleCharacter()
-table.insert(CleanupQueue, LP.CharacterAdded:Connect(HandleCharacter))
+task.spawn(function()
+    ManageCharacter()
+    StartHeartbeat()
+    
+    -- Eternal watchdog
+    while true do
+        task.wait(30)
+        if SystemsActive and not HeartbeatConnection.Connected then
+            Log("Watchdog detected system failure - restarting...")
+            RestartSystems()
+            ManageCharacter()
+            StartHeartbeat()
+        end
+    end
+end)
 
--- Final safeguard
-game:GetService("StarterGui"):SetCore("SendNotification", {
-    Title = "STABLE SYSTEM LOADED",
-    Text = "Anti-crash protections active\nAutomatic cleanup enabled",
-    Duration = 5
-})
+Log("System initialized - Press H to toggle")
