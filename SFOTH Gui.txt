@@ -60,51 +60,36 @@ local function checkPlayerHealth()
     end
 end
 
--- Function to detect and equip armor from an available armor stand
-local function checkArmorStands()
-    -- Only equip armor from a stand if it's not already equipped
-    if humanoid.MaxHealth <= 100 then -- Assuming 100 is the base health value (adjust based on your game)
-        -- If armor stand 1 is available, equip armor
-        if not armorStand1:FindFirstChild("Touched") then
-            equipArmor(armorStand1)
-        -- If armor stand 2 is available, equip armor
-        elseif not armorStand2:FindFirstChild("Touched") then
-            equipArmor(armorStand2)
-        else
-            print("Both armor stands are already taken.")
-        end
+-- Function to handle armor stand interaction and equip armor
+local function onArmorStandTouched(armorStand)
+    -- Equip armor only if the player's health is not already maxed
+    if humanoid and humanoid.Health < humanoid.MaxHealth then
+        equipArmor(armorStand)
+    else
+        print("Already fully equipped or healed.")
     end
 end
 
 -- Main Loop
 local function autoEquipAndHeal()
-    -- Equip armor on spawn
-    checkArmorStands()
-
-    -- Check if the player needs healing after taking damage
-    player.CharacterAdded:Connect(function()
-        -- Equip armor again when the character respawns
-        checkArmorStands()
-    end)
-
     -- Continuously check health and use healing pads accordingly
     RunService.Heartbeat:Connect(function()
         checkPlayerHealth()
     end)
 end
 
--- Start the auto equip and heal process
-autoEquipAndHeal()
-
--- Function to handle touch event for armor stands (equipping armor)
+-- Set up touch events for armor stands
 armorStand1.Touched:Connect(function(hit)
     if hit.Parent == player.Character then
-        equipArmor(armorStand1)
+        onArmorStandTouched(armorStand1)
     end
 end)
 
 armorStand2.Touched:Connect(function(hit)
     if hit.Parent == player.Character then
-        equipArmor(armorStand2)
+        onArmorStandTouched(armorStand2)
     end
 end)
+
+-- Start the auto equip and heal process
+autoEquipAndHeal()
