@@ -17,10 +17,10 @@ local isHealPadActive = false
 -- Equip armor when touching the armor stand
 local function equipArmor(armorStand)
     if humanoid then
+        print("Equipping armor from " .. armorStand.Name)
         -- Double the player's MaxHealth and set health to max
         humanoid.MaxHealth = humanoid.MaxHealth * 2
         humanoid.Health = humanoid.MaxHealth
-        print("Equipping armor from " .. armorStand.Name)
     end
 end
 
@@ -60,13 +60,11 @@ end
 
 -- Function to handle armor stand interaction and equip armor
 local function onArmorStandTouched(armorStand)
-    -- Equip armor from the stand
-    if humanoid then
-        if humanoid.Health < humanoid.MaxHealth then
-            equipArmor(armorStand) -- Equip armor only if health is below max
-        else
-            print("Already fully healed or equipped.")
-        end
+    -- Equip armor from the stand if the player's health is not full
+    if humanoid and humanoid.Health < humanoid.MaxHealth then
+        equipArmor(armorStand)
+    else
+        print("Already fully equipped or healed.")
     end
 end
 
