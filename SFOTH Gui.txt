@@ -4,50 +4,63 @@ local LP = Players.LocalPlayer
 local Toggle = true
 
 -- Verified color values
-local ACTIVE_COLOR = Color3.new(0, 1, 0) -- Bright green
-local INACTIVE_COLOR = Color3.new(196/255, 40/255, 28/255) -- Exact RGB: 196,40,28
+local ACTIVE_COLOR = Color3.new(75/255, 151/255, 75/255) -- Bright green (75,151,75)
+local INACTIVE_COLOR = Color3.new(196/255, 40/255, 28/255) -- Bright red (196,40,28)
 
--- Toggle system with debug
+-- Toggle system with visual feedback
 UIS.InputBegan:Connect(function(Input)
     if Input.KeyCode == Enum.KeyCode.H then
         Toggle = not Toggle
-        print("System toggled:", Toggle)
+        game:GetService("StarterGui"):SetCore("SendNotification", {
+            Title = "SYSTEM: "..(Toggle and "ON" or "OFF"),
+            Text = Toggle and "Color-accurate healing" or "All systems disabled",
+            Duration = 2
+        })
     end
 end)
 
-local function GetHealPadTarget()
-    local closestPad
-    local closestDistance = math.huge
-    local characterPos = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart") and LP.Character.HumanoidRootPart.Position
-
-    if not characterPos then return nil end
-
+local function GetActivePads()
+    local activePads = {}
     for _, pad in ipairs(workspace:GetDescendants()) do
         if pad.Name == "HealPad" and pad:IsA("Model") then
-            local mainPart = pad:FindFirstChild("Pad") or pad:FindFirstChildWhichIsA("BasePart")
-            if mainPart and mainPart.Color == ACTIVE_COLOR then
-                local distance = (characterPos - mainPart.Position).Magnitude
-                if distance < closestDistance then
-                    closestDistance = distance
-                    closestPad = mainPart
-                end
+            local padPart = pad:FindFirstChild("Pad") or pad:FindFirstChildWhichIsA("BasePart")
+            if padPart and padPart.Color == ACTIVE_COLOR then
+                table.insert(activePads, {
+                    part = padPart,
+                    position = padPart.Position
+                })
             end
         end
     end
-    return closestPad
+    return activePads
 end
 
 local function ForceHeal()
     if not Toggle or not LP.Character then return end
     
-    local pad = GetHealPadTarget()
-    if pad and LP.Character.Humanoid.Health < LP.Character.Humanoid.MaxHealth then
-        -- Quadruple activation pattern
-        for _ = 1, 4 do
-            firetouchinterest(LP.Character.HumanoidRootPart, pad, 0)
-            task.wait(0.08)
-            firetouchinterest(LP.Character.HumanoidRootPart, pad, 1)
-            task.wait(0.08)
+    local activePads = GetActivePads()
+    if #activePads == 0 then return end
+    
+    -- Find nearest active pad
+    local closestPad
+    local closestDistance = math.huge
+    local charPos = LP.Character.HumanoidRootPart.Position
+    
+    for _, padData in ipairs(activePads) do
+        local distance = (charPos - padData.position).Magnitude
+        if distance < closestDistance then
+            closestDistance = distance
+            closestPad = padData.part
+        end
+    end
+    
+    -- Quintuple activation pattern
+    if closestPad then
+        for _ = 1, 5 do
+            firetouchinterest(LP.Character.HumanoidRootPart, closestPad, 0)
+            task.wait(0.07)
+            firetouchinterest(LP.Character.HumanoidRootPart, closestPad, 1)
+            task.wait(0.07)
         end
         return true
     end
@@ -63,7 +76,7 @@ local function MaintainArmor()
         end
     end
     
-    -- Brute-force with priority to nearest
+    -- Priority to nearest armor
     table.sort(armors, function(a,b)
         return (LP.Character.HumanoidRootPart.Position - a.Position).Magnitude <
                (LP.Character.HumanoidRootPart.Position - b.Position).Magnitude
@@ -79,14 +92,14 @@ local function MaintainArmor()
     end
 end
 
--- Core system with resurrection handling
+-- Core systems
 LP.CharacterAdded:Connect(function(char)
     char:WaitForChild("Humanoid").HealthChanged:Connect(function()
-        if Toggle then
+        if Toggle and LP.Character.Humanoid.Health < LP.Character.Humanoid.MaxHealth then
             repeat
-                local success = ForceHeal()
+                ForceHeal()
                 task.wait(0.1)
-            until not Toggle or LP.Character.Humanoid.Health == LP.Character.Humanoid.MaxHealth
+            until LP.Character.Humanoid.Health == LP.Character.Humanoid.MaxHealth
         end
     end)
 end)
@@ -94,12 +107,9 @@ end)
 task.spawn(function()
     while task.wait(0.3) do
         if Toggle and LP.Character then
-            -- Armor system
             if not LP.Character:FindFirstChild("BattleArmor") then
                 MaintainArmor()
             end
-            
-            -- Emergency heal check
             if LP.Character.Humanoid.Health < LP.Character.Humanoid.MaxHealth then
                 ForceHeal()
             end
@@ -107,4 +117,9 @@ task.spawn(function()
     end
 end)
 
-print("Script loaded - Press H to toggle")
+-- Debug initialization
+game:GetService("StarterGui"):SetCore("SendNotification", {
+    Title = "HEAL SYSTEM ACTIVE",
+    Text = "Using color: RGB(75,151,75)\nPress H to toggle",
+    Duration = 5
+})
