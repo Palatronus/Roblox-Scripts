@@ -1,124 +1,186 @@
+--[[  
+    Auto Heal & Auto Armor Equip Script
+    Updated Model Names:
+      - Armor Model: "BattleArmor"
+      - Regen Pad Model: "Pad"
+    Functionality:
+      • Continuously checks (every 0.3 sec) for available armor and active healing pads.
+      • Uses firetouchinterest() to simulate touch events.
+      • The healing pads are detected by checking for the active color (Bright green, RGB(75,151,75)).
+      • Armor is acquired if the character is not already wearing it.
+      • Press H to toggle the entire system on/off.
+      
+    Note:  
+      • Adjust task.wait delays if needed for responsiveness vs. reliability.
+      • This script is experimental and intended for educational/experimental use.
+--]]
+
 local Players = game:GetService("Players")
 local UIS = game:GetService("UserInputService")
+local StarterGui = game:GetService("StarterGui")
 local LP = Players.LocalPlayer
+
 local Toggle = true
 
 -- Verified color values
-local ACTIVE_COLOR = Color3.new(75/255, 151/255, 75/255) -- Bright green (75,151,75)
-local INACTIVE_COLOR = Color3.new(196/255, 40/255, 28/255) -- Bright red (196,40,28)
+local ACTIVE_COLOR = Color3.new(75/255, 151/255, 75/255)    -- Bright green (75,151,75)
+local INACTIVE_COLOR = Color3.new(196/255, 40/255, 28/255)   -- Bright red (196,40,28)
 
--- Toggle system with visual feedback
-UIS.InputBegan:Connect(function(Input)
-    if Input.KeyCode == Enum.KeyCode.H then
+-- Toggle system with visual feedback (press H to toggle)
+UIS.InputBegan:Connect(function(input, gameProcessed)
+    if not gameProcessed and input.KeyCode == Enum.KeyCode.H then
         Toggle = not Toggle
-        game:GetService("StarterGui"):SetCore("SendNotification", {
-            Title = "SYSTEM: "..(Toggle and "ON" or "OFF"),
-            Text = Toggle and "Color-accurate healing" or "All systems disabled",
+        StarterGui:SetCore("SendNotification", {
+            Title = "SYSTEM: " .. (Toggle and "ON" or "OFF"),
+            Text = Toggle and "Healing and Armor active" or "Systems disabled",
             Duration = 2
         })
     end
 end)
 
+--------------------------------------------------
+-- HEALING FUNCTIONS
+--------------------------------------------------
+-- Get active healing pads (models named "Pad") that have the active color.
 local function GetActivePads()
     local activePads = {}
     for _, pad in ipairs(workspace:GetDescendants()) do
-        if pad.Name == "HealPad" and pad:IsA("Model") then
+        if pad.Name == "Pad" and pad:IsA("Model") then
             local padPart = pad:FindFirstChild("Pad") or pad:FindFirstChildWhichIsA("BasePart")
             if padPart and padPart.Color == ACTIVE_COLOR then
-                table.insert(activePads, {
-                    part = padPart,
-                    position = padPart.Position
-                })
+                table.insert(activePads, { part = padPart, position = padPart.Position })
             end
         end
     end
     return activePads
 end
 
+-- Attempt to heal by finding the nearest active pad and "touching" it repeatedly.
 local function ForceHeal()
-    if not Toggle or not LP.Character then return end
-    
+    if not Toggle or not LP.Character then 
+        return 
+    end
+
+    local hrp = LP.Character:FindFirstChild("HumanoidRootPart")
+    local humanoid = LP.Character:FindFirstChild("Humanoid")
+    if not hrp or not humanoid then 
+        return 
+    end
+
     local activePads = GetActivePads()
-    if #activePads == 0 then return end
-    
-    -- Find nearest active pad
-    local closestPad
-    local closestDistance = math.huge
-    local charPos = LP.Character.HumanoidRootPart.Position
-    
+    if #activePads == 0 then 
+        return 
+    end
+
+    -- Find the nearest active pad.
+    local closestPad, closestDistance = nil, math.huge
     for _, padData in ipairs(activePads) do
-        local distance = (charPos - padData.position).Magnitude
+        local distance = (hrp.Position - padData.position).Magnitude
         if distance < closestDistance then
             closestDistance = distance
             closestPad = padData.part
         end
     end
-    
-    -- Quintuple activation pattern
+
     if closestPad then
-        for _ = 1, 5 do
-            firetouchinterest(LP.Character.HumanoidRootPart, closestPad, 0)
-            task.wait(0.07)
-            firetouchinterest(LP.Character.HumanoidRootPart, closestPad, 1)
+        -- Quintuple activation (simulate repeated touches)
+        for i = 1, 5 do
+            pcall(function()
+                firetouchinterest(hrp, closestPad, 0)
+                task.wait(0.07)
+                firetouchinterest(hrp, closestPad, 1)
+            end)
             task.wait(0.07)
         end
-        return true
     end
-    return false
 end
 
+--------------------------------------------------
+-- ARMOR FUNCTIONS
+--------------------------------------------------
+-- Attempt to obtain armor by finding the nearest available armor model (named "BattleArmor")
+-- and simulating a touch on it repeatedly.
 local function MaintainArmor()
+    if not Toggle or not LP.Character then 
+        return 
+    end
+
+    local hrp = LP.Character:FindFirstChild("HumanoidRootPart")
+    local humanoid = LP.Character:FindFirstChild("Humanoid")
+    if not hrp or not humanoid then 
+        return 
+    end
+
     local armors = {}
     for _, obj in ipairs(workspace:GetDescendants()) do
-        if obj.Name == "BattleArmorStand" and obj:IsA("Model") then
+        if obj.Name == "BattleArmor" and obj:IsA("Model") then
             local part = obj:FindFirstChildWhichIsA("BasePart")
-            if part then table.insert(armors, part) end
+            if part then 
+                table.insert(armors, part)
+            end
         end
     end
-    
-    -- Priority to nearest armor
-    table.sort(armors, function(a,b)
-        return (LP.Character.HumanoidRootPart.Position - a.Position).Magnitude <
-               (LP.Character.HumanoidRootPart.Position - b.Position).Magnitude
+
+    -- Sort armor pieces by distance (nearest first)
+    table.sort(armors, function(a, b)
+        return (hrp.Position - a.Position).Magnitude < (hrp.Position - b.Position).Magnitude
     end)
-    
+
     for _, armor in ipairs(armors) do
-        for _ = 1, 3 do  -- Triple activation
-            firetouchinterest(LP.Character.HumanoidRootPart, armor, 0)
+        -- Triple activation pattern for armor acquisition.
+        for i = 1, 3 do
+            pcall(function()
+                firetouchinterest(hrp, armor, 0)
+                task.wait(0.05)
+                firetouchinterest(hrp, armor, 1)
+            end)
             task.wait(0.05)
-            firetouchinterest(LP.Character.HumanoidRootPart, armor, 1)
         end
-        if LP.Character:FindFirstChild("BattleArmor") then break end
+        -- Check if armor is now in the character (assuming the equipped armor appears as a child named "BattleArmor")
+        if LP.Character:FindFirstChild("BattleArmor") then
+            break
+        end
     end
 end
 
--- Core systems
-LP.CharacterAdded:Connect(function(char)
-    char:WaitForChild("Humanoid").HealthChanged:Connect(function()
-        if Toggle and LP.Character.Humanoid.Health < LP.Character.Humanoid.MaxHealth then
-            repeat
-                ForceHeal()
-                task.wait(0.1)
-            until LP.Character.Humanoid.Health == LP.Character.Humanoid.MaxHealth
-        end
-    end)
-end)
-
-task.spawn(function()
+--------------------------------------------------
+-- MAIN LOOP
+--------------------------------------------------
+local function MainLoop()
     while task.wait(0.3) do
-        if Toggle and LP.Character then
-            if not LP.Character:FindFirstChild("BattleArmor") then
-                MaintainArmor()
-            end
-            if LP.Character.Humanoid.Health < LP.Character.Humanoid.MaxHealth then
-                ForceHeal()
-            end
+        if not Toggle or not LP.Character then 
+            continue 
+        end
+        
+        local humanoid = LP.Character:FindFirstChild("Humanoid")
+        if not humanoid then 
+            continue 
+        end
+
+        -- If the character is not wearing armor, try to get armor.
+        if not LP.Character:FindFirstChild("BattleArmor") then
+            MaintainArmor()
+        end
+
+        -- If the character's health is below maximum, try to heal.
+        if humanoid.Health < humanoid.MaxHealth then
+            ForceHeal()
         end
     end
+end
+
+-- Reset (or reinitialize) systems when the character spawns.
+LP.CharacterAdded:Connect(function(char)
+    char:WaitForChild("Humanoid")
+    task.wait(1) -- Allow a short delay after spawn
 end)
 
--- Debug initialization
-game:GetService("StarterGui"):SetCore("SendNotification", {
+--------------------------------------------------
+-- START THE SCRIPT
+--------------------------------------------------
+task.spawn(MainLoop)
+
+StarterGui:SetCore("SendNotification", {
     Title = "HEAL SYSTEM ACTIVE",
     Text = "Using color: RGB(75,151,75)\nPress H to toggle",
     Duration = 5
