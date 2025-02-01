@@ -14,15 +14,13 @@ local healPad2 = workspace:WaitForChild("HealPad2")
 -- Variable to track if heal pad is being used
 local isHealPadActive = false
 
--- Helper Functions
-
 -- Equip armor when touching the armor stand
 local function equipArmor(armorStand)
-    -- Simulate armor equip by doubling player's max health
     if humanoid then
         print("Equipping armor from " .. armorStand.Name)
+        -- Double the player's MaxHealth and set health to max
         humanoid.MaxHealth = humanoid.MaxHealth * 2
-        humanoid.Health = humanoid.MaxHealth -- Ensure the health is fully restored
+        humanoid.Health = humanoid.MaxHealth
     end
 end
 
@@ -62,7 +60,7 @@ end
 
 -- Function to handle armor stand interaction and equip armor
 local function onArmorStandTouched(armorStand)
-    -- Equip armor only if the player's health is not already maxed
+    -- Equip armor from the stand if the player's health is not maxed out
     if humanoid and humanoid.Health < humanoid.MaxHealth then
         equipArmor(armorStand)
     else
@@ -70,8 +68,16 @@ local function onArmorStandTouched(armorStand)
     end
 end
 
--- Main Loop
+-- Main Loop for auto equip and heal
 local function autoEquipAndHeal()
+    -- Equip armor on spawn
+    equipArmor(armorStand1) -- Equipping armor immediately on spawn
+
+    -- Equip armor again if the player respawns
+    player.CharacterAdded:Connect(function()
+        equipArmor(armorStand1) -- Equip armor on respawn (can customize to check if it's already equipped)
+    end)
+
     -- Continuously check health and use healing pads accordingly
     RunService.Heartbeat:Connect(function()
         checkPlayerHealth()
