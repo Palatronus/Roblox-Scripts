@@ -1,195 +1,63 @@
-local Players = game:GetService("Players")
-local UIS = game:GetService("UserInputService")
-local RunService = game:GetService("RunService")
-local LP = Players.LocalPlayer
+--// Auto Heal & Auto Armor Script for Sword Fight on the Heights Original
+--// Designed for Execution in Roblox Executors, Uses firetouchinterest()
 
--- System state control
-local SystemsActive = true
-local HeartbeatConnection
-local CharacterConnection
-local HealthConnection
+-- Variables
+local player = game.Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local humanoid = character:FindFirstChildOfClass("Humanoid")
+local workspace = game:GetService("Workspace")
 
--- Configuration
-local ACTIVE_COLOR = Color3.new(75/255, 151/255, 75/255)
-local ARMOR_NAME = "BattleArmor"
-local HEALPAD_NAME = "HealPad"
+local armorStands = {workspace:FindFirstChild("BattleArmorStand")}
+local healPads = {workspace:FindFirstChild("HealPad")}
 
--- Debug logging
-local function Log(message)
-    print("[SFOTH System]", message)
-end
-
--- System resurrection
-local function RestartSystems()
-    Log("Restarting all systems...")
-    
-    -- Cleanup previous connections
-    if HeartbeatConnection then
-        HeartbeatConnection:Disconnect()
-        HeartbeatConnection = nil
+local function fireTouch(target)
+    if target then
+        firetouchinterest(character.HumanoidRootPart, target, 0) -- Start Touch
+        task.wait(0.1) -- Small Delay
+        firetouchinterest(character.HumanoidRootPart, target, 1) -- End Touch
     end
-    if HealthConnection then
-        HealthConnection:Disconnect()
-        HealthConnection = nil
-    end
-    
-    -- Force garbage collection
-    task.defer(function()
-        wait(1)
-        game:GetService("StarterGui"):SetCore("SendNotification", {
-            Title = "SYSTEM RESURRECTION",
-            Text = "Full system reboot completed",
-            Duration = 2
-        })
-    end)
 end
 
--- Error-protected core functions
-local function SafeForceHeal()
-    pcall(function()
-        if not LP.Character then return end
-        local humanoid = LP.Character:FindFirstChild("Humanoid")
-        if not humanoid or humanoid.Health >= humanoid.MaxHealth then return end
-
-        local closestPad
-        local closestDistance = math.huge
-        local root = LP.Character:FindFirstChild("HumanoidRootPart")
-        if not root then return end
-
-        -- Active pad detection
-        for _, pad in ipairs(workspace:GetDescendants()) do
-            if pad.Name == HEALPAD_NAME and pad:IsA("Model") then
-                local padPart = pad:FindFirstChildWhichIsA("BasePart")
-                if padPart and math.abs(padPart.Color.R - ACTIVE_COLOR.R) < 0.05 then
-                    local distance = (root.Position - padPart.Position).Magnitude
-                    if distance < closestDistance then
-                        closestPad = padPart
-                        closestDistance = distance
-                    end
-                end
-            end
-        end
-
-        if closestPad then
-            Log("Activating heal pad: "..closestPad:GetFullName())
-            for _ = 1, 3 do
-                firetouchinterest(root, closestPad, 0)
-                RunService.Heartbeat:Wait()
-                firetouchinterest(root, closestPad, 1)
-                RunService.Heartbeat:Wait()
-            end
-        end
-    end)
+local function hasArmor()
+    return humanoid.MaxHealth > 100 -- Assumes armor doubles health
 end
 
-local function SafeMaintainArmor()
-    pcall(function()
-        if not LP.Character then return end
-        if LP.Character:FindFirstChild(ARMOR_NAME) then return end
-
-        local armors = {}
-        local root = LP.Character:FindFirstChild("HumanoidRootPart")
-        if not root then return end
-
-        -- Armor collection
-        for _, obj in ipairs(workspace:GetDescendants()) do
-            if obj.Name == "BattleArmorStand" and obj:IsA("Model") then
-                local part = obj:FindFirstChildWhichIsA("BasePart")
-                if part then
-                    table.insert(armors, {
-                        part = part,
-                        distance = (root.Position - part.Position).Magnitude
-                    })
-                end
-            end
-        end
-
-        table.sort(armors, function(a,b) return a.distance < b.distance end)
-
-        for _, armor in ipairs(armors) do
-            Log("Attempting armor pickup: "..armor.part:GetFullName())
-            for _ = 1, 2 do
-                firetouchinterest(root, armor.part, 0)
-                RunService.Heartbeat:Wait()
-                firetouchinterest(root, armor.part, 1)
-                RunService.Heartbeat:Wait()
-            end
-            if LP.Character:FindFirstChild(ARMOR_NAME) then break end
-        end
-    end)
+local function needsHealing()
+    return humanoid.Health < humanoid.MaxHealth
 end
 
--- Core heartbeat system
-local function StartHeartbeat()
-    HeartbeatConnection = RunService.Heartbeat:Connect(function()
-        if not SystemsActive then return end
-        
-        -- System 1: Armor maintenance
-        coroutine.wrap(function()
-            SafeMaintainArmor()
-        end)()
-        
-        -- System 2: Health maintenance
-        coroutine.wrap(function()
-            SafeForceHeal()
-        end)()
-    end)
-end
-
--- Character lifecycle manager
-local function ManageCharacter()
-    Log("Initializing character systems...")
-    
-    -- Cleanup existing connections
-    if HealthConnection then
-        HealthConnection:Disconnect()
-    end
-    
-    -- Health monitoring
-    local character = LP.Character or LP.CharacterAdded:Wait()
-    local humanoid = character:WaitForChild("Humanoid")
-    
-    HealthConnection = humanoid.HealthChanged:Connect(function()
-        if humanoid.Health < humanoid.MaxHealth then
-            SafeForceHeal()
-        end
-    end)
-    
-    -- Death/respawn handler
-    humanoid.Died:Connect(function()
-        Log("Character died - restarting systems...")
-        RestartSystems()
-        ManageCharacter()
-    end)
-end
-
--- Toggle system
-UIS.InputBegan:Connect(function(input)
-    if input.KeyCode == Enum.KeyCode.H then
-        SystemsActive = not SystemsActive
-        Log("Main systems "..(SystemsActive and "activated" or "deactivated"))
-        if SystemsActive then
-            ManageCharacter()
-            StartHeartbeat()
+local function equipArmor()
+    for _, stand in pairs(armorStands) do
+        if stand then
+            fireTouch(stand)
+            task.wait(0.5) -- Avoid spam
+            if hasArmor() then return end -- Stop if armor is equipped
         end
     end
+end
+
+local function triggerHeal()
+    for _, pad in pairs(healPads) do
+        if pad and needsHealing() then
+            fireTouch(pad)
+            task.wait(0.5)
+        end
+    end
+end
+
+local function mainLoop()
+    while task.wait(1) do -- Performance-friendly loop
+        equipArmor()
+        triggerHeal()
+    end
+end
+
+-- Ensure it runs even after respawn
+player.CharacterAdded:Connect(function(newChar)
+    character = newChar
+    humanoid = character:FindFirstChildOfClass("Humanoid")
+    task.wait(1)
+    mainLoop()
 end)
 
--- Initial startup
-task.spawn(function()
-    ManageCharacter()
-    StartHeartbeat()
-    
-    -- Eternal watchdog
-    while true do
-        task.wait(30)
-        if SystemsActive and not HeartbeatConnection.Connected then
-            Log("Watchdog detected system failure - restarting...")
-            RestartSystems()
-            ManageCharacter()
-            StartHeartbeat()
-        end
-    end
-end)
-
-Log("System initialized - Press H to toggle")
+mainLoop()
