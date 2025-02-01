@@ -17,10 +17,10 @@ local isHealPadActive = false
 -- Equip armor when touching the armor stand
 local function equipArmor(armorStand)
     if humanoid then
-        print("Equipping armor from " .. armorStand.Name)
         -- Double the player's MaxHealth and set health to max
         humanoid.MaxHealth = humanoid.MaxHealth * 2
         humanoid.Health = humanoid.MaxHealth
+        print("Equipping armor from " .. armorStand.Name)
     end
 end
 
@@ -28,18 +28,18 @@ end
 local function triggerHealPad(healPad)
     -- Only trigger if heal pad is not already active
     if isHealPadActive then return end
-    
+
     -- Mark heal pad as active
     isHealPadActive = true
+    healPad.BrickColor = BrickColor.new("Bright green") -- Activate heal pad
 
     -- Trigger healing
-    print("Triggering heal pad: " .. healPad.Name)
-    healPad.BrickColor = BrickColor.new("Bright green") -- Activate heal pad
     humanoid.Health = humanoid.MaxHealth -- Heal the player
-    
+    print("Healing player using " .. healPad.Name)
+
     -- Wait for healing process (simulate healing time)
     wait(3) -- Healing time (adjust as needed)
-    
+
     -- Deactivate heal pad
     healPad.BrickColor = BrickColor.new("Bright red")
     isHealPadActive = false
@@ -60,11 +60,13 @@ end
 
 -- Function to handle armor stand interaction and equip armor
 local function onArmorStandTouched(armorStand)
-    -- Equip armor from the stand if the player's health is not maxed out
-    if humanoid and humanoid.Health < humanoid.MaxHealth then
-        equipArmor(armorStand)
-    else
-        print("Already fully equipped or healed.")
+    -- Equip armor from the stand
+    if humanoid then
+        if humanoid.Health < humanoid.MaxHealth then
+            equipArmor(armorStand) -- Equip armor only if health is below max
+        else
+            print("Already fully healed or equipped.")
+        end
     end
 end
 
@@ -75,7 +77,7 @@ local function autoEquipAndHeal()
 
     -- Equip armor again if the player respawns
     player.CharacterAdded:Connect(function()
-        equipArmor(armorStand1) -- Equip armor on respawn (can customize to check if it's already equipped)
+        equipArmor(armorStand1) -- Equip armor on respawn
     end)
 
     -- Continuously check health and use healing pads accordingly
