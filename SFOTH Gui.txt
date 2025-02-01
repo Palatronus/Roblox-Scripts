@@ -1,72 +1,92 @@
--- Auto Heal & Auto Equip Armor Script for Sword Fight on the Heights Original
+local player = game:GetService("Players").LocalPlayer
+local runService = game:GetService("RunService")
 
--- Settings
-local armorName = "BattleArmorStand"
+local armorStandName = "BattleArmorStand"
 local healPadName = "HealPad"
-local player = game.Players.LocalPlayer
+local cooldown = 0.5 -- Adjust for performance balance
+local lastHealth = 0
 
--- Function to find the nearest object by name
-local function findNearestObject(name)
-    local nearestObject = nil
-    local shortestDistance = math.huge
-    for _, obj in ipairs(workspace:GetDescendants()) do
-        if obj:IsA("BasePart") and obj.Name == name then
-            local distance = (obj.Position - player.Character.HumanoidRootPart.Position).Magnitude
-            if distance < shortestDistance then
-                shortestDistance = distance
-                nearestObject = obj
+local function fireTouch(target)
+    if not target or not player.Character then return end
+    local root = player.Character:FindFirstChild("HumanoidRootPart")
+    if not root then return end
+    
+    firetouchinterest(root, target, 0)
+    firetouchinterest(root, target, 1)
+end
+
+local function checkHealPad(healPad)
+    local padPart = healPad:FindFirstChild("Pad")
+    if padPart and padPart:IsA("BasePart") then
+        local currentColor = padPart.Color
+        local inactiveColor = Color3.new(196/255, 40/255, 28/255)
+        
+        if currentColor == inactiveColor then
+            return true
+        end
+    end
+    return false
+end
+
+local function healPadLoop()
+    while true do
+        task.wait(cooldown)
+        for _, healPad in ipairs(workspace:GetChildren()) do
+            if healPad.Name == healPadName then
+                if checkHealPad(healPad) then
+                    fireTouch(healPad.Pad)
+                end
             end
         end
     end
-    return nearestObject
 end
 
--- Function to move character to a position
-local function moveToPosition(position)
-    local hrp = player.Character:FindFirstChild("HumanoidRootPart")
-    if hrp then
-        hrp.CFrame = CFrame.new(position + Vector3.new(0, 3, 0)) -- Slightly above to avoid collisions
-    end
-end
-
--- Function to equip armor
-local function equipArmor()
-    local armorStand = findNearestObject(armorName)
-    if armorStand then
-        moveToPosition(armorStand.Position)
-    end
-end
-
--- Function to heal
-local function heal()
-    local healPad = findNearestObject(healPadName)
-    if healPad and healPad.Color == Color3.fromRGB(75, 151, 75) then -- Ensure the pad is active
-        moveToPosition(healPad.Position)
-    end
-end
-
--- Monitor character's health
-local function monitorHealth()
-    local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
-    if humanoid then
-        humanoid.HealthChanged:Connect(function(health)
-            if health < humanoid.MaxHealth then
-                heal()
+local function armorStandLoop()
+    while true do
+        task.wait(cooldown)
+        for _, stand in ipairs(workspace:GetChildren()) do
+            if stand.Name == armorStandName and stand:FindFirstChild("TouchInterest") then
+                fireTouch(stand)
             end
-        end)
+        end
     end
 end
 
--- Connect to character respawn
-player.CharacterAdded:Connect(function()
-    equipArmor()
-    monitorHealth()
+local function healthMonitor()
+    while true do
+        if player.Character then
+            local humanoid = player.Character:FindFirstChild("Humanoid")
+            if humanoid then
+                if humanoid.Health < lastHealth then
+                    coroutine.wrap(healPadLoop)()
+                end
+                lastHealth = humanoid.Health
+            end
+        end
+        task.wait(0.1)
+    end
+end
+
+-- Initialize character monitoring
+player.CharacterAdded:Connect(function(character)
+    character:WaitForChild("Humanoid")
+    lastHealth = character.Humanoid.Health
+    
+    -- Start armor collection immediately
+    coroutine.wrap(armorStandLoop)()
+    
+    -- Start secondary heal check after armor acquisition
+    coroutine.wrap(healPadLoop)()
 end)
 
--- Initial setup
+-- Start health monitoring
+coroutine.wrap(healthMonitor)()
+
+-- Initial check if already in game
 if player.Character then
-    equipArmor()
-    monitorHealth()
+    coroutine.wrap(armorStandLoop)()
+    coroutine.wrap(healPadLoop)()
 end
 
-print("Auto Heal & Auto Equip Armor Script Loaded Successfully!")
+-- Performance optimization
+runService.Heartbeat:Wait()
