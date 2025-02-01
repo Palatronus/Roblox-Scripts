@@ -1,187 +1,112 @@
 --[[  
-    Auto Heal & Auto Armor Equip Script
-    Updated Model Names:
-      - Armor Model: "BattleArmor"
-      - Regen Pad Model: "Pad"
-    Functionality:
-      • Continuously checks (every 0.3 sec) for available armor and active healing pads.
-      • Uses firetouchinterest() to simulate touch events.
-      • The healing pads are detected by checking for the active color (Bright green, RGB(75,151,75)).
-      • Armor is acquired if the character is not already wearing it.
-      • Press H to toggle the entire system on/off.
-      
-    Note:  
-      • Adjust task.wait delays if needed for responsiveness vs. reliability.
-      • This script is experimental and intended for educational/experimental use.
+    Auto Heal & Auto Armor Equip Script for Sword Fight on the Heights Original
+    Updated Names:
+      - Armor Stand: "BattleArmor"
+      - Regen Pad: "Pad"
+    This script simulates touches using firetouchinterest so that:
+      • Armor is automatically equipped once per spawn (if not already used).
+      • Regen Pads are triggered whenever your health is not full, using active pads only.
+    
+    Note:
+      • Active Regen Pads are assumed to be BrickColor "Bright green" (RGB 75,151,75)
+      • Inactive Pads are assumed to be BrickColor "Bright red" (RGB 196,40,28)
+      • This script is experimental and intended for educational use.
 --]]
 
 local Players = game:GetService("Players")
-local UIS = game:GetService("UserInputService")
-local StarterGui = game:GetService("StarterGui")
-local LP = Players.LocalPlayer
+local workspace = game:GetService("Workspace")
+local player = Players.LocalPlayer
 
-local Toggle = true
+-- New names from your update
+local armorName = "BattleArmor"  -- formerly BattleArmorStand
+local padName = "Pad"            -- formerly HealPad
 
--- Verified color values
-local ACTIVE_COLOR = Color3.new(75/255, 151/255, 75/255)    -- Bright green (75,151,75)
-local INACTIVE_COLOR = Color3.new(196/255, 40/255, 28/255)   -- Bright red (196,40,28)
+-- Wait for the character to load
+local character = player.Character or player.CharacterAdded:Wait()
+local humanoid = character:WaitForChild("Humanoid")
+local hrp = character:WaitForChild("HumanoidRootPart")
 
--- Toggle system with visual feedback (press H to toggle)
-UIS.InputBegan:Connect(function(input, gameProcessed)
-    if not gameProcessed and input.KeyCode == Enum.KeyCode.H then
-        Toggle = not Toggle
-        StarterGui:SetCore("SendNotification", {
-            Title = "SYSTEM: " .. (Toggle and "ON" or "OFF"),
-            Text = Toggle and "Healing and Armor active" or "Systems disabled",
-            Duration = 2
-        })
+-- Utility function: Simulate a touch event on a target BasePart
+local function simulateTouch(targetPart)
+    if targetPart and targetPart:IsA("BasePart") then
+        pcall(function()
+            -- firetouchinterest parameters: (touchingPart, targetPart, 0 = begin touch, 1 = end touch)
+            firetouchinterest(hrp, targetPart, 0)
+            wait(0.1)
+            firetouchinterest(hrp, targetPart, 1)
+        end)
     end
-end)
+end
 
---------------------------------------------------
--- HEALING FUNCTIONS
---------------------------------------------------
--- Get active healing pads (models named "Pad") that have the active color.
-local function GetActivePads()
-    local activePads = {}
-    for _, pad in ipairs(workspace:GetDescendants()) do
-        if pad.Name == "Pad" and pad:IsA("Model") then
-            local padPart = pad:FindFirstChild("Pad") or pad:FindFirstChildWhichIsA("BasePart")
-            if padPart and padPart.Color == ACTIVE_COLOR then
-                table.insert(activePads, { part = padPart, position = padPart.Position })
+-- Function to auto-equip armor by "touching" available armor stands.
+local function autoEquipArmor()
+    -- Loop through all descendants looking for models named "BattleArmor"
+    for _, armor in pairs(workspace:GetDescendants()) do
+        if armor.Name == armorName and armor:IsA("Model") then
+            -- Check if this armor has already been used by looking for an "Equipped" marker
+            if not armor:FindFirstChild("Equipped") then
+                local triggerPart = armor.PrimaryPart or armor:FindFirstChildWhichIsA("BasePart")
+                if triggerPart then
+                    simulateTouch(triggerPart)
+                    -- Mark this armor as used so we don’t trigger it again during the same spawn
+                    local marker = Instance.new("BoolValue")
+                    marker.Name = "Equipped"
+                    marker.Parent = armor
+                    print("[Armor] Equipped from: " .. armor:GetFullName())
+                    wait(0.2)  -- Small delay to allow sequential use of multiple armor stands
+                end
             end
         end
     end
-    return activePads
 end
 
--- Attempt to heal by finding the nearest active pad and "touching" it repeatedly.
-local function ForceHeal()
-    if not Toggle or not LP.Character then 
-        return 
-    end
-
-    local hrp = LP.Character:FindFirstChild("HumanoidRootPart")
-    local humanoid = LP.Character:FindFirstChild("Humanoid")
-    if not hrp or not humanoid then 
-        return 
-    end
-
-    local activePads = GetActivePads()
-    if #activePads == 0 then 
-        return 
-    end
-
-    -- Find the nearest active pad.
-    local closestPad, closestDistance = nil, math.huge
-    for _, padData in ipairs(activePads) do
-        local distance = (hrp.Position - padData.position).Magnitude
-        if distance < closestDistance then
-            closestDistance = distance
-            closestPad = padData.part
-        end
-    end
-
-    if closestPad then
-        -- Quintuple activation (simulate repeated touches)
-        for i = 1, 5 do
-            pcall(function()
-                firetouchinterest(hrp, closestPad, 0)
-                task.wait(0.07)
-                firetouchinterest(hrp, closestPad, 1)
-            end)
-            task.wait(0.07)
+-- Function to trigger healing when health is not full by "touching" active regen pads.
+local function autoHeal()
+    if humanoid.Health < humanoid.MaxHealth then
+        -- Loop through all BaseParts named "Pad"
+        for _, pad in pairs(workspace:GetDescendants()) do
+            if pad.Name == padName and pad:IsA("BasePart") then
+                -- Check if the pad is active by verifying its BrickColor.
+                -- Active: "Bright green" (or RGB 75,151,75); Inactive: "Bright red" (or RGB 196,40,28)
+                if pad.BrickColor == BrickColor.new("Bright green") or pad.Color == Color3.fromRGB(75,151,75) then
+                    simulateTouch(pad)
+                    print("[Heal] Triggered pad: " .. pad:GetFullName())
+                    wait(0.2)  -- Small delay to avoid triggering the same pad repeatedly
+                end
+            end
         end
     end
 end
 
---------------------------------------------------
--- ARMOR FUNCTIONS
---------------------------------------------------
--- Attempt to obtain armor by finding the nearest available armor model (named "BattleArmor")
--- and simulating a touch on it repeatedly.
-local function MaintainArmor()
-    if not Toggle or not LP.Character then 
-        return 
+-- Main loop: Check every half-second to auto-equip armor and trigger healing.
+local function mainLoop()
+    while wait(0.5) do
+        autoEquipArmor()
+        autoHeal()
     end
+end
 
-    local hrp = LP.Character:FindFirstChild("HumanoidRootPart")
-    local humanoid = LP.Character:FindFirstChild("Humanoid")
-    if not hrp or not humanoid then 
-        return 
-    end
-
-    local armors = {}
-    for _, obj in ipairs(workspace:GetDescendants()) do
-        if obj.Name == "BattleArmor" and obj:IsA("Model") then
-            local part = obj:FindFirstChildWhichIsA("BasePart")
-            if part then 
-                table.insert(armors, part)
+-- When the character respawns, reset variables and remove armor markers so the armor can be re-equipped.
+player.CharacterAdded:Connect(function(newCharacter)
+    character = newCharacter
+    humanoid = newCharacter:WaitForChild("Humanoid")
+    hrp = newCharacter:WaitForChild("HumanoidRootPart")
+    
+    -- Optional: Remove any lingering "Equipped" markers so armor can be re-triggered on spawn.
+    for _, armor in pairs(workspace:GetDescendants()) do
+        if armor.Name == armorName and armor:IsA("Model") then
+            local marker = armor:FindFirstChild("Equipped")
+            if marker then
+                marker:Destroy()
             end
         end
     end
 
-    -- Sort armor pieces by distance (nearest first)
-    table.sort(armors, function(a, b)
-        return (hrp.Position - a.Position).Magnitude < (hrp.Position - b.Position).Magnitude
-    end)
-
-    for _, armor in ipairs(armors) do
-        -- Triple activation pattern for armor acquisition.
-        for i = 1, 3 do
-            pcall(function()
-                firetouchinterest(hrp, armor, 0)
-                task.wait(0.05)
-                firetouchinterest(hrp, armor, 1)
-            end)
-            task.wait(0.05)
-        end
-        -- Check if armor is now in the character (assuming the equipped armor appears as a child named "BattleArmor")
-        if LP.Character:FindFirstChild("BattleArmor") then
-            break
-        end
-    end
-end
-
---------------------------------------------------
--- MAIN LOOP
---------------------------------------------------
-local function MainLoop()
-    while task.wait(0.3) do
-        if not Toggle or not LP.Character then 
-            continue 
-        end
-        
-        local humanoid = LP.Character:FindFirstChild("Humanoid")
-        if not humanoid then 
-            continue 
-        end
-
-        -- If the character is not wearing armor, try to get armor.
-        if not LP.Character:FindFirstChild("BattleArmor") then
-            MaintainArmor()
-        end
-
-        -- If the character's health is below maximum, try to heal.
-        if humanoid.Health < humanoid.MaxHealth then
-            ForceHeal()
-        end
-    end
-end
-
--- Reset (or reinitialize) systems when the character spawns.
-LP.CharacterAdded:Connect(function(char)
-    char:WaitForChild("Humanoid")
-    task.wait(1) -- Allow a short delay after spawn
+    wait(1)
+    autoEquipArmor()
 end)
 
---------------------------------------------------
--- START THE SCRIPT
---------------------------------------------------
-task.spawn(MainLoop)
+-- Start the main loop in a separate thread
+spawn(mainLoop)
 
-StarterGui:SetCore("SendNotification", {
-    Title = "HEAL SYSTEM ACTIVE",
-    Text = "Using color: RGB(75,151,75)\nPress H to toggle",
-    Duration = 5
-})
+print("Auto Heal & Armor Equip script loaded.")
