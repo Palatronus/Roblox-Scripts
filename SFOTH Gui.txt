@@ -1,73 +1,125 @@
---// Fully Functional Auto Heal & Auto Armor Script for Sword Fight on the Heights Original
---// Optimized for Roblox Executors, Utilizes firetouchinterest()
+local Players = game:GetService("Players")
+local UIS = game:GetService("UserInputService")
+local LP = Players.LocalPlayer
+local Toggle = true
 
--- Variables
-local player = game.Players.LocalPlayer
-local character = player.Character or player.CharacterAdded:Wait()
-local humanoid = character:WaitForChild("Humanoid")
-local rootPart = character:WaitForChild("HumanoidRootPart")
-local workspace = game:GetService("Workspace")
+-- Verified color values
+local ACTIVE_COLOR = Color3.new(75/255, 151/255, 75/255) -- Bright green (75,151,75)
+local INACTIVE_COLOR = Color3.new(196/255, 40/255, 28/255) -- Bright red (196,40,28)
 
--- Function to find armor stands and heal pads
-local function getObject(name)
-    for _, obj in ipairs(workspace:GetDescendants()) do
-        if obj:IsA("BasePart") and obj.Name == name then
-            return obj
-        end
+-- Toggle system with visual feedback
+UIS.InputBegan:Connect(function(Input)
+    if Input.KeyCode == Enum.KeyCode.H then
+        Toggle = not Toggle
+        game:GetService("StarterGui"):SetCore("SendNotification", {
+            Title = "SYSTEM: "..(Toggle and "ON" or "OFF"),
+            Text = Toggle and "Color-accurate healing" or "All systems disabled",
+            Duration = 2
+        })
     end
-    return nil
-end
-
--- Function to trigger touch events
-local function fireTouch(target)
-    if target and rootPart then
-        firetouchinterest(rootPart, target, 0)
-        task.wait(0.2)
-        firetouchinterest(rootPart, target, 1)
-    end
-end
-
--- Function to check if armor is equipped
-local function hasArmor()
-    return humanoid.MaxHealth > 100
-end
-
--- Function to check if healing is needed
-local function needsHealing()
-    return humanoid.Health < humanoid.MaxHealth
-end
-
--- Function to equip armor
-local function equipArmor()
-    local armorStand = getObject("BattleArmorStand")
-    if armorStand and not hasArmor() then
-        fireTouch(armorStand)
-    end
-end
-
--- Function to heal if needed
-local function triggerHeal()
-    local healPad = getObject("HealPad")
-    if healPad and needsHealing() then
-        fireTouch(healPad)
-    end
-end
-
--- Main loop to continuously check and trigger functions
-local function mainLoop()
-    while task.wait(1) do
-        equipArmor()
-        triggerHeal()
-    end
-end
-
--- Ensure script runs after respawning
-player.CharacterAdded:Connect(function(newChar)
-    character = newChar
-    humanoid = character:WaitForChild("Humanoid")
-    rootPart = character:WaitForChild("HumanoidRootPart")
-    task.wait(1)
-    mainLoop()
 end)
 
-task.spawn(mainLoop)
+local function GetActivePads()
+    local activePads = {}
+    for _, pad in ipairs(workspace:GetDescendants()) do
+        if pad.Name == "HealPad" and pad:IsA("Model") then
+            local padPart = pad:FindFirstChild("Pad") or pad:FindFirstChildWhichIsA("BasePart")
+            if padPart and padPart.Color == ACTIVE_COLOR then
+                table.insert(activePads, {
+                    part = padPart,
+                    position = padPart.Position
+                })
+            end
+        end
+    end
+    return activePads
+end
+
+local function ForceHeal()
+    if not Toggle or not LP.Character then return end
+    
+    local activePads = GetActivePads()
+    if #activePads == 0 then return end
+    
+    -- Find nearest active pad
+    local closestPad
+    local closestDistance = math.huge
+    local charPos = LP.Character.HumanoidRootPart.Position
+    
+    for _, padData in ipairs(activePads) do
+        local distance = (charPos - padData.position).Magnitude
+        if distance < closestDistance then
+            closestDistance = distance
+            closestPad = padData.part
+        end
+    end
+    
+    -- Quintuple activation pattern
+    if closestPad then
+        for _ = 1, 5 do
+            firetouchinterest(LP.Character.HumanoidRootPart, closestPad, 0)
+            task.wait(0.07)
+            firetouchinterest(LP.Character.HumanoidRootPart, closestPad, 1)
+            task.wait(0.07)
+        end
+        return true
+    end
+    return false
+end
+
+local function MaintainArmor()
+    local armors = {}
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if obj.Name == "BattleArmorStand" and obj:IsA("Model") then
+            local part = obj:FindFirstChildWhichIsA("BasePart")
+            if part then table.insert(armors, part) end
+        end
+    end
+    
+    -- Priority to nearest armor
+    table.sort(armors, function(a,b)
+        return (LP.Character.HumanoidRootPart.Position - a.Position).Magnitude <
+               (LP.Character.HumanoidRootPart.Position - b.Position).Magnitude
+    end)
+    
+    for _, armor in ipairs(armors) do
+        for _ = 1, 3 do  -- Triple activation
+            firetouchinterest(LP.Character.HumanoidRootPart, armor, 0)
+            task.wait(0.05)
+            firetouchinterest(LP.Character.HumanoidRootPart, armor, 1)
+        end
+        if LP.Character:FindFirstChild("BattleArmor") then break end
+    end
+end
+
+-- Core systems
+LP.CharacterAdded:Connect(function(char)
+    char:WaitForChild("Humanoid").HealthChanged:Connect(function()
+        if Toggle and LP.Character.Humanoid.Health < LP.Character.Humanoid.MaxHealth then
+            repeat
+                ForceHeal()
+                task.wait(0.1)
+            until LP.Character.Humanoid.Health == LP.Character.Humanoid.MaxHealth
+        end
+    end)
+end)
+
+task.spawn(function()
+    while task.wait(0.3) do
+        if Toggle and LP.Character then
+            if not LP.Character:FindFirstChild("BattleArmor") then
+                MaintainArmor()
+            end
+            if LP.Character.Humanoid.Health < LP.Character.Humanoid.MaxHealth then
+                ForceHeal()
+            end
+        end
+    end
+end)
+
+-- Debug initialization
+game:GetService("StarterGui"):SetCore("SendNotification", {
+    Title = "HEAL SYSTEM ACTIVE",
+    Text = "Using color: RGB(75,151,75)\nPress H to toggle",
+    Duration = 5
+})
