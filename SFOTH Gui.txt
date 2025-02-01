@@ -20,25 +20,31 @@ end
 
 local function fireTouch(target)
     if target and rootPart then
+        print("Touching: " .. target.Name)
         firetouchinterest(rootPart, target, 0) -- Start Touch
-        task.wait(0.1) -- Small Delay
+        task.wait(0.2) -- Small Delay
         firetouchinterest(rootPart, target, 1) -- End Touch
     end
 end
 
 local function hasArmor()
-    return humanoid.MaxHealth > 100 -- Assumes armor doubles health
+    local result = humanoid.MaxHealth > 100 -- Assumes armor doubles health
+    print("Has Armor: " .. tostring(result))
+    return result
 end
 
 local function needsHealing()
-    return humanoid.Health < humanoid.MaxHealth
+    local result = humanoid.Health < humanoid.MaxHealth
+    print("Needs Healing: " .. tostring(result))
+    return result
 end
 
 local function equipArmor()
     for _, stand in ipairs(getObjects("BattleArmorStand")) do
         if stand and not hasArmor() then
+            print("Trying to equip armor at: " .. stand.Name)
             fireTouch(stand)
-            task.wait(0.5) -- Avoid spam
+            task.wait(1) -- Avoid spam
             if hasArmor() then return end -- Stop if armor is equipped
         end
     end
@@ -47,14 +53,15 @@ end
 local function triggerHeal()
     for _, pad in ipairs(getObjects("HealPad")) do
         if pad and needsHealing() then
+            print("Trying to heal at: " .. pad.Name)
             fireTouch(pad)
-            task.wait(0.5)
+            task.wait(1)
         end
     end
 end
 
 local function mainLoop()
-    while task.wait(1) do -- Performance-friendly delay
+    while task.wait(2) do -- Performance-friendly delay
         if character and humanoid and rootPart then
             equipArmor()
             triggerHeal()
