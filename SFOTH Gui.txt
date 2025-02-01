@@ -4,17 +4,25 @@
 -- Variables
 local player = game.Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
-local humanoid = character:FindFirstChildOfClass("Humanoid")
+local humanoid = character:WaitForChild("Humanoid")
+local rootPart = character:WaitForChild("HumanoidRootPart")
 local workspace = game:GetService("Workspace")
 
-local armorStands = {workspace:FindFirstChild("BattleArmorStand")}
-local healPads = {workspace:FindFirstChild("HealPad")}
+local function getObjects(name)
+    local objects = {}
+    for _, obj in ipairs(workspace:GetChildren()) do
+        if obj.Name == name and obj:IsA("BasePart") then
+            table.insert(objects, obj)
+        end
+    end
+    return objects
+end
 
 local function fireTouch(target)
     if target then
-        firetouchinterest(character.HumanoidRootPart, target, 0) -- Start Touch
+        firetouchinterest(rootPart, target, 0) -- Start Touch
         task.wait(0.1) -- Small Delay
-        firetouchinterest(character.HumanoidRootPart, target, 1) -- End Touch
+        firetouchinterest(rootPart, target, 1) -- End Touch
     end
 end
 
@@ -27,8 +35,8 @@ local function needsHealing()
 end
 
 local function equipArmor()
-    for _, stand in pairs(armorStands) do
-        if stand then
+    for _, stand in ipairs(getObjects("BattleArmorStand")) do
+        if stand and not hasArmor() then
             fireTouch(stand)
             task.wait(0.5) -- Avoid spam
             if hasArmor() then return end -- Stop if armor is equipped
@@ -37,7 +45,7 @@ local function equipArmor()
 end
 
 local function triggerHeal()
-    for _, pad in pairs(healPads) do
+    for _, pad in ipairs(getObjects("HealPad")) do
         if pad and needsHealing() then
             fireTouch(pad)
             task.wait(0.5)
@@ -46,16 +54,18 @@ local function triggerHeal()
 end
 
 local function mainLoop()
-    while task.wait(1) do -- Performance-friendly loop
+    while true do
         equipArmor()
         triggerHeal()
+        task.wait(1) -- Performance-friendly delay
     end
 end
 
 -- Ensure it runs even after respawn
 player.CharacterAdded:Connect(function(newChar)
     character = newChar
-    humanoid = character:FindFirstChildOfClass("Humanoid")
+    humanoid = character:WaitForChild("Humanoid")
+    rootPart = character:WaitForChild("HumanoidRootPart")
     task.wait(1)
     mainLoop()
 end)
