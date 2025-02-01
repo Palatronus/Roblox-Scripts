@@ -5,14 +5,20 @@
 local armorName = "BattleArmorStand"
 local healPadName = "HealPad"
 local player = game.Players.LocalPlayer
+local humanoid = nil
+local char = nil
+local hrp = nil
 
--- Wait for character to load
-local function getCharacter()
-    while not player.Character or not player.Character:FindFirstChild("HumanoidRootPart") do
-        task.wait()
-    end
-    return player.Character
+-- Function to update character variables
+local function updateCharacter()
+    char = player.Character or player.CharacterAdded:Wait()
+    humanoid = char:FindFirstChildOfClass("Humanoid")
+    hrp = char:FindFirstChild("HumanoidRootPart")
 end
+
+-- Listen for character respawning
+player.CharacterAdded:Connect(updateCharacter)
+updateCharacter()
 
 -- Function to find objects in the workspace by name
 local function getObjectsByName(name)
@@ -32,31 +38,32 @@ end
 
 -- Function to trigger a part using firetouchinterest
 local function triggerPart(part)
-    local char = getCharacter()
-    if char then
-        local hrp = char:FindFirstChild("HumanoidRootPart")
-        if hrp then
-            firetouchinterest(hrp, part, 0) -- Touch began
-            task.wait(0.1) -- Short delay
-            firetouchinterest(hrp, part, 1) -- Touch ended
-        end
+    if hrp then
+        firetouchinterest(hrp, part, 0) -- Touch began
+        task.wait(0.1) -- Short delay
+        firetouchinterest(hrp, part, 1) -- Touch ended
     end
 end
 
 -- Function to equip armor
 local function equipArmor()
-    for _, armor in ipairs(getObjectsByName(armorName)) do
-        triggerPart(armor)
-        task.wait(1) -- Prevent excessive triggering
+    if humanoid and humanoid.MaxHealth == 100 then -- Ensure armor is not already equipped
+        for _, armor in ipairs(getObjectsByName(armorName)) do
+            triggerPart(armor)
+            task.wait(1) -- Prevent excessive triggering
+        end
     end
 end
 
 -- Function to heal efficiently
 local function heal()
-    for _, pad in ipairs(getObjectsByName(healPadName)) do
-        if isHealPadActive(pad) then
-            triggerPart(pad)
-            task.wait(2) -- Prevent excessive triggering
+    if humanoid and humanoid.Health < humanoid.MaxHealth then
+        for _, pad in ipairs(getObjectsByName(healPadName)) do
+            if isHealPadActive(pad) then
+                triggerPart(pad)
+                task.wait(2) -- Prevent excessive triggering
+                break -- Avoid wasting heal pads
+            end
         end
     end
 end
@@ -64,15 +71,9 @@ end
 -- Main loop to check and execute actions
 spawn(function()
     while true do
-        local char = getCharacter()
-        local humanoid = char and char:FindFirstChildOfClass("Humanoid")
-        if humanoid then
-            if humanoid.MaxHealth == 100 then -- No armor equipped
-                equipArmor()
-            end
-            if humanoid.Health < humanoid.MaxHealth then -- Need healing
-                heal()
-            end
+        if char and humanoid then
+            equipArmor()
+            heal()
         end
         task.wait(1) -- Prevent excessive CPU usage
     end
