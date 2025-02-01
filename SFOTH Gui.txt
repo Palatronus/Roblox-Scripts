@@ -1,31 +1,36 @@
 --[[  
-    Auto Heal & Auto Armor Equip Script for "Sword Fight on the Heights Original"  
-    Author: (Your Name)  
-    Description:  
-        - Automatically equips available armor stands (named "BattleArmorStand") if not already used.  
-        - Automatically triggers active heal pads (named "HealPad") when you take any damage.  
-        - Uses firetouchinterest() to simulate touch events.  
-        - Loops in a performance-friendly manner.  
+    Auto Heal & Auto Armor Equip Script for Sword Fight on the Heights Original
+    Updated Names:
+      - Armor Stand: "BattleArmor"
+      - Regen Pad: "Pad"
+    This script simulates touches using firetouchinterest so that:
+      • Armor is automatically equipped once per spawn (if not already used).
+      • Regen Pads are triggered whenever your health is not full, using active pads only.
+    
+    Note:
+      • Active Regen Pads are assumed to be BrickColor "Bright green" (RGB 75,151,75)
+      • Inactive Pads are assumed to be BrickColor "Bright red" (RGB 196,40,28)
+      • This script is experimental and intended for educational use.
 --]]
 
--- Ensure the script waits for the LocalPlayer’s character to load
 local Players = game:GetService("Players")
-local player = Players.LocalPlayer
 local workspace = game:GetService("Workspace")
+local player = Players.LocalPlayer
 
-local armorStandName = "BattleArmorStand"
-local healPadName = "HealPad"
+-- New names from your update
+local armorName = "BattleArmor"  -- formerly BattleArmorStand
+local padName = "Pad"            -- formerly HealPad
 
--- Cached character variables
+-- Wait for the character to load
 local character = player.Character or player.CharacterAdded:Wait()
 local humanoid = character:WaitForChild("Humanoid")
 local hrp = character:WaitForChild("HumanoidRootPart")
 
--- Helper function: Simulate a touch event on a target BasePart using firetouchinterest.
+-- Utility function: Simulate a touch event on a target BasePart
 local function simulateTouch(targetPart)
     if targetPart and targetPart:IsA("BasePart") then
         pcall(function()
-            -- firetouchinterest parameters: (touchingPart, targetPart, 0 = begin, 1 = end)
+            -- firetouchinterest parameters: (touchingPart, targetPart, 0 = begin touch, 1 = end touch)
             firetouchinterest(hrp, targetPart, 0)
             wait(0.1)
             firetouchinterest(hrp, targetPart, 1)
@@ -33,71 +38,75 @@ local function simulateTouch(targetPart)
     end
 end
 
--- Function to automatically equip armor from any available armor stands.
+-- Function to auto-equip armor by "touching" available armor stands.
 local function autoEquipArmor()
-    -- Loop through all descendants in the workspace
-    for _, stand in pairs(workspace:GetDescendants()) do
-        if stand.Name == armorStandName and stand:IsA("Model") then
-            -- Check if this armor stand has already been used by looking for a marker child
-            if not stand:FindFirstChild("Equipped") then
-                -- Find a BasePart within the armor stand to simulate the touch
-                local triggerPart = stand.PrimaryPart or stand:FindFirstChildWhichIsA("BasePart")
+    -- Loop through all descendants looking for models named "BattleArmor"
+    for _, armor in pairs(workspace:GetDescendants()) do
+        if armor.Name == armorName and armor:IsA("Model") then
+            -- Check if this armor has already been used by looking for an "Equipped" marker
+            if not armor:FindFirstChild("Equipped") then
+                local triggerPart = armor.PrimaryPart or armor:FindFirstChildWhichIsA("BasePart")
                 if triggerPart then
                     simulateTouch(triggerPart)
-                    -- Mark this armor stand as used so we don’t trigger it again
+                    -- Mark this armor as used so we don’t trigger it again during the same spawn
                     local marker = Instance.new("BoolValue")
                     marker.Name = "Equipped"
-                    marker.Parent = stand
-                    print("[Armor] Equipped from:", stand:GetFullName())
-                    -- A short delay so that both armor stands can be used sequentially without spamming too fast
-                    wait(0.2)
+                    marker.Parent = armor
+                    print("[Armor] Equipped from: " .. armor:GetFullName())
+                    wait(0.2)  -- Small delay to allow sequential use of multiple armor stands
                 end
             end
         end
     end
 end
 
--- Function to automatically trigger active heal pads when damage is taken.
+-- Function to trigger healing when health is not full by "touching" active regen pads.
 local function autoHeal()
-    -- Only attempt healing if you are not at full health.
     if humanoid.Health < humanoid.MaxHealth then
-        -- Loop through all descendants looking for heal pads.
+        -- Loop through all BaseParts named "Pad"
         for _, pad in pairs(workspace:GetDescendants()) do
-            if pad.Name == healPadName and pad:IsA("BasePart") then
-                -- Determine if the pad is active by checking its BrickColor.
-                -- (Active pad: Bright green; Inactive pad: Bright red with Color3.new(196/255, 40/255, 28/255))
-                if pad.BrickColor == BrickColor.new("Bright green") then
+            if pad.Name == padName and pad:IsA("BasePart") then
+                -- Check if the pad is active by verifying its BrickColor.
+                -- Active: "Bright green" (or RGB 75,151,75); Inactive: "Bright red" (or RGB 196,40,28)
+                if pad.BrickColor == BrickColor.new("Bright green") or pad.Color == Color3.fromRGB(75,151,75) then
                     simulateTouch(pad)
-                    print("[Heal] Activated pad:", pad:GetFullName())
-                    -- Wait a brief moment to allow the game to process the heal without “wasting” the pad.
-                    wait(0.2)
+                    print("[Heal] Triggered pad: " .. pad:GetFullName())
+                    wait(0.2)  -- Small delay to avoid triggering the same pad repeatedly
                 end
             end
         end
     end
 end
 
--- Main loop that checks every half-second.
+-- Main loop: Check every half-second to auto-equip armor and trigger healing.
 local function mainLoop()
     while wait(0.5) do
-        -- Try to auto-equip armor (if any are available and not already used)
         autoEquipArmor()
-        -- If damaged, try to trigger heal pads.
         autoHeal()
     end
 end
 
--- Listen for the CharacterAdded event to reinitialize variables when you respawn.
+-- When the character respawns, reset variables and remove armor markers so the armor can be re-equipped.
 player.CharacterAdded:Connect(function(newCharacter)
     character = newCharacter
     humanoid = newCharacter:WaitForChild("Humanoid")
     hrp = newCharacter:WaitForChild("HumanoidRootPart")
-    -- After respawn, try to equip armor immediately.
+    
+    -- Optional: Remove any lingering "Equipped" markers so armor can be re-triggered on spawn.
+    for _, armor in pairs(workspace:GetDescendants()) do
+        if armor.Name == armorName and armor:IsA("Model") then
+            local marker = armor:FindFirstChild("Equipped")
+            if marker then
+                marker:Destroy()
+            end
+        end
+    end
+
     wait(1)
     autoEquipArmor()
 end)
 
--- Start the main loop in a new thread
+-- Start the main loop in a separate thread
 spawn(mainLoop)
 
-print("Auto Heal & Armor Equip Script Loaded.")
+print("Auto Heal & Armor Equip script loaded.")
