@@ -10,7 +10,7 @@ local workspace = game:GetService("Workspace")
 
 local function getObjects(name)
     local objects = {}
-    for _, obj in ipairs(workspace:GetChildren()) do
+    for _, obj in ipairs(workspace:GetDescendants()) do
         if obj.Name == name and obj:IsA("BasePart") then
             table.insert(objects, obj)
         end
@@ -19,7 +19,7 @@ local function getObjects(name)
 end
 
 local function fireTouch(target)
-    if target then
+    if target and rootPart then
         firetouchinterest(rootPart, target, 0) -- Start Touch
         task.wait(0.1) -- Small Delay
         firetouchinterest(rootPart, target, 1) -- End Touch
@@ -54,10 +54,11 @@ local function triggerHeal()
 end
 
 local function mainLoop()
-    while true do
-        equipArmor()
-        triggerHeal()
-        task.wait(1) -- Performance-friendly delay
+    while task.wait(1) do -- Performance-friendly delay
+        if character and humanoid and rootPart then
+            equipArmor()
+            triggerHeal()
+        end
     end
 end
 
@@ -70,4 +71,4 @@ player.CharacterAdded:Connect(function(newChar)
     mainLoop()
 end)
 
-mainLoop()
+task.spawn(mainLoop)
