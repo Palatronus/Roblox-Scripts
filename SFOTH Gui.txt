@@ -1,6 +1,7 @@
 -- Define Constants
 local player = game.Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
+local humanoid = character:WaitForChild("Humanoid")
 local workspace = game:GetService("Workspace")
 local RunService = game:GetService("RunService")
 
@@ -10,72 +11,83 @@ local armorStand2 = workspace:WaitForChild("BattleArmorStand2")
 local healPad1 = workspace:WaitForChild("HealPad1")
 local healPad2 = workspace:WaitForChild("HealPad2")
 
+-- Variable to track if heal pad is being used
+local isHealPadActive = false
+
 -- Helper Functions
-local function equipArmor()
-    -- Check if an armor stand is available
-    local armorStand = nil
-    if not armorStand1:FindFirstChild("Touched") then
-        armorStand = armorStand1
-    elseif not armorStand2:FindFirstChild("Touched") then
-        armorStand = armorStand2
-    end
-    
-    if armorStand then
-        -- Simulate armor equip (this would be game-specific logic)
+
+-- Equip armor when touching the armor stand
+local function equipArmor(armorStand)
+    -- Simulate armor equip by doubling player's max health
+    if humanoid then
         print("Equipping armor from " .. armorStand.Name)
-        -- Example logic to double HP; modify based on game mechanics
-        player.Character:FindFirstChild("Humanoid").MaxHealth = player.Character:FindFirstChild("Humanoid").MaxHealth * 2
-    else
-        print("No available armor stand.")
+        humanoid.MaxHealth = humanoid.MaxHealth * 2
+        humanoid.Health = humanoid.MaxHealth -- Ensure the health is fully restored
     end
 end
 
-local function triggerHealPad()
-    -- Check if the heal pads are active or inactive
-    local healPadToUse = nil
-    if healPad1.BrickColor == BrickColor.new("Bright red") then
-        healPadToUse = healPad1
-    elseif healPad2.BrickColor == BrickColor.new("Bright red") then
-        healPadToUse = healPad2
-    end
+-- Trigger Heal Pad logic (only one pad can be active at a time)
+local function triggerHealPad(healPad)
+    -- Only trigger if heal pad is not already active
+    if isHealPadActive then return end
+    
+    -- Mark heal pad as active
+    isHealPadActive = true
 
-    if healPadToUse then
-        -- Trigger the heal pad (simulate healing here)
-        print("Triggering heal pad: " .. healPadToUse.Name)
-        -- Simulate healing process (this would be game-specific logic)
-        healPadToUse.BrickColor = BrickColor.new("Bright green") -- Mark it as active
-        -- Heal player
-        local humanoid = player.Character:FindFirstChild("Humanoid")
-        if humanoid then
-            humanoid.Health = humanoid.MaxHealth
-        end
-        wait(2)  -- Simulate a short healing time
-        healPadToUse.BrickColor = BrickColor.new("Bright red") -- Mark the heal pad as inactive
-    else
-        print("No available heal pads.")
-    end
+    -- Trigger healing
+    print("Triggering heal pad: " .. healPad.Name)
+    healPad.BrickColor = BrickColor.new("Bright green") -- Activate heal pad
+    humanoid.Health = humanoid.MaxHealth -- Heal the player
+    
+    -- Wait for healing process (simulate healing time)
+    wait(3) -- Healing time (adjust as needed)
+    
+    -- Deactivate heal pad
+    healPad.BrickColor = BrickColor.new("Bright red")
+    isHealPadActive = false
 end
 
+-- Monitor player's health and trigger heal pad when necessary
 local function checkPlayerHealth()
     -- Trigger heal pad if health is lower than max
-    local humanoid = player.Character:FindFirstChild("Humanoid")
     if humanoid and humanoid.Health < humanoid.MaxHealth then
-        triggerHealPad()
+        -- Trigger the appropriate heal pad if available
+        if healPad1.BrickColor == BrickColor.new("Bright red") then
+            triggerHealPad(healPad1)
+        elseif healPad2.BrickColor == BrickColor.new("Bright red") then
+            triggerHealPad(healPad2)
+        end
+    end
+end
+
+-- Function to detect and equip armor from an available armor stand
+local function checkArmorStands()
+    -- Only equip armor from a stand if it's not already equipped
+    if humanoid.MaxHealth <= 100 then -- Assuming 100 is the base health value (adjust based on your game)
+        -- If armor stand 1 is available, equip armor
+        if not armorStand1:FindFirstChild("Touched") then
+            equipArmor(armorStand1)
+        -- If armor stand 2 is available, equip armor
+        elseif not armorStand2:FindFirstChild("Touched") then
+            equipArmor(armorStand2)
+        else
+            print("Both armor stands are already taken.")
+        end
     end
 end
 
 -- Main Loop
 local function autoEquipAndHeal()
     -- Equip armor on spawn
-    equipArmor()
+    checkArmorStands()
 
     -- Check if the player needs healing after taking damage
     player.CharacterAdded:Connect(function()
         -- Equip armor again when the character respawns
-        equipArmor()
+        checkArmorStands()
     end)
 
-    -- Check player health and activate heal pads accordingly
+    -- Continuously check health and use healing pads accordingly
     RunService.Heartbeat:Connect(function()
         checkPlayerHealth()
     end)
@@ -83,3 +95,16 @@ end
 
 -- Start the auto equip and heal process
 autoEquipAndHeal()
+
+-- Function to handle touch event for armor stands (equipping armor)
+armorStand1.Touched:Connect(function(hit)
+    if hit.Parent == player.Character then
+        equipArmor(armorStand1)
+    end
+end)
+
+armorStand2.Touched:Connect(function(hit)
+    if hit.Parent == player.Character then
+        equipArmor(armorStand2)
+    end
+end)
