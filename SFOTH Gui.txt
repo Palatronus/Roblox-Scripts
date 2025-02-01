@@ -1,66 +1,87 @@
--- Define the Armor Stands and Heal Pads
-local ArmorStand1 = workspace:WaitForChild("BattleArmorStand")
-local ArmorStand2 = workspace:WaitForChild("BattleArmorStand")
-local HealPad1 = workspace:WaitForChild("HealPad")
-local HealPad2 = workspace:WaitForChild("HealPad")
+-- Roblox Executor Script for Sword Fight on the Heights Original
 
--- Helper function to check if a HealPad is active
-local function isHealPadActive(pad)
-    return pad.BrickColor == BrickColor.new("Bright green")
+-- Variables for armor stands, heal pads, and your player character
+local player = game.Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local humanoid = character:WaitForChild("Humanoid")
+local workspace = game:GetService("Workspace")
+
+-- Armor stand and heal pad names
+local armorStandName = "BattleArmorStand"
+local healPadName = "HealPad"
+
+-- Function to check if a heal pad is active (green)
+local function isHealPadActive(healPad)
+    return healPad.BrickColor == BrickColor.new("Bright green")
 end
 
--- Helper function to trigger heal pad
-local function triggerHealPad(pad)
-    if not isHealPadActive(pad) then
-        local player = game.Players.LocalPlayer
-        local character = player.Character
-        if character and character:FindFirstChild("Humanoid") then
-            local humanoid = character.Humanoid
-            pad:FireTouchInterest(humanoid)
-            print("Heal Pad triggered")
+-- Function to check if armor is equipped
+local function equipArmor()
+    local armorStand = workspace:FindFirstChild(armorStandName)
+    if armorStand and armorStand:IsA("Model") then
+        -- Equip armor if it is available and not taken
+        if not armorStand:FindFirstChild("Equipped") then
+            -- Set the armor as equipped
+            local equipped = Instance.new("BoolValue")
+            equipped.Name = "Equipped"
+            equipped.Parent = armorStand
+            -- Trigger armor equip action here (adjust according to how the armor works)
+            -- Example: Equip some gear here or give health boosts
+            humanoid.MaxHealth = humanoid.MaxHealth * 2 -- Double health on armor equip
+            humanoid.Health = humanoid.MaxHealth -- Restore health after equip
         end
     end
 end
 
--- Helper function to equip armor
-local function equipArmor(armorStand)
-    local player = game.Players.LocalPlayer
-    local character = player.Character
-    if character and character:FindFirstChild("Humanoid") then
-        local humanoid = character.Humanoid
-        armorStand:FireTouchInterest(humanoid)
-        print("Armor equipped")
+-- Function to trigger healing (heal pad interaction)
+local function triggerHealPad(healPad)
+    if isHealPadActive(healPad) then
+        -- Activate healing if heal pad is green
+        humanoid.Health = humanoid.MaxHealth -- Heal player completely
     end
 end
 
--- Function to automatically heal and equip armor at spawn
-local function autoHealAndEquip()
-    local player = game.Players.LocalPlayer
-    local character = player.Character or player.CharacterAdded:Wait()
+-- Function to monitor health and trigger actions
+local function monitorPlayerHealth()
+    -- Heal player if health is low and a heal pad is available
+    while true do
+        wait(0.5) -- Loop every 0.5 seconds to check and perform actions without freezing the game
 
-    -- Equip armor if not already equipped
-    if not character:FindFirstChild("BattleArmor") then
-        -- Check if armor stands are available
-        if ArmorStand1 and not ArmorStand1:FindFirstChild("Touched") then
-            equipArmor(ArmorStand1)
-        elseif ArmorStand2 and not ArmorStand2:FindFirstChild("Touched") then
-            equipArmor(ArmorStand2)
+        -- Check if health is low and use heal pad
+        local healPad = workspace:FindFirstChild(healPadName)
+        if healPad then
+            if isHealPadActive(healPad) then
+                triggerHealPad(healPad) -- Trigger heal pad if it's active
+            end
+        end
+
+        -- Equip armor if possible
+        equipArmor()
+
+        -- Check if player has taken damage and heal immediately
+        if humanoid.Health < humanoid.MaxHealth then
+            -- If health is below max, heal
+            local healPads = workspace:GetChildren()
+            for _, pad in pairs(healPads) do
+                if pad.Name == healPadName and isHealPadActive(pad) then
+                    triggerHealPad(pad)
+                    break
+                end
+            end
         end
     end
+end
 
-    -- Trigger heal pads if health is below max
-    local humanoid = character:FindFirstChild("Humanoid")
-    if humanoid and humanoid.Health < humanoid.MaxHealth then
-        if isHealPadActive(HealPad1) then
-            triggerHealPad(HealPad1)
-        elseif isHealPadActive(HealPad2) then
-            triggerHealPad(HealPad2)
-        end
+-- Function to ensure the script continues running
+local function keepScriptActive()
+    while true do
+        wait(5) -- Check every 5 seconds to ensure everything keeps working
+        -- Recheck armor and healing systems to ensure script keeps running properly
+        equipArmor()
+        monitorPlayerHealth()
     end
 end
 
--- Main loop to spam the heal pads and armor stands
-while true do
-    autoHealAndEquip()
-    wait(1) -- Adjust to control frequency of checks
-end
+-- Start the script by monitoring the player's health and armor
+monitorPlayerHealth()
+keepScriptActive()
