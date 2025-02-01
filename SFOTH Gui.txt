@@ -1,82 +1,72 @@
 -- Auto Heal & Auto Equip Armor Script for Sword Fight on the Heights Original
--- Made for execution in Roblox executors
 
 -- Settings
 local armorName = "BattleArmorStand"
 local healPadName = "HealPad"
 local player = game.Players.LocalPlayer
-local humanoid = nil
-local char = nil
-local hrp = nil
 
--- Function to update character variables
-local function updateCharacter()
-    char = player.Character or player.CharacterAdded:Wait()
-    humanoid = char:FindFirstChildOfClass("Humanoid")
-    hrp = char:FindFirstChild("HumanoidRootPart")
-end
-
--- Listen for character respawning
-player.CharacterAdded:Connect(updateCharacter)
-updateCharacter()
-
--- Function to find objects in the workspace by name
-local function getObjectsByName(name)
-    local objects = {}
+-- Function to find the nearest object by name
+local function findNearestObject(name)
+    local nearestObject = nil
+    local shortestDistance = math.huge
     for _, obj in ipairs(workspace:GetDescendants()) do
         if obj:IsA("BasePart") and obj.Name == name then
-            table.insert(objects, obj)
+            local distance = (obj.Position - player.Character.HumanoidRootPart.Position).Magnitude
+            if distance < shortestDistance then
+                shortestDistance = distance
+                nearestObject = obj
+            end
         end
     end
-    return objects
+    return nearestObject
 end
 
--- Function to check if a HealPad is active
-local function isHealPadActive(pad)
-    return pad and pad:IsA("BasePart") and pad.Color == Color3.fromRGB(75, 151, 75)
-end
-
--- Function to trigger a part using firetouchinterest
-local function triggerPart(part)
+-- Function to move character to a position
+local function moveToPosition(position)
+    local hrp = player.Character:FindFirstChild("HumanoidRootPart")
     if hrp then
-        firetouchinterest(hrp, part, 0) -- Touch began
-        task.wait(0.1) -- Short delay
-        firetouchinterest(hrp, part, 1) -- Touch ended
+        hrp.CFrame = CFrame.new(position + Vector3.new(0, 3, 0)) -- Slightly above to avoid collisions
     end
 end
 
 -- Function to equip armor
 local function equipArmor()
-    if humanoid and humanoid.MaxHealth == 100 then -- Ensure armor is not already equipped
-        for _, armor in ipairs(getObjectsByName(armorName)) do
-            triggerPart(armor)
-            task.wait(1) -- Prevent excessive triggering
-        end
+    local armorStand = findNearestObject(armorName)
+    if armorStand then
+        moveToPosition(armorStand.Position)
     end
 end
 
--- Function to heal efficiently
+-- Function to heal
 local function heal()
-    if humanoid and humanoid.Health < humanoid.MaxHealth then
-        for _, pad in ipairs(getObjectsByName(healPadName)) do
-            if isHealPadActive(pad) then
-                triggerPart(pad)
-                task.wait(2) -- Prevent excessive triggering
-                break -- Avoid wasting heal pads
-            end
-        end
+    local healPad = findNearestObject(healPadName)
+    if healPad and healPad.Color == Color3.fromRGB(75, 151, 75) then -- Ensure the pad is active
+        moveToPosition(healPad.Position)
     end
 end
 
--- Main loop to check and execute actions
-spawn(function()
-    while true do
-        if char and humanoid then
-            equipArmor()
-            heal()
-        end
-        task.wait(1) -- Prevent excessive CPU usage
+-- Monitor character's health
+local function monitorHealth()
+    local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
+    if humanoid then
+        humanoid.HealthChanged:Connect(function(health)
+            if health < humanoid.MaxHealth then
+                heal()
+            end
+        end)
     end
+end
+
+-- Connect to character respawn
+player.CharacterAdded:Connect(function()
+    equipArmor()
+    monitorHealth()
 end)
+
+-- Initial setup
+if player.Character then
+    equipArmor()
+    monitorHealth()
+end
 
 print("Auto Heal & Auto Equip Armor Script Loaded Successfully!")
