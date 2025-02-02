@@ -1,0 +1,28 @@
+-- Client-side script (execute via executor)
+local Players = game:GetService("Players")
+local HttpService = game:GetService("HttpService")
+
+local function getAccountAge(userId)
+    local success, result = pcall(function()
+        return HttpService:GetAsync("https://api.roblox.com/users/" .. userId)
+    end)
+    
+    if success then
+        local data = HttpService:JSONDecode(result)
+        local createdDate = DateTime.fromIsoDate(data.Created)
+        local ageDays = math.floor((os.time() - createdDate.UnixTimestamp) / 86400)
+        return ageDays
+    end
+    return "Unknown"
+end
+
+Players.PlayerAdded:Connect(function(player)
+    local accountAge = getAccountAge(player.UserId)
+    print(`[+] {player.Name} joined | Account Age: {accountAge} days`)
+end)
+
+-- For players already in-game
+for _, player in ipairs(Players:GetPlayers()) do
+    local accountAge = getAccountAge(player.UserId)
+    print(`[+] {player.Name} is already here | Account Age: {accountAge} days`)
+end
