@@ -1,5 +1,4 @@
 local Players = game:GetService("Players")
-local TextService = game:GetService("TextService")
 local TweenService = game:GetService("TweenService")
 
 -- Create notification GUI in bottom-right
@@ -9,78 +8,56 @@ gui.ResetOnSpawn = false
 gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 gui.Parent = game.Players.LocalPlayer:WaitForChild("PlayerGui")
 
-local function calculateAge(accountCreationDate)
-    local pattern = "(%d+)-(%d+)-(%d+)T"
-    local year, month, day = accountCreationDate:match(pattern)
-    local timestamp = os.time({
-        year = tonumber(year),
-        month = tonumber(month),
-        day = tonumber(day),
-    })
-    return math.floor((os.time() - timestamp) / 86400)
-end
-
-local function getAccountAge(player)
-    local success, result = pcall(function()
-        return player:GetJoinDate()
-    end)
-    
-    if success then
-        return calculateAge(result)
-    end
-    return "??"
-end
-
 local function createNotification(playerName, age)
     local frame = Instance.new("Frame")
-    frame.Size = UDim2.new(0.2, 0, 0.08, 0)
-    frame.Position = UDim2.new(1, 10, 1, -10) -- Start off-screen to the right (bottom)
+    frame.Size = UDim2.new(0.25, 0, 0.07, 0)
+    frame.Position = UDim2.new(1, 10, 1, -10) -- Start off-screen (bottom-right)
     frame.AnchorPoint = Vector2.new(1, 1)
-    frame.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
-    frame.BackgroundTransparency = 0.2
+    frame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+    frame.BackgroundTransparency = 0.3
     frame.BorderSizePixel = 0
 
     local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 6)
+    corner.CornerRadius = UDim.new(0, 8)
     corner.Parent = frame
 
-    local textContent = `🎮 {playerName}\n📅 Age: {age} days`
-    local textSize = TextService:GetTextSize(textContent, 14, Enum.Font.Gotham, Vector2.new(200, 40))
-
-    local label = Instance.new("TextLabel")
-    label.Size = UDim2.new(0.9, 0, 0.9, 0)
-    label.Position = UDim2.new(0.05, 0, 0.05, 0)
-    label.Text = textContent
-    label.TextColor3 = Color3.new(1, 1, 1)
-    label.TextXAlignment = Enum.TextXAlignment.Left
-    label.TextYAlignment = Enum.TextYAlignment.Top
-    label.BackgroundTransparency = 1
-    label.Font = Enum.Font.Gotham
-    label.TextSize = 14
-    label.Parent = frame
+    local text = Instance.new("TextLabel")
+    text.Size = UDim2.new(0.9, 0, 0.8, 0)
+    text.Position = UDim2.new(0.05, 0, 0.1, 0)
+    text.Text = `[+] {playerName} joined\nACCOUNT AGE: {age} days`
+    text.TextColor3 = Color3.new(1, 1, 1)
+    text.TextXAlignment = Enum.TextXAlignment.Left
+    text.TextYAlignment = Enum.TextYAlignment.Top
+    text.BackgroundTransparency = 1
+    text.Font = Enum.Font.GothamMedium
+    text.TextSize = 14
+    text.Parent = frame
 
     frame.Parent = gui
 
     -- Animation
-    local tweenIn = TweenService:Create(
-        frame,
-        TweenInfo.new(0.5),
-        {Position = UDim2.new(1, -10, 1, -10)}
-    )
+    local tweenIn = TweenService:Create(frame, TweenInfo.new(0.4), {
+        Position = UDim2.new(1, -10, 1, -10)
+    })
     
-    local tweenOut = TweenService:Create(
-        frame,
-        TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
-        {Position = UDim2.new(1, 10, 1, -10)}
-    )
+    local tweenOut = TweenService:Create(frame, TweenInfo.new(0.4, Enum.EasingStyle.Quad), {
+        Position = UDim2.new(1, 10, 1, -10)
+    })
 
     tweenIn:Play()
-    tweenIn.Completed:Wait()
-    task.wait(5)
+    task.wait(4)
     tweenOut:Play()
     tweenOut.Completed:Connect(function()
         frame:Destroy()
     end)
+end
+
+-- Admin tool-style account age detection
+local function getAccountAge(player)
+    local success, age = pcall(function()
+        return player.AccountAge -- Direct property access (works in some executors)
+    end)
+    return success and age or "N/A"
 end
 
 Players.PlayerAdded:Connect(function(player)
