@@ -1,5 +1,5 @@
 local Players = game:GetService("Players")
-local HttpService = game:GetService("HttpService")
+local TextService = game:GetService("TextService")
 local TweenService = game:GetService("TweenService")
 
 -- Create notification GUI in bottom-right
@@ -9,7 +9,29 @@ gui.ResetOnSpawn = false
 gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 gui.Parent = game.Players.LocalPlayer:WaitForChild("PlayerGui")
 
-local function createNotification(text, subText)
+local function calculateAge(accountCreationDate)
+    local pattern = "(%d+)-(%d+)-(%d+)T"
+    local year, month, day = accountCreationDate:match(pattern)
+    local timestamp = os.time({
+        year = tonumber(year),
+        month = tonumber(month),
+        day = tonumber(day),
+    })
+    return math.floor((os.time() - timestamp) / 86400)
+end
+
+local function getAccountAge(player)
+    local success, result = pcall(function()
+        return player:GetJoinDate()
+    end)
+    
+    if success then
+        return calculateAge(result)
+    end
+    return "??"
+end
+
+local function createNotification(playerName, age)
     local frame = Instance.new("Frame")
     frame.Size = UDim2.new(0.2, 0, 0.08, 0)
     frame.Position = UDim2.new(1, 10, 1, -10) -- Start off-screen to the right (bottom)
@@ -17,33 +39,27 @@ local function createNotification(text, subText)
     frame.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
     frame.BackgroundTransparency = 0.2
     frame.BorderSizePixel = 0
-    frame.Parent = gui
 
     local corner = Instance.new("UICorner")
     corner.CornerRadius = UDim.new(0, 6)
     corner.Parent = frame
 
+    local textContent = `🎮 {playerName}\n📅 Age: {age} days`
+    local textSize = TextService:GetTextSize(textContent, 14, Enum.Font.Gotham, Vector2.new(200, 40))
+
     local label = Instance.new("TextLabel")
-    label.Size = UDim2.new(0.9, 0, 0.6, 0)
-    label.Position = UDim2.new(0.05, 0, 0.1, 0)
-    label.Text = text
+    label.Size = UDim2.new(0.9, 0, 0.9, 0)
+    label.Position = UDim2.new(0.05, 0, 0.05, 0)
+    label.Text = textContent
     label.TextColor3 = Color3.new(1, 1, 1)
     label.TextXAlignment = Enum.TextXAlignment.Left
+    label.TextYAlignment = Enum.TextYAlignment.Top
     label.BackgroundTransparency = 1
-    label.Font = Enum.Font.GothamBold
+    label.Font = Enum.Font.Gotham
     label.TextSize = 14
     label.Parent = frame
 
-    local subLabel = Instance.new("TextLabel")
-    subLabel.Size = UDim2.new(0.9, 0, 0.3, 0)
-    subLabel.Position = UDim2.new(0.05, 0, 0.6, 0)
-    subLabel.Text = subText
-    subLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
-    subLabel.TextXAlignment = Enum.TextXAlignment.Left
-    subLabel.BackgroundTransparency = 1
-    subLabel.Font = Enum.Font.Gotham
-    subLabel.TextSize = 12
-    subLabel.Parent = frame
+    frame.Parent = gui
 
     -- Animation
     local tweenIn = TweenService:Create(
@@ -60,41 +76,22 @@ local function createNotification(text, subText)
 
     tweenIn:Play()
     tweenIn.Completed:Wait()
-    wait(5)
+    task.wait(5)
     tweenOut:Play()
     tweenOut.Completed:Connect(function()
         frame:Destroy()
     end)
 end
 
-local function getAccountAge(userId)
-    local success, result = pcall(function()
-        return HttpService:GetAsync("https://api.roblox.com/users/" .. userId)
-    end)
-    
-    if success then
-        local data = HttpService:JSONDecode(result)
-        local createdDate = DateTime.fromIsoDate(data.Created)
-        return math.floor((DateTime.now().UnixTimestamp - createdDate.UnixTimestamp) / 86400)
-    end
-    return "Unknown"
-end
-
 Players.PlayerAdded:Connect(function(player)
-    local age = getAccountAge(player.UserId)
-    createNotification(
-        "🎮 " .. player.Name .. " joined",
-        "Account Age: " .. age .. " days"
-    )
+    local age = getAccountAge(player)
+    createNotification(player.Name, age)
 end)
 
 -- Show existing players
 for _, player in ipairs(Players:GetPlayers()) do
     if player ~= game.Players.LocalPlayer then
-        local age = getAccountAge(player.UserId)
-        createNotification(
-            "🎮 " .. player.Name .. " is in-game",
-            "Account Age: " .. age .. " days"
-        )
+        local age = getAccountAge(player)
+        createNotification(player.Name, age)
     end
 end
