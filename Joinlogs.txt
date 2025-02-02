@@ -1,6 +1,71 @@
--- Client-side script (execute via executor)
 local Players = game:GetService("Players")
 local HttpService = game:GetService("HttpService")
+local TweenService = game:GetService("TweenService")
+
+-- Create notification GUI
+local gui = Instance.new("ScreenGui")
+gui.Name = "JoinNotifications"
+gui.ResetOnSpawn = false
+gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+gui.Parent = game.Players.LocalPlayer:WaitForChild("PlayerGui")
+
+local function createNotification(text, subText)
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(0.2, 0, 0.08, 0)
+    frame.Position = UDim2.new(1, 10, 0.05, 0) -- Start off-screen to the right
+    frame.AnchorPoint = Vector2.new(1, 0)
+    frame.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+    frame.BackgroundTransparency = 0.2
+    frame.BorderSizePixel = 0
+    frame.Parent = gui
+
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 6)
+    corner.Parent = frame
+
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(0.9, 0, 0.6, 0)
+    label.Position = UDim2.new(0.05, 0, 0.1, 0)
+    label.Text = text
+    label.TextColor3 = Color3.new(1, 1, 1)
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.BackgroundTransparency = 1
+    label.Font = Enum.Font.GothamBold
+    label.TextSize = 14
+    label.Parent = frame
+
+    local subLabel = Instance.new("TextLabel")
+    subLabel.Size = UDim2.new(0.9, 0, 0.3, 0)
+    subLabel.Position = UDim2.new(0.05, 0, 0.6, 0)
+    subLabel.Text = subText
+    subLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+    subLabel.TextXAlignment = Enum.TextXAlignment.Left
+    subLabel.BackgroundTransparency = 1
+    subLabel.Font = Enum.Font.Gotham
+    subLabel.TextSize = 12
+    subLabel.Parent = frame
+
+    -- Animation
+    local tweenIn = TweenService:Create(
+        frame,
+        TweenInfo.new(0.5),
+        {Position = UDim2.new(1, -10, 0.05, 0)}
+    )
+    
+    local tweenOut = TweenService:Create(
+        frame,
+        TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
+        {Position = UDim2.new(1, 10, 0.05, 0)}
+    )
+
+    tweenIn:Play()
+    tweenIn.Completed:Wait()
+    wait(5) -- Display duration
+    tweenOut:Play()
+    tweenOut.Completed:Connect(function()
+        frame:Destroy()
+    end)
+end
 
 local function getAccountAge(userId)
     local success, result = pcall(function()
@@ -10,19 +75,26 @@ local function getAccountAge(userId)
     if success then
         local data = HttpService:JSONDecode(result)
         local createdDate = DateTime.fromIsoDate(data.Created)
-        local ageDays = math.floor((os.time() - createdDate.UnixTimestamp) / 86400)
-        return ageDays
+        return math.floor((DateTime.now().UnixTimestamp - createdDate.UnixTimestamp) / 86400)
     end
     return "Unknown"
 end
 
 Players.PlayerAdded:Connect(function(player)
-    local accountAge = getAccountAge(player.UserId)
-    print(`[+] {player.Name} joined | Account Age: {accountAge} days`)
+    local age = getAccountAge(player.UserId)
+    createNotification(
+        "🎮 " .. player.Name .. " joined",
+        "Account Age: " .. age .. " days"
+    )
 end)
 
--- For players already in-game
+-- Show existing players
 for _, player in ipairs(Players:GetPlayers()) do
-    local accountAge = getAccountAge(player.UserId)
-    print(`[+] {player.Name} is already here | Account Age: {accountAge} days`)
+    if player ~= game.Players.LocalPlayer then
+        local age = getAccountAge(player.UserId)
+        createNotification(
+            "🎮 " .. player.Name .. " is in-game",
+            "Account Age: " .. age .. " days"
+        )
+    end
 end
