@@ -2,7 +2,7 @@ local Players = game:GetService("Players")
 local HttpService = game:GetService("HttpService")
 local TweenService = game:GetService("TweenService")
 
--- Create notification GUI
+-- Create notification GUI in bottom-right
 local gui = Instance.new("ScreenGui")
 gui.Name = "JoinNotifications"
 gui.ResetOnSpawn = false
@@ -12,8 +12,8 @@ gui.Parent = game.Players.LocalPlayer:WaitForChild("PlayerGui")
 local function createNotification(text, subText)
     local frame = Instance.new("Frame")
     frame.Size = UDim2.new(0.2, 0, 0.08, 0)
-    frame.Position = UDim2.new(1, 10, 0.05, 0) -- Start off-screen to the right
-    frame.AnchorPoint = Vector2.new(1, 0)
+    frame.Position = UDim2.new(1, 10, 1, -10) -- Start off-screen to the right (bottom)
+    frame.AnchorPoint = Vector2.new(1, 1)
     frame.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
     frame.BackgroundTransparency = 0.2
     frame.BorderSizePixel = 0
@@ -49,18 +49,18 @@ local function createNotification(text, subText)
     local tweenIn = TweenService:Create(
         frame,
         TweenInfo.new(0.5),
-        {Position = UDim2.new(1, -10, 0.05, 0)}
+        {Position = UDim2.new(1, -10, 1, -10)}
     )
     
     local tweenOut = TweenService:Create(
         frame,
         TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
-        {Position = UDim2.new(1, 10, 0.05, 0)}
+        {Position = UDim2.new(1, 10, 1, -10)}
     )
 
     tweenIn:Play()
     tweenIn.Completed:Wait()
-    wait(5) -- Display duration
+    wait(5)
     tweenOut:Play()
     tweenOut.Completed:Connect(function()
         frame:Destroy()
