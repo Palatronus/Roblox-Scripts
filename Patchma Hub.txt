@@ -20,8 +20,10 @@
 	3033910400,3409612660,3438342658,3398308134,4324158403,3822880197,4154538250,3443038622,4819740796
 
 	accessories for Immortality Lord:
-	head: 17375337078 or 17270164442
-	body: 17270178857,17270001635,17269952801,17269983359,17269998373
+	head: 17375337078 or 17270164442 or 105058659622112
+	body: 121668589285446,80629770394501,127671621543010,76687571475377,120230112701079
+	or 132908702618809,122975605535029,115313441748457,127208207296576,131203955709755
+	or 17270178857,17270001635,17269952801,17269983359,17269998373
 	wings: 17270231731,17270225913
 	sword: 17326812233,17326800544
 ]]
@@ -1420,9 +1422,9 @@ local reanimate=function()
 		if (not targetpart) or (flingtable[targetpart]~=nil) then
 			return false
 		end
-		replicatesignal(cdsb)
-		twait(0.5)
-		replicatesignal(cdsb)
+		if replicatesignal then
+		    replicatesignal(cdsb)
+		end
 		if highlightflingtargets then
 			local h=i("Highlight")
 			insSet(h,"Name",rs())
@@ -2999,7 +3001,20 @@ btn("Immortality Lord", function()
 		{meshid="17269487439",textureid="",C0=angles(0,0,1.5707963267948966),Name="Left Arm"},
 		{meshid="17269487439",textureid="",C0=angles(0,0,1.5707963267948966),Name="Right Arm"},
 		{meshid="17269487439",textureid="",C0=angles(0,0,1.5707963267948966),Name="Left Leg"},
-		{meshid="17269487439",textureid="",C0=angles(0,0,1.5707963267948966),Name="Right Leg"}
+		{meshid="17269487439",textureid="",C0=angles(0,0,1.5707963267948966),Name="Right Leg"},
+
+		{meshid="111946216585470",textureid="",C0=cf_0,Name="Torso"},
+		{meshid="92572400594624",textureid="",C0=angles(0,3.14,0),Name="Head"},
+		{meshid="117649985156221",textureid="",C0=cf_0,Name="Left Arm"},
+		{meshid="93749227415046",textureid="",C0=cf_0,Name="Right Arm"},
+		{meshid="137156465227879",textureid="",C0=cf_0,Name="Left Leg"},
+		{meshid="76010149115685",textureid="",C0=cf_0,Name="Right Leg"},
+
+		{meshid="126825022897778",textureid="",C0=cf_0,Name="Torso"},
+		{meshid="138744606849121",textureid="",C0=angles(0,0,1.5707963267948966),Name="Left Arm"},
+		{meshid="138744606849121",textureid="",C0=angles(0,0,1.5707963267948966),Name="Right Arm"},
+		{meshid="138744606849121",textureid="136752500636691",C0=angles(0,0,1.5707963267948966),Name="Left Leg"},
+		{meshid="138744606849121",textureid="136752500636691",C0=angles(0,0,1.5707963267948966),Name="Right Leg"}
 	}
 	local t=reanimate()
 	accessorylimbs=backup
