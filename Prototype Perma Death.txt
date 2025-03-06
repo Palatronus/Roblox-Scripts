@@ -1,0 +1,52 @@
+	local s=i4
+	i4=i11
+	lbl("Use permadeath?")
+	lbl("(detectable with no false positives)")
+	lbl("This executor supports permadeath.")
+	lbl("permadeath preload method")
+	insSet(i13,"Parent",i11)
+	i4=i13
+	btn("No",function()
+		replicatesignal=nil
+		Destroy(i11)
+		lbl("permadeath disabled")
+		insSet(i4,"Parent",i3)
+		pdloadedtime=nil
+	end)
+	btn("Yes",function()
+		Destroy(i11)
+		lbl("permadeath enabled")
+		insSet(i4,"Parent",i3)
+		replicatesignal(cdsb)
+		pdloadedtime=osclock()+rst
+		local lastc=nil
+		local hdied=function()
+			if not c then
+				replicatesignal(cdsb)
+				pdloadedtime=osclock()+rst
+			end
+		end
+		Connect(GetPropertyChangedSignal(lp,"Character"),function()
+			local c=lp.Character
+			if c and c~=lastc then
+				lastc=c
+				replicatesignal(cdsb)
+				pdloadedtime=osclock()+rst
+				while lastc==c do
+					local h=FindFirstChildOfClass(c,"Humanoid")
+					if h then
+						Connect(insGet(h,"Died"),hdied)
+						break
+					end
+					Wait(preanimation)
+				end
+			end
+		end)
+	end)
+	i4=s
+
+	insSet(i11,"Parent",i3)
+	insSet(i4,"Parent",nil)
+else
+	lbl("permadeath unsupported")
+end
