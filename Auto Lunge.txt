@@ -5,7 +5,7 @@ local RS = game:GetService("RunService")
 
 local ToolName = "Sword"
 local Toggle = false
-local Cooldown = 0.1 -- Adjust cooldown between lunges
+local Cooldown = 0.01 -- Adjust cooldown between lunges
 local Debounce = false
 
 local function GetEquippedSword()
