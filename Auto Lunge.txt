@@ -1,84 +1,52 @@
+-- Auto Sword Lunging Script (FE Compatible)
 local Player = game:GetService("Players").LocalPlayer
-local ToolName = "Sword" -- CASE SENSITIVE!
-local Cooldown = 1 -- Seconds between attacks (SAFE DEFAULT)
-local Enabled = true -- Master toggle
+local UIS = game:GetService("UserInputService")
+local RS = game:GetService("RunService")
 
--- Anti-Detection Measures --
-local SafeMode = true -- Reduces attack patterns
-local RandomizedDelay = 0.2 -- Anti-pattern offset
+local ToolName = "Sword"
+local Toggle = false
+local Cooldown = 1 -- Adjust cooldown between lunges
+local Debounce = false
 
--- Engine Setup --
-if not hookfunction or not getconnections then
-    error("Executor missing critical functions")
-end
-
--- Core Systems --
-local AttackSignal = Instance.new("BindableEvent")
-local ToolTracker = {
-    CurrentWeapon = nil,
-    Connections = {}
-}
-
--- Weapon State Management --
-function ToolTracker:Update()
-    self.CurrentWeapon = Player.Character
-        and (Player.Character:FindFirstChild(ToolName)
-        or Player.Backpack:FindFirstChild(ToolName))
-end
-
--- Attack Pattern Generator --
-function GenerateAttack()
-    if SafeMode then
-        return Cooldown + math.random(-RandomizedDelay, RandomizedDelay)
-    end
-    return Cooldown
-end
-
--- Execution Thread --
-task.spawn(function()
-    while task.wait(GenerateAttack()) do
-        if not Enabled or not ToolTracker.CurrentWeapon then continue end
-        
-        -- Bypass common anti-cheat checks --
-        pcall(function()
-            local Tool = ToolTracker.CurrentWeapon
-            local Humanoid = Player.Character:FindFirstChild("Humanoid")
-            
-            -- Simulate legitimate input pattern --
-            if Humanoid and Humanoid.Health > 0 then
-                if Tool:FindFirstChild("Activate") then
-                    for _ = 1, 3 do -- Triple-tap verification bypass
-                        Tool.Activate:Invoke()
-                        task.wait()
-                    end
-                else
-                    require(Tool).Activate(Tool) -- ModuleScript bypass
-                end
-                AttackSignal:Fire() -- Create legitimate-looking event
+local function GetEquippedSword()
+    if Player.Character then
+        for _, tool in ipairs(Player.Character:GetChildren()) do
+            if tool:IsA("Tool") and tool.Name == ToolName then
+                return tool
             end
-        end)
+        end
     end
-end)
-
--- Weapon Tracking --
-Player.CharacterAdded:Connect(function()
-    ToolTracker:Update()
-    Player.Character:WaitForChild(ToolName, 5)
-    ToolTracker:Update()
-end)
-
-Player.Backpack.ChildAdded:Connect(function(child)
-    if child.Name == ToolName then
-        ToolTracker:Update()
-    end
-end)
-
--- Runtime Controls --
-_G.TOGGLE_LUNGE = function(state)
-    Enabled = state
-    print("Auto-Lunge:", state and "ACTIVE" or "DISABLED")
+    return nil
 end
 
--- Initialization --
-ToolTracker:Update()
-_G.TOGGLE_LUNGE(Enabled)
+UIS.InputBegan:Connect(function(input, processed)
+    if not processed and input.KeyCode == Enum.KeyCode.F then
+        if Debounce then return end
+        Debounce = true
+        
+        Toggle = not Toggle
+        print("Auto Lunge:", Toggle and "Enabled" or "Disabled")
+        
+        if Toggle then
+            coroutine.wrap(function()
+                while Toggle and wait(Cooldown) do
+                    local sword = GetEquippedSword()
+                    if sword then
+                        sword:Activate()
+                    end
+                end
+            end)()
+        end
+        
+        Debounce = false
+    end
+end)
+
+-- Visual feedback
+RS.Heartbeat:Connect(function()
+    if Toggle then
+        -- Optional: Add visual effects here
+    end
+end)
+
+print("Auto Lunge Script Loaded | Press F to Toggle")
