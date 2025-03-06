@@ -1,11 +1,11 @@
--- Auto Sword Lunging Script (FE Compatible)
+-- Auto Sword Lunging Script (FE Compatible) with Adjustable Cooldown
 local Player = game:GetService("Players").LocalPlayer
 local UIS = game:GetService("UserInputService")
 local RS = game:GetService("RunService")
 
 local ToolName = "Sword"
 local Toggle = false
-local Cooldown = 0.1 -- Adjust cooldown between lunges
+local Cooldown = 0.2  -- Default cooldown (now modifiable)
 local Debounce = false
 
 local function GetEquippedSword()
@@ -26,14 +26,16 @@ UIS.InputBegan:Connect(function(input, processed)
         
         Toggle = not Toggle
         print("Auto Lunge:", Toggle and "Enabled" or "Disabled")
+        print("Current Cooldown:", Cooldown)
         
         if Toggle then
             coroutine.wrap(function()
-                while Toggle and wait(Cooldown) do
+                while Toggle do
                     local sword = GetEquippedSword()
                     if sword then
                         sword:Activate()
                     end
+                    task.wait(Cooldown)  -- Now uses current Cooldown value each time
                 end
             end)()
         end
@@ -42,11 +44,14 @@ UIS.InputBegan:Connect(function(input, processed)
     end
 end)
 
--- Visual feedback
-RS.Heartbeat:Connect(function()
-    if Toggle then
-        -- Optional: Add visual effects here
+-- To modify cooldown while running, type in chat: /cooldown [number]
+game:GetService("Players").LocalPlayer.Chatted:Connect(function(msg)
+    local newCD = tonumber(msg:match("/cooldown%s+(%d+.?%d*)"))
+    if newCD then
+        Cooldown = math.clamp(newCD, 0.2, 5)  -- Minimum 0.2s, Maximum 5s
+        print("Cooldown set to:", Cooldown)
     end
 end)
 
 print("Auto Lunge Script Loaded | Press F to Toggle")
+print("Type '/cooldown [number]' to adjust cooldown")
