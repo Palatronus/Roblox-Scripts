@@ -5,7 +5,7 @@ local RS = game:GetService("RunService")
 
 local ToolName = "Sword"
 local Toggle = false
-local Cooldown = 0.2  -- Default cooldown (now modifiable)
+local Cooldown = 0.1  -- Default cooldown (now modifiable)
 local Debounce = false
 
 local function GetEquippedSword()
