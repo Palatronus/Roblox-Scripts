@@ -1,0 +1,338 @@
+--[[
+	sword kill logs by MyWorld
+	now u know who reaches, now u know who killed u
+	only works on linked sword btw
+]]
+
+local next=next
+local mround=math.round
+local mrandom=math.random
+local schar=string.char
+local tclone=table.clone
+local tinsert=table.insert
+local pcall=pcall
+
+local i=Instance.new
+local e=Enum
+local v2=Vector2.new
+local c3=Color3.new
+local u2=UDim2.new
+local f=Font.new
+
+local IsA=game.IsA
+local Destroy=game.Destroy
+local GetChildren=game.GetChildren
+local GetDescendants=game.GetDescendants
+local IsDescendantOf=game.IsDescendantOf
+local FindFirstChildOfClass=game.FindFirstChildOfClass
+local FindFirstChildWhichIsA=game.FindFirstChildWhichIsA
+local GetPropertyChangedSignal=game.GetPropertyChangedSignal
+local Connect=game.Loaded.Connect
+local Disconnect=Connect(game.Loaded,table.pack).Disconnect
+
+local plrs=FindFirstChildOfClass(game,"Players")
+local uis=FindFirstChildOfClass(game,"UserInputService")
+local ws=FindFirstChildOfClass(game,"Workspace")
+local renderstepped=FindFirstChildOfClass(game,"RunService").RenderStepped
+local lp=plrs.LocalPlayer
+
+local gp=function(p,n,cn)
+	for i,v in next,GetChildren(p) do
+		if IsA(v,cn) and (v.Name==n) then
+			return v
+		end
+	end
+	return nil
+end
+
+local rs=function(l)
+	l=l or mrandom(8,15)
+	local s=""
+	for i=1,l do
+		if mrandom(2)==2 then
+			s=s..schar(mrandom(65,90))
+		else
+			s=s..schar(mrandom(97,122))
+		end
+	end
+	return s
+end
+
+local function Draggable(window,obj)
+	local MB1enum = e.UserInputType.MouseButton1
+	local TOUCHenum = e.UserInputType.Touch
+	obj = obj or window
+	local activeEntered = 0
+	local mouseStart = nil
+	local dragStart = nil
+	local inputbegancon = nil
+	local rendersteppedcon = nil
+	local inputendedcon = nil
+	local function inputendedf(a)
+		a=a.UserInputType
+		if (a==MB1enum) or (a==TOUCHenum) then
+			rendersteppedcon:Disconnect()
+			inputendedcon:Disconnect()
+		end
+	end
+	local function rendersteppedf()
+		local off = uis:GetMouseLocation()-mouseStart
+		window.Position=dragStart+u2(0,off.X,0,off.Y)
+	end
+	local function inputbeganf(a)
+		a=a.UserInputType
+		if ((a==MB1enum) or (a==TOUCHenum)) and (activeEntered==0) and not uis:GetFocusedTextBox() then
+			mouseStart=uis:GetMouseLocation()
+			dragStart=window.Position
+			if rendersteppedcon then rendersteppedcon:Disconnect() end
+			rendersteppedcon = renderstepped:Connect(rendersteppedf)
+			if inputendedcon then inputendedcon:Disconnect() end
+			inputendedcon = uis.InputEnded:Connect(inputendedf)
+		end
+	end
+	obj.MouseEnter:Connect(function()
+		if inputbegancon then inputbegancon:Disconnect() end
+		inputbegancon = uis.InputBegan:Connect(inputbeganf)
+	end)
+	obj.MouseLeave:Connect(function()
+		inputbegancon:Disconnect()
+	end)
+	local function ondes(d)
+		if d:IsA("GuiObject") then
+			local thisEntered = false
+			local thisAdded = false
+			local con0 = d.MouseEnter:Connect(function()
+				thisEntered = true
+				if (not thisAdded) and d.Active then
+					activeEntered = activeEntered + 1
+					thisAdded = true
+				end
+			end)
+			local con1 = d.MouseLeave:Connect(function()
+				thisEntered = false
+				if thisAdded then
+					activeEntered = activeEntered - 1
+					thisAdded = false
+				end
+			end)
+			local con2 = d:GetPropertyChangedSignal("Active"):Connect(function()
+				if thisEntered then
+					if thisAdded and not d.Active then
+						activeEntered = activeEntered - 1
+						thisAdded = false
+					elseif d.Active and not thisAdded then
+						activeEntered = activeEntered + 1
+						thisAdded = true
+					end
+				end
+			end)
+			local con3 = nil
+			con3 = d.AncestryChanged:Connect(function()
+				if not d:IsDescendantOf(window) then
+					if thisEntered then
+						activeEntered = activeEntered - 1
+					end
+					con0:Disconnect()
+					con1:Disconnect()
+					con2:Disconnect()
+					con3:Disconnect()
+				end
+			end)
+		end
+	end
+	window.DescendantAdded:Connect(ondes)
+	local des=window:GetDescendants()
+	for i=1,#des do 
+		ondes(des[i])
+	end
+end
+
+local autoscroll=function(scroll)
+	local canvasend=scroll.AbsoluteWindowSize+scroll.CanvasPosition
+	local canvasSize=scroll.AbsoluteCanvasSize
+	local windowsize=scroll.AbsoluteWindowSize
+	local isAtEndY=nil
+	local onCanvasPosition=function()
+		isAtEndY=(windowsize+scroll.CanvasPosition).Y==canvasSize.Y
+	end
+	scroll:GetPropertyChangedSignal("CanvasPosition"):Connect(onCanvasPosition)
+	onCanvasPosition()
+	local update=function()
+		windowsize=scroll.AbsoluteWindowSize
+		canvasSize=scroll.AbsoluteCanvasSize
+		if isAtEndY then
+			scroll.CanvasPosition=v2(scroll.CanvasPosition.X,(canvasSize-windowsize).Y)
+		end
+	end
+	scroll:GetPropertyChangedSignal("AbsoluteCanvasSize"):Connect(update)
+	scroll:GetPropertyChangedSignal("AbsoluteWindowSize"):Connect(update)
+end
+
+local i1=i("ScreenGui")
+local i2=i("Frame")
+local i3=i("TextLabel")
+local i4=i("TextButton")
+local i5=i("TextLabel")
+local i6=i("Frame")
+local i7=i("ScrollingFrame")
+local i8=i("UIListLayout")
+
+i1.Name=rs()
+i1.ResetOnSpawn=false
+i1.ZIndexBehavior=e.ZIndexBehavior.Sibling
+i2.Name=rs()
+i2.AnchorPoint=v2(0.5,0.5)
+i2.BackgroundColor3=c3(0.192,0.192,0.192)
+i2.BorderColor3=c3(0,0,0)
+i2.BorderSizePixel=0
+i2.Position=u2(0.5,0,0.5,0)
+i2.Size=u2(0,320,0,200)
+i3.Name=rs()
+i3.BackgroundColor3=c3(1,1,1)
+i3.BackgroundTransparency=1
+i3.BorderColor3=c3(0,0,0)
+i3.BorderSizePixel=0
+i3.Size=u2(1,0,0,20)
+i3.FontFace=f("rbxasset://fonts/families/SourceSansPro.json",e.FontWeight.Regular,e.FontStyle.Normal)
+i3.Text="sword kill logs"
+i3.TextColor3=c3(0.969,0.969,0.969)
+i3.TextSize=16
+i4.Name=rs()
+i4.AnchorPoint=v2(1,1)
+i4.BackgroundColor3=c3(0.686,0.286,0)
+i4.BorderColor3=c3(0,0,0)
+i4.BorderSizePixel=0
+i4.Position=u2(1,0,1,0)
+i4.Size=u2(0,50,0,20)
+i4.FontFace=f("rbxasset://fonts/families/SourceSansPro.json",e.FontWeight.Regular,e.FontStyle.Normal)
+i4.Text="clear"
+i4.TextColor3=c3(0.925,0.925,0.925)
+i4.TextSize=14
+i5.Name=rs()
+i5.AnchorPoint=v2(0,1)
+i5.AutomaticSize=e.AutomaticSize.XY
+i5.BackgroundColor3=c3(1,1,1)
+i5.BackgroundTransparency=1
+i5.BorderColor3=c3(0,0,0)
+i5.BorderSizePixel=0
+i5.Position=u2(0,3,1,0)
+i5.FontFace=f("rbxasset://fonts/families/SourceSansPro.json",e.FontWeight.Regular,e.FontStyle.Normal)
+i5.Text="by MyWorld (it was speedrun)"
+i5.TextColor3=c3(0.392,0.392,1)
+i5.TextSize=14
+i6.Name=rs()
+i6.BackgroundColor3=c3(0.047,0.047,0.047)
+i6.BorderColor3=c3(0,0,0)
+i6.BorderSizePixel=0
+i6.Position=u2(0,1,0,20)
+i6.Size=u2(1,-2,1,-40)
+i7.Name=rs()
+i7.Active=true
+i7.AutomaticCanvasSize=e.AutomaticSize.Y
+i7.BackgroundColor3=c3(0.118,0.118,0.118)
+i7.BackgroundTransparency=1
+i7.BorderColor3=c3(0,0,0)
+i7.BorderSizePixel=0
+i7.CanvasSize=u2(0,0,1,0)
+i7.Size=u2(1,0,1,0)
+i7.ScrollBarImageColor3=c3(0,0,0)
+i8.Name=rs()
+i8.SortOrder=e.SortOrder.LayoutOrder
+
+local labels={}
+local function logs(txt,color)
+	local i1=i("TextLabel")
+
+	i1.Name=rs()
+	i1.AutomaticSize=e.AutomaticSize.Y
+	i1.BackgroundColor3=c3(1,1,1)
+	i1.BackgroundTransparency=1
+	i1.BorderColor3=c3(0,0,0)
+	i1.BorderSizePixel=0
+	i1.FontFace=f("rbxasset://fonts/families/RobotoMono.json",e.FontWeight.Regular,e.FontStyle.Normal)
+	i1.Size=u2(1,-10,0,0)
+	i1.Text=txt
+	i1.TextColor3=color or c3(0.8,0.8,0.8)
+	i1.TextSize=16
+	i1.TextWrapped=true
+	i1.TextXAlignment=e.TextXAlignment.Left
+	i1.TextYAlignment=e.TextYAlignment.Top
+	
+	tinsert(labels,i1)
+	
+	i1.Parent=i7
+end
+
+Connect(i4.MouseButton1Click,function()
+	for i,v in next,tclone(labels) do
+		Destroy(v)
+		labels[i]=nil
+	end
+end)
+
+local onHum=function(v)
+	if IsA(v,"Humanoid") then
+		local con0=nil
+		local con1=nil
+		con0=Connect(GetPropertyChangedSignal(v,"Health"),function()
+			if v.Health==0 then
+				pcall(Disconnect,con0)
+				pcall(Disconnect,con1)
+				local model=v.Parent
+				local displayname=(v.DisplayName or model.Name)
+				local killer=gp(v,"creator","ObjectValue")
+				killer=killer and killer.Value
+				local killedHrp=gp(model,"HumanoidRootPart","BasePart") or FindFirstChildWhichIsA(model,"BasePart")
+				if killer then
+					local killerHrp=killer.Character
+					killerHrp=killerHrp and (gp(killerHrp,"HumanoidRootPart","BasePart") or FindFirstChildWhichIsA(killerHrp,"BasePart"))
+					if killerHrp and killedHrp then
+						local distance=mround((killerHrp.CFrame.Position-killedHrp.CFrame.Position).Magnitude)
+						if distance>20 then
+							logs("["..(killer.DisplayName or killer.Name).."] killed "..displayname.." (distance: "..distance..")",Color3.new(1,0,0))
+						elseif distance>10 then
+							logs("["..(killer.DisplayName or killer.Name).."] killed "..displayname.." (distance: "..distance..")",Color3.new(1,1,0))
+						else
+							logs("["..(killer.DisplayName or killer.Name).."] killed "..displayname.." (distance: "..distance..")")
+						end
+					else
+						logs("["..(killer.DisplayName or killer.Name).."] killed "..displayname.." (unknown distance)")
+					end
+				else
+					if killedHrp then
+						logs(displayname.." died (unknown reason)")
+					else
+						logs(displayname.." died (in void)")
+					end
+				end
+			end
+		end)
+		con1=Connect(v.AncestryChanged,function()
+			if not IsDescendantOf(v,ws) then
+				pcall(Disconnect,con0)
+				pcall(Disconnect,con1)
+			end
+		end)
+	end
+end
+Connect(ws.DescendantAdded,onHum)
+for i,v in next,GetDescendants(ws) do
+	onHum(v)
+end
+
+i2.Parent=i1
+i3.Parent=i2
+i4.Parent=i2
+i5.Parent=i2
+i6.Parent=i2
+i7.Parent=i6
+i8.Parent=i7
+
+Draggable(i2)
+autoscroll(i7)
+
+if not pcall(function()
+	i1.Parent=FindFirstChildOfClass(game,"CoreGui")
+end) then
+	i1.Parent=FindFirstChildOfClass(lp,"PlayerGui")
+end
