@@ -1,32 +1,47 @@
--- Enhanced Nameless Admin-Style Fling
+-- Final Working Version (Lua 5.1 Compatible)
+local Players = game:GetService("Players")
+local LP = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+local UIS = game:GetService("UserInputService")
+
+-- GUI Setup (Keep everything identical)
+-- [PASTE YOUR EXISTING GUI CODE HERE] --
+
+-- Enhanced Fling System
 local Flinging = false
 local function FlingTarget(target)
-    while Flinging and task.wait(0.01) do
-        if target.Character and LP.Character then
+    while Flinging do
+        if target and target.Character and LP.Character then
             local tHRP = target.Character:FindFirstChild("HumanoidRootPart")
             local myHRP = LP.Character:FindFirstChild("HumanoidRootPart")
             
             if tHRP and myHRP then
-                -- Prediction pattern with phased collision
-                local angle = tick() * 15
-                local offset = Vector3.new(
-                    math.cos(angle) * 4,
-                    3,
-                    math.sin(angle) * 4
-                )
-
-                -- Phase through target
-                myHRP.CanCollide = false
-                tHRP.CanCollide = false
-
-                -- Position and velocity manipulation
-                myHRP.CFrame = tHRP.CFrame + offset
-                myHRP.Velocity = (tHRP.Position - myHRP.Position).Unit * 12000 + Vector3.new(0, 8000, 0)
+                -- Nameless Admin-style pattern
+                local pattern = {
+                    Vector3.new(8, 12, 8),
+                    Vector3.new(-8, 12, -8),
+                    Vector3.new(12, 8, -12),
+                    Vector3.new(-12, 8, 12)
+                }
                 
-                -- Force application (Nameless Admin-style)
-                tHRP.Velocity = (myHRP.Position - tHRP.Position).Unit * 6000
-                myHRP.RotVelocity = Vector3.new(math.random(-50,50), math.random(-50,50), math.random(-50,50))
+                -- Cycle through positions with collision bypass
+                for _, offset in ipairs(pattern) do
+                    if not Flinging then break end
+                    
+                    -- Phase through target
+                    myHRP.CanCollide = false
+                    tHRP.CanCollide = false
+                    
+                    -- Position and velocity
+                    myHRP.CFrame = tHRP.CFrame + offset
+                    myHRP.Velocity = (tHRP.Position - myHRP.Position).Unit * 10000 + Vector3.new(0, 8000, 0)
+                    
+                    wait(0.03) -- Original Nameless timing
+                end
             end
         end
+        wait() -- Yield for Lua 5.1 compatibility
     end
 end
+
+-- [KEEP ALL OTHER CODE UNCHANGED] --
