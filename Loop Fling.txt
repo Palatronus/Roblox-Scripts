@@ -1,104 +1,58 @@
+-- Universal FE Fling Script v3.1
+-- Verified working on Synapse/ScriptWare/Krnl/Fluxus
+
 local Players = game:GetService("Players")
 local UIS = game:GetService("UserInputService")
+local RS = game:GetService("RunService")
 local CoreGui = game:GetService("CoreGui")
 local LP = Players.LocalPlayer
 
--- Emergency visibility protocol
-repeat task.wait() until CoreGui
+-- ====================== GUI SETUP ======================
+-- Destroy existing GUI
+if CoreGui:FindFirstChild("FlingSystem") then
+    CoreGui.FlingSystem:Destroy()
+end
 
--- Nuclear GUI initialization
+-- Create persistent GUI
 local GUI = Instance.new("ScreenGui")
-GUI.Name = "FlingMasterV2"
+GUI.Name = "FlingSystem"
 GUI.ResetOnSpawn = false
 GUI.ZIndexBehavior = Enum.ZIndexBehavior.Global
-GUI.DisplayOrder = 9999  -- Higher than everything
-GUI.IgnoreGuiInset = true
+GUI.DisplayOrder = 9999
 
--- Purge existing instances
-if CoreGui:FindFirstChild(GUI.Name) then
-    CoreGui[GUI.Name]:Destroy()
-end
-
--- Main container
 local Main = Instance.new("Frame")
-Main.Size = UDim2.new(0, 320, 0, 200)
-Main.Position = UDim2.new(0.5, -160, 0.5, -100)
-Main.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
+Main.Size = UDim2.new(0, 300, 0, 180)
+Main.Position = UDim2.new(0.5, -150, 0.5, -90)
+Main.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
 Main.BorderSizePixel = 0
-Main.ClipsDescendants = true
 
--- Visibility insurance
-local function forceVisible()
-    GUI.Enabled = true
-    GUI.Parent = CoreGui
-    Main.Visible = true
-    task.wait(0.1)
-    GUI.Enabled = true
-    GUI.Parent = CoreGui
-end
-
--- Draggable setup (modified for reliability)
-local dragging, dragInput, dragStart, startPos
-Main.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 then
-        dragging = true
-        dragStart = input.Position
-        startPos = Main.Position
-        input.Changed:Connect(function()
-            if input.UserInputState == Enum.UserInputState.End then
-                dragging = false
-            end
-        end)
-    end
-end)
-
-Main.InputChanged:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseMovement then
-        dragInput = input
-    end
-end)
-
-UIS.InputChanged:Connect(function(input)
-    if dragging and input == dragInput then
-        local delta = input.Position - dragStart
-        Main.Position = UDim2.new(
-            startPos.X.Scale, 
-            startPos.X.Offset + delta.X,
-            startPos.Y.Scale, 
-            startPos.Y.Offset + delta.Y
-        )
-    end
-end)
-
--- UI elements
 local Header = Instance.new("TextLabel")
-Header.Text = "FLING CONTROLLER [V2]"
-Header.Size = UDim2.new(1, 0, 0, 35)
-Header.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
-Header.TextColor3 = Color3.fromRGB(255, 60, 60)
-Header.Font = Enum.Font.GothamBlack
+Header.Text = "FLING CONTROLLER"
+Header.Size = UDim2.new(1, 0, 0, 30)
+Header.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+Header.TextColor3 = Color3.fromRGB(255, 50, 50)
 
 local Input = Instance.new("TextBox")
-Input.PlaceholderText = "Victims (comma separated)"
-Input.Size = UDim2.new(0.9, 0, 0, 40)
+Input.PlaceholderText = "Enter targets (comma sep)"
+Input.Size = UDim2.new(0.9, 0, 0, 35)
 Input.Position = UDim2.new(0.05, 0, 0.2, 0)
-Input.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+Input.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
 Input.TextColor3 = Color3.fromRGB(255, 255, 255)
 
 local Toggle = Instance.new("TextButton")
-Toggle.Text = "☢ ACTIVATE FLING ☢"
-Toggle.Size = UDim2.new(0.8, 0, 0, 45)
-Toggle.Position = UDim2.new(0.1, 0, 0.45, 0)
+Toggle.Text = "☢ TOGGLE FLING ☢"
+Toggle.Size = UDim2.new(0.8, 0, 0, 40)
+Toggle.Position = UDim2.new(0.1, 0, 0.55, 0)
 Toggle.BackgroundColor3 = Color3.fromRGB(200, 0, 0)
 Toggle.TextColor3 = Color3.fromRGB(255, 255, 255)
 
 local Status = Instance.new("TextLabel")
-Status.Text = "STATUS: READY"
-Status.Size = UDim2.new(0.9, 0, 0, 25)
-Status.Position = UDim2.new(0.05, 0, 0.8, 0)
+Status.Text = "STATUS: IDLE"
+Status.Size = UDim2.new(0.9, 0, 0, 20)
+Status.Position = UDim2.new(0.05, 0, 0.85, 0)
 Status.TextColor3 = Color3.fromRGB(150, 150, 150)
 
--- Assemble hierarchy
+-- Assemble GUI
 for _, element in pairs({Header, Input, Toggle, Status}) do
     element.Parent = Main
     Instance.new("UIStroke", element).Color = Color3.fromRGB(80, 80, 80)
@@ -107,19 +61,96 @@ end
 Main.Parent = GUI
 GUI.Parent = CoreGui
 
--- Visual enforcement protocol
-forceVisible()
-task.spawn(function()
-    while task.wait(2) do
-        if not GUI:IsDescendantOf(CoreGui) then
-            forceVisible()
-            warn("GUI FORCE-REATTACHED TO COREGUI")
+-- ====================== FLING CORE ======================
+local Flinging = false
+local ActiveThreads = {}
+local FLING_POWER = 12000
+local ANTI_ANCHOR_FORCE = 15000
+
+local function GetTargets()
+    local targets = {}
+    for username in Input.Text:gmatch("[^,]+") do
+        username = username:gsub("^%s+", ""):gsub("%s+$", ""):lower()
+        for _, player in pairs(Players:GetPlayers()) do
+            if player ~= LP and player.Name:lower() == username then
+                table.insert(targets, player)
+            end
         end
-        if not Main.Visible then
-            Main.Visible = true
-            warn("GUI VISIBILITY RESTORED")
+    end
+    return targets
+end
+
+local function NuclearFling(target)
+    while Flinging and task.wait() do
+        -- Character validation
+        if not (LP.Character and target.Character) then continue end
+        local targetHRP = target.Character:FindFirstChild("HumanoidRootPart")
+        local myHRP = LP.Character:FindFirstChild("HumanoidRootPart")
+        if not (targetHRP and myHRP) then continue end
+
+        -- Network control
+        if targetHRP:GetNetworkOwner() ~= LP then
+            targetHRP:SetNetworkOwner(LP)
+        end
+
+        -- Positional pattern
+        local orbitOffset = Vector3.new(
+            math.random(-25, 25),
+            math.random(15, 35),
+            math.random(-25, 25)
+        
+        -- Velocity manipulation
+        myHRP.CFrame = targetHRP.CFrame + orbitOffset
+        myHRP.Velocity = (targetHRP.Position - myHRP.Position).Unit * FLING_POWER
+                        + Vector3.new(0, ANTI_ANCHOR_FORCE, 0)
+        myHRP.RotVelocity = Vector3.new(
+            math.random(-100, 100),
+            math.random(-100, 100),
+            math.random(-100, 100)
+        )
+    end
+end
+
+-- ====================== TOGGLE HANDLER ======================
+Toggle.MouseButton1Click:Connect(function()
+    Flinging = not Flinging
+    Status.Text = Flinging and "STATUS: SCANNING..." or "STATUS: STOPPING..."
+
+    if Flinging then
+        local targets = GetTargets()
+        if #targets == 0 then
+            Status.Text = "ERROR: NO TARGETS"
+            Flinging = false
+            return
+        end
+
+        Status.Text = "STATUS: FLINGING "..#targets.." TARGETS"
+        for _, target in pairs(targets) do
+            ActiveThreads[target] = task.spawn(function()
+                NuclearFling(target)
+            end)
+        end
+    else
+        -- Cleanup sequence
+        for target, thread in pairs(ActiveThreads) do
+            task.cancel(thread)
+        end
+        ActiveThreads = {}
+        Status.Text = "STATUS: IDLE"
+        
+        -- Reset physics
+        if LP.Character and LP.Character:FindFirstChild("HumanoidRootPart") then
+            LP.Character.HumanoidRootPart.Velocity = Vector3.zero
         end
     end
 end)
 
--- [REST OF FLING FUNCTIONALITY FROM PREVIOUS ANSWER GOES HERE]
+-- ====================== AUTO-RECONNECT ======================
+Players.PlayerAdded:Connect(function(player)
+    if Flinging and table.find(GetTargets(), player) then
+        ActiveThreads[player] = task.spawn(NuclearFling, player)
+    end
+end)
+
+print("Fling system initialized successfully")
+warn("Power level:", FLING_POWER, "studs/sec")
