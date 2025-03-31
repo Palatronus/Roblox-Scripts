@@ -1,131 +1,73 @@
 local Players = game:GetService("Players")
-local UIS = game:GetService("UserInputService")
-local CoreGui = game:GetService("CoreGui")
 local LP = Players.LocalPlayer
+local TweenService = game:GetService("TweenService")
 
--- Delete previous GUI if exists
-if CoreGui:FindFirstChild("FlingMaster") then
-    CoreGui.FlingMaster:Destroy()
+-- Destroy existing GUI if present
+if game:GetService("CoreGui"):FindFirstChild("FlingPanel") then
+    game:GetService("CoreGui").FlingPanel:Destroy()
 end
 
--- GUI Creation
-local GUI = Instance.new("ScreenGui")
-local Main = Instance.new("Frame")
-local Header = Instance.new("TextLabel")
-local Input = Instance.new("TextBox")
-local Toggle = Instance.new("TextButton")
-local Status = Instance.new("TextLabel")
+-- GUI Construction with forced visibility
+local FlingGUI = Instance.new("ScreenGui")
+local MainFrame = Instance.new("Frame")
+local InputBox = Instance.new("TextBox")
+local ToggleButton = Instance.new("TextButton")
+local StatusLabel = Instance.new("TextLabel")
 
-GUI.Name = "FlingMaster"
-GUI.ResetOnSpawn = false
-GUI.ZIndexBehavior = Enum.ZIndexBehavior.Global
-GUI.DisplayOrder = 999
-GUI.Parent = CoreGui
+FlingGUI.Name = "FlingPanel"
+FlingGUI.ResetOnSpawn = false
+FlingGUI.DisplayOrder = 999
+FlingGUI.Parent = game:GetService("CoreGui")
 
-Main.Name = "Main"
-Main.Size = UDim2.new(0, 300, 0, 180)
-Main.Position = UDim2.new(0.3, 0, 0.3, 0)
-Main.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-Main.BorderSizePixel = 0
-Main.Active = true
-Main.Draggable = false -- Custom dragging implementation
-Main.Parent = GUI
+MainFrame.Name = "Main"
+MainFrame.Size = UDim2.new(0, 300, 0, 160)
+MainFrame.Position = UDim2.new(0.5, -150, 0.5, -80)
+MainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+MainFrame.BorderSizePixel = 0
+MainFrame.Parent = FlingGUI
 
 local corner = Instance.new("UICorner")
 corner.CornerRadius = UDim.new(0, 8)
-corner.Parent = Main
+corner.Parent = MainFrame
 
--- Drag Handler
-local dragging
-local dragInput
-local dragStart
-local startPos
+InputBox.Name = "TargetInput"
+InputBox.Size = UDim2.new(0.8, 0, 0.25, 0)
+InputBox.Position = UDim2.new(0.1, 0, 0.1, 0)
+InputBox.PlaceholderText = "Enter usernames (comma separated)"
+InputBox.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+InputBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+InputBox.ClearTextOnFocus = false
+InputBox.Parent = MainFrame
 
-local function updateInput(input)
-    local delta = input.Position - dragStart
-    Main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, 
-                            startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+ToggleButton.Name = "FlingToggle"
+ToggleButton.Size = UDim2.new(0.6, 0, 0.35, 0)
+ToggleButton.Position = UDim2.new(0.2, 0, 0.4, 0)
+ToggleButton.Text = "START FLING"
+ToggleButton.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+ToggleButton.TextColor3 = Color3.fromRGB(255, 50, 50)
+ToggleButton.Parent = MainFrame
+
+StatusLabel.Name = "Status"
+StatusLabel.Size = UDim2.new(0.8, 0, 0.2, 0)
+StatusLabel.Position = UDim2.new(0.1, 0, 0.8, 0)
+StatusLabel.Text = "Status: Inactive"
+StatusLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+StatusLabel.BackgroundTransparency = 1
+StatusLabel.Parent = MainFrame
+
+-- Add visual effects
+TweenService:Create(
+    MainFrame,
+    TweenInfo.new(0.5, Enum.EasingStyle.Quint),
+    {BackgroundTransparency = 0}
+):Play()
+
+-- Ensure UI elements have visible borders
+for _, obj in pairs(MainFrame:GetChildren()) do
+    if obj:IsA("GuiObject") then
+        Instance.new("UIStroke", obj).Color = Color3.fromRGB(80, 80, 80)
+    end
 end
 
-Main.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 then
-        dragging = true
-        dragStart = input.Position
-        startPos = Main.Position
-        
-        input.Changed:Connect(function()
-            if input.UserInputState == Enum.UserInputState.End then
-                dragging = false
-            end
-        end)
-    end
-end)
-
-Main.InputChanged:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseMovement then
-        dragInput = input
-    end
-end)
-
-UIS.InputChanged:Connect(function(input)
-    if input == dragInput and dragging then
-        updateInput(input)
-    end
-end)
-
--- Visual Elements
-Header.Name = "Header"
-Header.Size = UDim2.new(1, 0, 0, 30)
-Header.Position = UDim2.new(0, 0, 0, 0)
-Header.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-Header.Text = "Fling Controller"
-Header.TextColor3 = Color3.fromRGB(255, 50, 50)
-Header.Font = Enum.Font.GothamBold
-Header.Parent = Main
-
-Input.Name = "Input"
-Input.Size = UDim2.new(0.9, 0, 0, 35)
-Input.Position = UDim2.new(0.05, 0, 0.25, 0)
-Input.PlaceholderText = "Usernames (comma separated)"
-Input.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
-Input.TextColor3 = Color3.fromRGB(255, 255, 255)
-Input.ClearTextOnFocus = false
-Input.Parent = Main
-
-Toggle.Name = "Toggle"
-Toggle.Size = UDim2.new(0.7, 0, 0, 35)
-Toggle.Position = UDim2.new(0.15, 0, 0.55, 0)
-Toggle.Text = "TOGGLE FLING"
-Toggle.BackgroundColor3 = Color3.fromRGB(200, 0, 0)
-Toggle.TextColor3 = Color3.fromRGB(255, 255, 255)
-Toggle.Font = Enum.Font.GothamBold
-Toggle.Parent = Main
-
-Status.Name = "Status"
-Status.Size = UDim2.new(0.9, 0, 0, 20)
-Status.Position = UDim2.new(0.05, 0, 0.85, 0)
-Status.Text = "Status: Ready"
-Status.TextColor3 = Color3.fromRGB(150, 150, 150)
-Status.BackgroundTransparency = 1
-Status.Parent = Main
-
--- Add visible borders
-local function addStroke(obj)
-    local stroke = Instance.new("UIStroke")
-    stroke.Color = Color3.fromRGB(80, 80, 80)
-    stroke.Thickness = 2
-    stroke.Parent = obj
-end
-
-addStroke(Main)
-addStroke(Header)
-addStroke(Input)
-addStroke(Toggle)
-
--- Force GUI visibility
-GUI.Enabled = true
-task.wait()
-GUI.Enabled = true
-
--- Rest of the fling functionality from previous version goes here
--- (NuclearOrbit function, target handling, etc.)
+-- Rest of the fling functionality remains similar to previous version 
+-- (from NuclearOrbit function downward) but with these UI fixes
