@@ -47,7 +47,7 @@ local function UpdateSuggestions()
                 Suggestions.Visible = false
             end)
             btn.Parent = Suggestions
-            suggestionsAdded += 1
+            suggestionsAdded = suggestionsAdded + 1 -- Fix += syntax
         end
     end
     
@@ -93,7 +93,8 @@ local function FlingTarget(target)
                               + Vector3.new(math.random(-2,2), math.random(3,6), math.random(-2,2))
                 
                 -- Velocity with prediction compensation
-                myHRP.Velocity = dirVector * 5250 + (tHRP.Velocity * 0.6) 
+                myHRP.Velocity = dirVector * 5150 + (tHRP.Velocity * 0.45) 
+                + Vector3.new(0, 2550, 0) -- Stabilized forces 
                                 + Vector3.new(0, 2650, 0)
             end
         else
@@ -110,7 +111,11 @@ local OriginalCameraType = Camera.CameraType
 local CameraDistance = 15
 local ZoomMomentum = 0 -- Added momentum variable
 local function TrackTarget(target)
-    while Tracking and task.wait() do
+    local conn = RunService.Heartbeat:Connect(function()
+        if not Tracking then conn:Disconnect() return end -- Fix camera stuck
+        -- ... keep existing camera code here ...
+    end)
+end
         if target and target.Character then
             local humanoid = target.Character:FindFirstChildOfClass("Humanoid")
             local hrp = target.Character:FindFirstChild("HumanoidRootPart")
@@ -206,8 +211,9 @@ end)
 -- Enhanced Zoom Control with Momentum
 UIS.InputChanged:Connect(function(input)
     if Tracking and input.UserInputType == Enum.UserInputType.MouseWheel then
-        ZoomMomentum = math.clamp(ZoomMomentum - input.Position.Y * 0.8, -4, 4)
-        CameraDistance = math.clamp(CameraDistance - input.Position.Y * 2.5, 5, 25)
+        local scroll = -input.Position.Y -- Fix inverted zoom
+        ZoomMomentum = math.clamp(ZoomMomentum + scroll * 0.9, -4, 4)
+        CameraDistance = math.clamp(CameraDistance + scroll * 3, 5, 25)
         RunService.Heartbeat:Wait() -- Smoothing update
         ZoomMomentum = ZoomMomentum * 0.85
     end
