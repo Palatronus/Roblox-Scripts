@@ -142,18 +142,15 @@ toggleBtn.MouseButton1Click:Connect(function()
             targetPlayer = getPlayer(TARGET_USERNAME)
             
             if targetPlayer then
-        pcall(aggressiveFling)
-    else
-        -- Continuous search for new instances
-        if targetPlayer.Character and targetPlayer.Character:FindFirstChild("HumanoidRootPart") then
+                if targetPlayer.Character and targetPlayer.Character:FindFirstChild("HumanoidRootPart") then
                     pcall(aggressiveFling)
                 else
-                    -- Wait for character load
-                    task.wait(0.5)
+        -- Continuous search for new instances
+        task.wait(0.5)
                 end
             else
-                -- Search for new instances every 2 seconds
-                task.wait(2)
+                    -- Wait for character load
+                    task.wait(2)
             end
         end)
     else
