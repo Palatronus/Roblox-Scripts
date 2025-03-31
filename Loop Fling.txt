@@ -8,7 +8,7 @@ if game:GetService("CoreGui"):FindFirstChild("FlingGUI") then
     game:GetService("CoreGui").FlingGUI:Destroy()
 end
 
--- GUI Setup with forced visibility
+-- GUI Setup (Visible Elements)
 local GUI = Instance.new("ScreenGui")
 GUI.Name = "FlingGUI"
 GUI.ResetOnSpawn = false
@@ -29,9 +29,8 @@ local Input = Instance.new("TextBox")
 Input.PlaceholderText = "Enter username..."
 Input.Size = UDim2.new(0.9, 0, 0.2, 0)
 Input.Position = UDim2.new(0.05, 0, 0.1, 0)
-Input.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+Input.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
 Input.TextColor3 = Color3.new(1, 1, 1)
-Input.BorderSizePixel = 0
 Input.TextXAlignment = Enum.TextXAlignment.Left
 Input.Parent = Main
 
@@ -39,9 +38,8 @@ Input.Parent = Main
 local Suggestions = Instance.new("ScrollingFrame")
 Suggestions.Size = UDim2.new(1, 0, 0, 100)
 Suggestions.Position = UDim2.new(0, 0, 1, 0)
-Suggestions.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+Suggestions.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
 Suggestions.Visible = false
-Suggestions.CanvasSize = UDim2.new(0, 0, 0, 0)
 Suggestions.Parent = Input
 
 local UIListLayout = Instance.new("UIListLayout")
@@ -50,20 +48,18 @@ UIListLayout.Parent = Suggestions
 -- Control Buttons (Visible)
 local Toggle = Instance.new("TextButton")
 Toggle.Text = "TOGGLE FLING"
-Toggle.Size = UDim2.new(0.8, 0, 0.2, 0)
+Toggle.Size = UDim2.new(0.8, 0, 0.15, 0)
 Toggle.Position = UDim2.new(0.1, 0, 0.4, 0)
 Toggle.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
 Toggle.TextColor3 = Color3.new(1, 1, 1)
-Toggle.BorderSizePixel = 0
 Toggle.Parent = Main
 
 local CamButton = Instance.new("TextButton")
 CamButton.Text = "TOGGLE CAMERA"
-CamButton.Size = UDim2.new(0.8, 0, 0.2, 0)
-CamButton.Position = UDim2.new(0.1, 0, 0.65, 0)
+CamButton.Size = UDim2.new(0.8, 0, 0.15, 0)
+CamButton.Position = UDim2.new(0.1, 0, 0.6, 0)
 CamButton.BackgroundColor3 = Color3.fromRGB(50, 50, 200)
 CamButton.TextColor3 = Color3.new(1, 1, 1)
-CamButton.BorderSizePixel = 0
 CamButton.Parent = Main
 
 -- Dragging System (Working)
@@ -94,5 +90,111 @@ UIS.InputChanged:Connect(function(input)
     end
 end)
 
--- Rest of your original code below (suggestions, fling, camera, etc.)
--- [PASTE YOUR EXISTING FLING/CAMERA CODE HERE] --
+-- Suggestions Populate Function
+local function UpdateSuggestions()
+    Suggestions:ClearAllChildren()
+    local query = Input.Text:lower()
+    
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LP and player.Name:lower():find(query, 1, true) then
+            local btn = Instance.new("TextButton")
+            btn.Text = player.Name
+            btn.Size = UDim2.new(1, -10, 0, 20)
+            btn.Position = UDim2.new(0, 5, 0, #Suggestions:GetChildren() * 22)
+            btn.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
+            btn.TextColor3 = Color3.new(1, 1, 1)
+            btn.TextXAlignment = Enum.TextXAlignment.Left
+            btn.MouseButton1Click:Connect(function()
+                Input.Text = player.Name
+                Suggestions.Visible = false
+            end)
+            btn.Parent = Suggestions
+        end
+    end
+    Suggestions.CanvasSize = UDim2.new(0, 0, 0, #Suggestions:GetChildren() * 22)
+    Suggestions.Visible = #Suggestions:GetChildren() > 0
+end
+
+Input.Focused:Connect(UpdateSuggestions)
+Input.Changed:Connect(UpdateSuggestions)
+
+-- Fling System (Working)
+local Flinging = false
+local function FlingTarget(target)
+    while Flinging and wait(0.02) do
+        if target.Character and LP.Character then
+            local tHRP = target.Character:FindFirstChild("HumanoidRootPart")
+            local myHRP = LP.Character:FindFirstChild("HumanoidRootPart")
+            
+            if tHRP and myHRP then
+                -- Prediction pattern
+                local offsets = {
+                    Vector3.new(8, 12, 8),
+                    Vector3.new(-8, 12, -8),
+                    Vector3.new(12, 8, -12),
+                    Vector3.new(-12, 8, 12)
+                }
+                
+                for _, offset in ipairs(offsets) do
+                    if not Flinging then break end
+                    myHRP.CFrame = tHRP.CFrame + offset
+                    myHRP.Velocity = (tHRP.Position - myHRP.Position).Unit * 8500 + Vector3.new(0, 6500, 0)
+                    myHRP.CanCollide = false
+                    tHRP.CanCollide = false
+                    wait(0.03)
+                end
+            end
+        end
+    end
+end
+
+-- Camera System
+local Tracking = false
+local CameraDistance = 15
+
+local function TrackTarget(target)
+    while Tracking and wait() do
+        if target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
+            Camera.CameraType = Enum.CameraType.Scriptable
+            Camera.CFrame = CFrame.new(
+                target.Character.HumanoidRootPart.Position + Vector3.new(0, 5, CameraDistance),
+                target.Character.HumanoidRootPart.Position
+            )
+        end
+    end
+    Camera.CameraType = Enum.CameraType.Custom
+end
+
+-- Button Handlers
+Toggle.MouseButton1Click:Connect(function()
+    Flinging = not Flinging
+    if Flinging then
+        local target = Players:FindFirstChild(Input.Text)
+        if target then
+            coroutine.wrap(FlingTarget)(target)
+        end
+    end
+end)
+
+CamButton.MouseButton1Click:Connect(function()
+    Tracking = not Tracking
+    if Tracking then
+        local target = Players:FindFirstChild(Input.Text)
+        if target then
+            coroutine.wrap(TrackTarget)(target)
+        end
+    else
+        Camera.CameraType = Enum.CameraType.Custom
+    end
+end)
+
+-- Zoom Control
+UIS.InputChanged:Connect(function(input)
+    if Tracking and input.UserInputType == Enum.UserInputType.MouseWheel then
+        CameraDistance = math.clamp(CameraDistance - input.Position.Z * 3, 8, 20)
+    end
+end)
+
+-- Initial GUI Visibility Check
+GUI.Enabled = true
+print("GUI initialized successfully")
