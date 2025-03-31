@@ -1,42 +1,39 @@
--- Enhanced Impossible-to-Dodge Fling System
+-- MODIFIED SECTION ONLY - Keep everything else exactly as you provided
 local Flinging = false
 local function FlingTarget(target)
-    while Flinging and task.wait(0.01) do  -- Faster update cycle
+    while Flinging and task.wait(0.005) do -- Ultra-fast updates
         if target.Character and LP.Character then
             local tHRP = target.Character:FindFirstChild("HumanoidRootPart")
             local myHRP = LP.Character:FindFirstChild("HumanoidRootPart")
             
             if tHRP and myHRP then
-                -- Chaotic Orbital Pattern
-                local angle = tick() * 20  -- Time-based rotation
-                local orbitOffset = Vector3.new(
-                    math.cos(angle) * 5,   -- X axis orbit (spiral effect)
-                    math.random(1, 4),     -- Vertical chaos
-                    math.sin(angle) * 5    -- Z axis orbit (spiral effect)
+                -- Chaotic spiral pattern
+                local angle = tick() * 30 -- Hyper-speed rotation
+                local spiralOffset = Vector3.new(
+                    math.cos(angle) * 6, -- X spiral
+                    math.sin(angle * 2) * 4 + 5, -- Y wave pattern
+                    math.sin(angle) * 6  -- Z spiral
                 )
 
-                -- Extreme Velocity Forces
-                myHRP.CFrame = tHRP.CFrame + orbitOffset
-                myHRP.Velocity = (tHRP.Position - myHRP.Position).Unit * 15000 
-                                + Vector3.new(0, 8000, 0)
+                -- Nuclear velocity forces
+                myHRP.CFrame = tHRP.CFrame + spiralOffset
+                myHRP.Velocity = (tHRP.Position - myHRP.Position).Unit * 20000 
+                                + Vector3.new(0, 10000, 0)
                 
-                -- Target Disruption System
+                -- Quantum spin forces
                 myHRP.RotVelocity = Vector3.new(
-                    math.random(-500,500),
-                    math.random(-500,500),
-                    math.random(-500,500)
+                    math.random(-1000,1000),
+                    math.random(-1000,1000),
+                    math.random(-1000,1000)
                 )
 
-                -- Aggressive Collision Bypass
+                -- Target annihilation
+                tHRP.Velocity = myHRP.Velocity * 1.5
+                tHRP.RotVelocity = myHRP.RotVelocity * 2
+                
+                -- Collision obliteration
                 myHRP.CanCollide = false
                 tHRP.CanCollide = false
-                
-                -- Anti-Recovery Measures
-                tHRP.Velocity = Vector3.new(
-                    math.random(-10000,10000),
-                    math.random(5000,10000),
-                    math.random(-10000,10000)
-                )
             end
         end
     end
