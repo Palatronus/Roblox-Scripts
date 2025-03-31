@@ -1,39 +1,38 @@
--- MODIFIED SECTION ONLY - Keep everything else exactly as you provided
+-- Modified Fling System - Keep all other code exactly the same
 local Flinging = false
 local function FlingTarget(target)
-    while Flinging and task.wait(0.005) do -- Ultra-fast updates
+    while Flinging and task.wait(0.01) do  -- Faster update cycle
         if target.Character and LP.Character then
             local tHRP = target.Character:FindFirstChild("HumanoidRootPart")
             local myHRP = LP.Character:FindFirstChild("HumanoidRootPart")
             
             if tHRP and myHRP then
-                -- Chaotic spiral pattern
-                local angle = tick() * 30 -- Hyper-speed rotation
-                local spiralOffset = Vector3.new(
-                    math.cos(angle) * 6, -- X spiral
-                    math.sin(angle * 2) * 4 + 5, -- Y wave pattern
-                    math.sin(angle) * 6  -- Z spiral
+                -- Chaotic orbital pattern
+                local angle = tick() * 15  -- Time-based rotation
+                local chaosOffset = Vector3.new(
+                    math.cos(angle) * 8,   -- X axis spiral
+                    math.random(2, 8),     -- Vertical boost
+                    math.sin(angle) * 8    -- Z axis spiral
                 )
 
                 -- Nuclear velocity forces
-                myHRP.CFrame = tHRP.CFrame + spiralOffset
-                myHRP.Velocity = (tHRP.Position - myHRP.Position).Unit * 20000 
-                                + Vector3.new(0, 10000, 0)
+                myHRP.CFrame = tHRP.CFrame + chaosOffset
+                myHRP.Velocity = (tHRP.Position - myHRP.Position).Unit * 15000 
+                                + Vector3.new(0, 6000, 0)
                 
-                -- Quantum spin forces
+                -- Rotational chaos
                 myHRP.RotVelocity = Vector3.new(
                     math.random(-1000,1000),
                     math.random(-1000,1000),
                     math.random(-1000,1000)
                 )
 
-                -- Target annihilation
-                tHRP.Velocity = myHRP.Velocity * 1.5
-                tHRP.RotVelocity = myHRP.RotVelocity * 2
-                
-                -- Collision obliteration
+                -- Collision bypass
                 myHRP.CanCollide = false
                 tHRP.CanCollide = false
+
+                -- Target disruption
+                tHRP.Velocity = myHRP.Velocity * 0.5
             end
         end
     end
