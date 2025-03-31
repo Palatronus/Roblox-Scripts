@@ -4,7 +4,7 @@ local Camera = workspace.CurrentCamera
 local UIS = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 
--- GUI Setup (Unchanged)
+-- GUI Setup
 local GUI = Instance.new("ScreenGui")
 GUI.Parent = game.CoreGui
 
@@ -15,7 +15,7 @@ Main.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
 Main.Active = true
 Main.Parent = GUI
 
--- Username Input with Suggestions (Unchanged)
+-- Username Input
 local Input = Instance.new("TextBox")
 Input.PlaceholderText = "Type username..."
 Input.Size = UDim2.new(0.9, 0, 0.2, 0)
@@ -58,7 +58,7 @@ end
 Input.Focused:Connect(UpdateSuggestions)
 Input:GetPropertyChangedSignal("Text"):Connect(UpdateSuggestions)
 
--- Control Buttons (Unchanged)
+-- Control Buttons
 local Toggle = Instance.new("TextButton")
 Toggle.Text = "TOGGLE FLING"
 Toggle.Size = UDim2.new(0.6, 0, 0.2, 0)
@@ -71,10 +71,11 @@ CamButton.Size = UDim2.new(0.6, 0, 0.2, 0)
 CamButton.Position = UDim2.new(0.2, 0, 0.65, 0)
 CamButton.Parent = Main
 
--- Enhanced Fling System with Prediction
+-- Fling System
 local Flinging = false
 local ActiveCoroutine = nil
-local PredictionTime = 0.35 -- Added prediction parameter
+local PredictionTime = 0.35
+
 local function FlingTarget(target)
     while Flinging and task.wait(0.02) do
         if target and target.Character and LP.Character then
@@ -83,18 +84,14 @@ local function FlingTarget(target)
             local humanoid = target.Character:FindFirstChildOfClass("Humanoid")
             
             if tHRP and myHRP and humanoid and humanoid.Health > 0 then
-                -- Predictive position calculation
                 local predictedPos = tHRP.Position + (tHRP.Velocity * PredictionTime)
                 local dirVector = (predictedPos - myHRP.Position).Unit
                 
-                -- Enhanced fling formula
                 myHRP.CFrame = CFrame.lookAt(myHRP.Position, predictedPos) 
                               * CFrame.Angles(0, math.rad(math.random(-25,25)), 0)
                               + Vector3.new(math.random(-2,2), math.random(3,6), math.random(-2,2))
                 
-                -- Velocity with prediction compensation
-                myHRP.Velocity = dirVector * 5150 + (tHRP.Velocity * 0.45) 
-                + Vector3.new(0, 2550, 0) -- ✅ Single vertical force
+                myHRP.Velocity = dirVector * 5150 + (tHRP.Velocity * 0.45) + Vector3.new(0, 2550, 0)
             end
         else
             Flinging = false
@@ -104,11 +101,12 @@ local function FlingTarget(target)
     end
 end
 
--- Enhanced Camera System with Dynamic Zoom
+-- Camera System
 local Tracking = false
 local OriginalCameraType = Camera.CameraType
 local CameraDistance = 15
-local ZoomMomentum = 0 -- Added momentum variable
+local ZoomMomentum = 0
+
 local function TrackTarget(target)
     local conn
     conn = RunService.Heartbeat:Connect(function()
@@ -139,32 +137,8 @@ local function TrackTarget(target)
         end
     end)
 end
-        if target and target.Character then
-            local humanoid = target.Character:FindFirstChildOfClass("Humanoid")
-            local hrp = target.Character:FindFirstChild("HumanoidRootPart")
-            
-            if humanoid and humanoid.Health > 0 and hrp then
-                Camera.CameraType = Enum.CameraType.Scriptable
-                -- Dynamic camera positioning
-                Camera.CFrame = CFrame.new(
-                    hrp.Position + Vector3.new(
-                        math.sin(tick())*1.5, 
-                        5 + math.cos(tick()*0.5)*0.5, 
-                        CameraDistance + ZoomMomentum
-                    ),
-                    hrp.Position
-                )
-            end
-        else
-            Tracking = false
-            CamButton.Text = "TOGGLE CAMERA"
-            Camera.CameraType = OriginalCameraType
-            break
-        end
-    end
-end
 
--- Dragging System (Unchanged)
+-- Dragging System
 local dragging = false
 local dragStart, startPos
 
@@ -192,7 +166,7 @@ UIS.InputChanged:Connect(function(input)
     end
 end)
 
--- Button Handlers (Unchanged)
+-- Button Handlers
 Toggle.MouseButton1Click:Connect(function()
     Flinging = not Flinging
     Toggle.Text = Flinging and "STOP FLINGING" or "TOGGLE FLING"
@@ -231,13 +205,13 @@ CamButton.MouseButton1Click:Connect(function()
     end
 end)
 
--- Enhanced Zoom Control with Momentum
+-- Zoom Control
 UIS.InputChanged:Connect(function(input)
     if Tracking and input.UserInputType == Enum.UserInputType.MouseWheel then
-        local scrollDelta = input.Position.Y -- Remove extra negation
-        ZoomMomentum = math.clamp(ZoomMomentum + scroll * 0.9, -4, 4)
+        local scrollDelta = input.Position.Y
+        ZoomMomentum = math.clamp(ZoomMomentum + scrollDelta * 0.9, -4, 4)
         CameraDistance = math.clamp(CameraDistance - scrollDelta * 3, 5, 25)
-        RunService.Heartbeat:Wait() -- Smoothing update
+        RunService.Heartbeat:Wait()
         ZoomMomentum = ZoomMomentum * 0.85
     end
 end)
