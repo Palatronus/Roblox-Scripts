@@ -1,78 +1,7 @@
-local Players = game:GetService("Players")
-local LP = Players.LocalPlayer
-local Camera = workspace.CurrentCamera
-local UIS = game:GetService("UserInputService")
+-- Add to top with other services
+local RunService = game:GetService("RunService")
 
--- GUI Setup
-local GUI = Instance.new("ScreenGui")
-GUI.Parent = game.CoreGui
-
-local Main = Instance.new("Frame")
-Main.Size = UDim2.new(0, 300, 0, 200)
-Main.Position = UDim2.new(0.5, -150, 0.5, -100)
-Main.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
-Main.Active = true
-Main.Parent = GUI
-
--- Username Input with Suggestions
-local Input = Instance.new("TextBox")
-Input.PlaceholderText = "Type username..."
-Input.Size = UDim2.new(0.9, 0, 0.2, 0)
-Input.Position = UDim2.new(0.05, 0, 0.1, 0)
-Input.Parent = Main
-
-local Suggestions = Instance.new("ScrollingFrame")
-Suggestions.Size = UDim2.new(1, 0, 0, 80)
-Suggestions.Position = UDim2.new(0, 0, 1, 0)
-Suggestions.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
-Suggestions.Visible = false
-Suggestions.Parent = Input
-
-local function UpdateSuggestions()
-    Suggestions:ClearAllChildren()
-    local query = Input.Text:lower()
-    local suggestionsAdded = 0
-    
-    for _, player in pairs(Players:GetPlayers()) do
-        if player ~= LP and (query == "" or player.Name:lower():find(query)) then
-            local btn = Instance.new("TextButton")
-            btn.Text = player.Name
-            btn.Size = UDim2.new(1, -10, 0, 20)
-            btn.Position = UDim2.new(0, 5, 0, suggestionsAdded * 22)
-            btn.BackgroundTransparency = 1
-            btn.TextXAlignment = Enum.TextXAlignment.Left
-            btn.MouseButton1Click:Connect(function()
-                Input.Text = player.Name
-                Suggestions.Visible = false
-            end)
-            btn.Parent = Suggestions
-            suggestionsAdded += 1
-        end
-    end
-    
-    Suggestions.CanvasSize = UDim2.new(0, 0, 0, suggestionsAdded * 22)
-    Suggestions.Visible = suggestionsAdded > 0
-end
-
-Input.Focused:Connect(UpdateSuggestions)
-Input:GetPropertyChangedSignal("Text"):Connect(UpdateSuggestions)
-
--- Control Buttons
-local Toggle = Instance.new("TextButton")
-Toggle.Text = "TOGGLE FLING"
-Toggle.Size = UDim2.new(0.6, 0, 0.2, 0)
-Toggle.Position = UDim2.new(0.2, 0, 0.4, 0)
-Toggle.Parent = Main
-
-local CamButton = Instance.new("TextButton")
-CamButton.Text = "TOGGLE CAMERA"
-CamButton.Size = UDim2.new(0.6, 0, 0.2, 0)
-CamButton.Position = UDim2.new(0.2, 0, 0.65, 0)
-CamButton.Parent = Main
-
--- Fixed Fling System
-local Flinging = false
-local ActiveCoroutine = nil
+-- Modified FlingTarget function with prediction
 local function FlingTarget(target)
     while Flinging and task.wait(0.02) do
         if target and target.Character and LP.Character then
@@ -81,11 +10,20 @@ local function FlingTarget(target)
             local humanoid = target.Character:FindFirstChildOfClass("Humanoid")
             
             if tHRP and myHRP and humanoid and humanoid.Health > 0 then
-                myHRP.CFrame = tHRP.CFrame * CFrame.Angles(0, math.rad(math.random(0,360)), 0)
-                          + Vector3.new(math.random(-3,3), math.random(2,5), math.random(-3,3))
+                -- Calculate predicted position with velocity
+                local predictionTime = 0.35 -- Seconds to predict ahead
+                local predictedPosition = tHRP.Position + (tHRP.Velocity * predictionTime)
                 
-                myHRP.Velocity = (tHRP.Position - myHRP.Position).Unit * 5000 
-                                + Vector3.new(0, 2500, 0)
+                -- Enhanced fling formula with prediction
+                myHRP.CFrame = CFrame.lookAt(
+                    myHRP.Position,
+                    predictedPosition
+                ) * CFrame.Angles(0, math.rad(math.random(-15,15)), 0)
+                
+                -- Apply force towards predicted position with rotational boost
+                myHRP.Velocity = (predictedPosition - myHRP.Position).Unit * 5200 
+                                + (tHRP.Velocity * 0.7)
+                                + Vector3.new(0, 2650, 0)
             end
         else
             Flinging = false
@@ -95,102 +33,40 @@ local function FlingTarget(target)
     end
 end
 
--- Improved Camera System
-local Tracking = false
-local OriginalCameraType = Camera.CameraType
-local CameraDistance = 15
-local function TrackTarget(target)
-    while Tracking and task.wait() do
-        if target and target.Character then
-            local humanoid = target.Character:FindFirstChildOfClass("Humanoid")
+-- Improved zoom control with momentum
+local zoomMomentum = 0
+local lastZoomTime = 0
+
+UIS.InputChanged:Connect(function(input)
+    if Tracking and input.UserInputType == Enum.UserInputType.MouseWheel then
+        -- Smoother zoom with momentum-based interpolation
+        local now = tick()
+        local delta = input.Position.Z * 1.8
+        zoomMomentum = (now - lastZoomTime < 0.1) and zoomMomentum * 0.6 + delta or delta
+        CameraDistance = math.clamp(CameraDistance - zoomMomentum, 5, 25)
+        lastZoomTime = now
+    end
+end)
+
+-- Add camera angle variation while tracking
+local originalTrackTarget = TrackTarget
+TrackTarget = function(target)
+    local baseCFrame = CFrame.new()
+    RunService.Heartbeat:Connect(function()
+        if Tracking and target and target.Character then
             local hrp = target.Character:FindFirstChild("HumanoidRootPart")
-            
-            if humanoid and humanoid.Health > 0 and hrp then
-                Camera.CameraType = Enum.CameraType.Scriptable
-                Camera.CFrame = CFrame.new(
-                    hrp.Position + Vector3.new(0, 5, CameraDistance),
+            if hrp then
+                -- Add subtle rotating effect to camera
+                baseCFrame = CFrame.new(
+                    hrp.Position + Vector3.new(
+                        math.sin(tick())*1.5, 
+                        5 + math.cos(tick()*0.5)*0.3, 
+                        CameraDistance
+                    ),
                     hrp.Position
                 )
             end
-        else
-            Tracking = false
-            CamButton.Text = "TOGGLE CAMERA"
-            Camera.CameraType = OriginalCameraType
-            break
         end
-    end
+    end)
+    return originalTrackTarget(target)
 end
-
--- Dragging System
-local dragging = false
-local dragStart, startPos
-
-Main.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 then
-        dragging = true
-        dragStart = input.Position
-        startPos = Main.Position
-    end
-end)
-
-Main.InputEnded:Connect(function(input)
-    dragging = false
-end)
-
-UIS.InputChanged:Connect(function(input)
-    if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
-        local delta = input.Position - dragStart
-        Main.Position = UDim2.new(
-            startPos.X.Scale,
-            startPos.X.Offset + delta.X,
-            startPos.Y.Scale,
-            startPos.Y.Offset + delta.Y
-        )
-    end
-end)
-
--- Button Handlers
-Toggle.MouseButton1Click:Connect(function()
-    Flinging = not Flinging
-    Toggle.Text = Flinging and "STOP FLINGING" or "TOGGLE FLING"
-    
-    if Flinging then
-        local target = Players:FindFirstChild(Input.Text)
-        if target then
-            if ActiveCoroutine then
-                coroutine.close(ActiveCoroutine)
-            end
-            ActiveCoroutine = coroutine.create(FlingTarget)
-            coroutine.resume(ActiveCoroutine, target)
-        else
-            Flinging = false
-            Toggle.Text = "TOGGLE FLING"
-            warn("Target player not found!")
-        end
-    end
-end)
-
-CamButton.MouseButton1Click:Connect(function()
-    Tracking = not Tracking
-    CamButton.Text = Tracking and "STOP CAMERA" or "TOGGLE CAMERA"
-    
-    if Tracking then
-        local target = Players:FindFirstChild(Input.Text)
-        if target then
-            coroutine.wrap(TrackTarget)(target)
-        else
-            Tracking = false
-            CamButton.Text = "TOGGLE CAMERA"
-            warn("Target player not found!")
-        end
-    else
-        Camera.CameraType = OriginalCameraType
-    end
-end)
-
--- Fixed Zoom Control
-UIS.InputChanged:Connect(function(input)
-    if Tracking and input.UserInputType == Enum.UserInputType.MouseWheel then
-        CameraDistance = math.clamp(CameraDistance - input.Position.Y * 3, 8, 20)
-    end
-end)
