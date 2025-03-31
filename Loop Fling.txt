@@ -73,8 +73,8 @@ local flingActive = false
 local targetPlayer = nil
 local connection = nil
 local FLING_POWER = 500
-local PREDICTION_FACTOR = 0.35
-local DIRECTIONAL_OFFSET = 1.5
+local PREDICTION_FACTOR = 0.2
+local DIRECTIONAL_OFFSET = 0.8
 
 local function getPlayer(name)
     name = name:lower()
@@ -117,14 +117,14 @@ local function aggressiveFling()
     -- Enhanced directional prediction
     if targetVelocity.Magnitude > 5 then
         local movementDirection = targetVelocity.Unit
-        basePrediction += (movementDirection * targetVelocity.Magnitude * DIRECTIONAL_OFFSET)
+        basePrediction += (movementDirection * math.clamp(targetVelocity.Magnitude, 0, 30) * DIRECTIONAL_OFFSET)
     end
 
     local direction = (basePrediction - root.Position).Unit
     root.Velocity = direction * FLING_POWER + Vector3.new(
-        math.random(-50, 50),
-        math.random(25, 50),
-        math.random(-50, 50)
+        math.random(-30, 30), --Reduced Randomness
+        math.random(15, 35),
+        math.random(-30, 30)
     )
 end
 
