@@ -1,206 +1,27 @@
-local Players = game:GetService("Players")
+local Players = game:GetService("Players") -- Ensure this is at the TOP
 local LP = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 local UIS = game:GetService("UserInputService")
 
--- Cleanup previous GUI
-if game:GetService("CoreGui"):FindFirstChild("FlingGUI") then
-    game:GetService("CoreGui").FlingGUI:Destroy()
+-- Add game loaded check
+if not game:IsLoaded() then
+    game.Loaded:Wait()
 end
 
--- GUI Setup
-local GUI = Instance.new("ScreenGui")
-GUI.Name = "FlingGUI"
-GUI.ResetOnSpawn = false
-GUI.ZIndexBehavior = Enum.ZIndexBehavior.Global
-GUI.DisplayOrder = 999
-GUI.Parent = game:GetService("CoreGui")
+-- Rest of your GUI setup code...
 
-local Main = Instance.new("Frame")
-Main.Size = UDim2.new(0, 300, 0, 200)
-Main.Position = UDim2.new(0.5, -150, 0.5, -100)
-Main.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
-Main.BorderSizePixel = 0
-Main.Active = true
-Main.Parent = GUI
-
--- Username Input
-local Input = Instance.new("TextBox")
-Input.PlaceholderText = "Enter username..."
-Input.Size = UDim2.new(0.9, 0, 0.2, 0)
-Input.Position = UDim2.new(0.05, 0, 0.1, 0)
-Input.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
-Input.TextColor3 = Color3.new(1, 1, 1)
-Input.TextXAlignment = Enum.TextXAlignment.Left
-Input.Parent = Main
-
--- Suggestions Dropdown
-local Suggestions = Instance.new("ScrollingFrame")
-Suggestions.Size = UDim2.new(1, 0, 0, 100)
-Suggestions.Position = UDim2.new(0, 0, 1, 0)
-Suggestions.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-Suggestions.ScrollBarThickness = 5
-Suggestions.Visible = false
-Suggestions.Parent = Input
-
-local UIListLayout = Instance.new("UIListLayout")
-UIListLayout.Parent = Suggestions
-UIListLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-    Suggestions.CanvasSize = UDim2.new(0, 0, 0, UIListLayout.AbsoluteContentSize.Y)
-end)
-
--- Control Buttons
-local Toggle = Instance.new("TextButton")
-Toggle.Text = "TOGGLE FLING"
-Toggle.Size = UDim2.new(0.8, 0, 0.15, 0)
-Toggle.Position = UDim2.new(0.1, 0, 0.4, 0)
-Toggle.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
-Toggle.TextColor3 = Color3.new(1, 1, 1)
-Toggle.Parent = Main
-
-local CamButton = Instance.new("TextButton")
-CamButton.Text = "TOGGLE CAMERA"
-CamButton.Size = UDim2.new(0.8, 0, 0.15, 0)
-CamButton.Position = UDim2.new(0.1, 0, 0.6, 0)
-CamButton.BackgroundColor3 = Color3.fromRGB(50, 50, 200)
-CamButton.TextColor3 = Color3.new(1, 1, 1)
-CamButton.Parent = Main
-
--- Dragging System
-local dragging = false
-local dragStart, startPos
-
-Main.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 then
-        dragging = true
-        dragStart = input.Position
-        startPos = Main.Position
-    end
-end)
-
-Main.InputEnded:Connect(function(input)
-    dragging = false
-end)
-
-UIS.InputChanged:Connect(function(input)
-    if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
-        local delta = input.Position - dragStart
-        Main.Position = UDim2.new(
-            startPos.X.Scale,
-            startPos.X.Offset + delta.X,
-            startPos.Y.Scale,
-            startPos.Y.Offset + delta.Y
-        )
-    end
-end)
-
--- Suggestions System
+-- Fixed Suggestions System
 local function UpdateSuggestions()
     Suggestions:ClearAllChildren()
     local query = Input.Text:lower()
     
+    -- Explicitly reference the Players service
     for _, player in pairs(Players:GetPlayers()) do
         if player ~= LP and player.Name:lower():find(query, 1, true) then
-            local btn = Instance.new("TextButton")
-            btn.Text = player.Name
-            btn.Size = UDim2.new(1, -10, 0, 20)
-            btn.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
-            btn.TextColor3 = Color3.new(1, 1, 1)
-            btn.TextXAlignment = Enum.TextXAlignment.Left
-            btn.MouseButton1Click:Connect(function()
-                Input.Text = player.Name
-                Suggestions.Visible = false
-            end)
-            btn.Parent = Suggestions
+            -- Suggestion button creation code...
         end
     end
     Suggestions.Visible = #Suggestions:GetChildren() > 0
 end
 
-Input.Focused:Connect(function()
-    UpdateSuggestions()
-    Suggestions.Visible = true
-end)
-
-Input.Changed:Connect(UpdateSuggestions)
-
-Input.FocusLost:Connect(function()
-    wait(0.1)
-    Suggestions.Visible = false
-end)
-
--- Nameless Admin Fling System
-local Flinging = false
-local function FlingTarget(target)
-    while Flinging and task.wait(0.02) do
-        if target.Character and target.Character:FindFirstChild("HumanoidRootPart") and LP.Character and LP.Character:FindFirstChild("HumanoidRootPart") then
-            local tHRP = target.Character.HumanoidRootPart
-            local myHRP = LP.Character.HumanoidRootPart
-            
-            -- Prediction pattern
-            local offsets = {
-                Vector3.new(5, 3, 5),
-                Vector3.new(-5, 3, -5),
-                Vector3.new(5, 3, -5),
-                Vector3.new(-5, 3, 5)
-            }
-            
-            for _, offset in ipairs(offsets) do
-                if not Flinging then break end
-                myHRP.CFrame = tHRP.CFrame + offset
-                myHRP.Velocity = (tHRP.Position - myHRP.Position).Unit * 7500 + Vector3.new(0, 4000, 0)
-                task.wait(0.03)
-            end
-        end
-    end
-end
-
--- Camera System
-local Tracking = false
-local CameraDistance = 15
-
-local function TrackTarget(target)
-    while Tracking and task.wait() do
-        if target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
-            Camera.CameraType = Enum.CameraType.Scriptable
-            Camera.CFrame = CFrame.new(
-                target.Character.HumanoidRootPart.Position + Vector3.new(0, 5, CameraDistance),
-                target.Character.HumanoidRootPart.Position
-            )
-        end
-    end
-    Camera.CameraType = Enum.CameraType.Custom
-end
-
--- Button Handlers
-Toggle.MouseButton1Click:Connect(function()
-    Flinging = not Flinging
-    if Flinging then
-        local target = Players:FindFirstChild(Input.Text)
-        if target then
-            coroutine.wrap(FlingTarget)(target)
-        end
-    end
-end)
-
-CamButton.MouseButton1Click:Connect(function()
-    Tracking = not Tracking
-    if Tracking then
-        local target = Players:FindFirstChild(Input.Text)
-        if target then
-            coroutine.wrap(TrackTarget)(target)
-        end
-    else
-        Camera.CameraType = Enum.CameraType.Custom
-    end
-end)
-
--- Zoom Control
-UIS.InputChanged:Connect(function(input)
-    if Tracking and input.UserInputType == Enum.UserInputType.MouseWheel then
-        CameraDistance = math.clamp(CameraDistance - input.Position.Z * 3, 8, 20)
-    end
-end)
-
--- Initialization
-GUI.Enabled = true
+-- Rest of your code...
