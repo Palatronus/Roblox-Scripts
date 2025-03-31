@@ -104,12 +104,15 @@ local function prepareCharacter()
     end
 end
 
+-- Modified aggressiveFling function
 local function aggressiveFling()
-    if not targetPlayer or not targetPlayer.Character or not targetPlayer.Character:FindFirstChild("HumanoidRootPart") then return end
-    if not lp.Character or not lp.Character:FindFirstChild("HumanoidRootPart") then return end
+    -- Cache references first
+    local targetChar = targetPlayer and targetPlayer.Character
+    local tRoot = targetChar and targetChar:FindFirstChild("HumanoidRootPart")
+    local localChar = lp.Character
+    local root = localChar and localChar:FindFirstChild("HumanoidRootPart")
     
-    local root = lp.Character.HumanoidRootPart
-    local tRoot = targetPlayer.Character.HumanoidRootPart
+    if not tRoot or not root then return end
     
     local targetVelocity = tRoot.Velocity
     local basePrediction = tRoot.Position + (targetVelocity * PREDICTION_FACTOR)
@@ -122,13 +125,13 @@ local function aggressiveFling()
 
     local direction = (basePrediction - root.Position).Unit
     root.Velocity = direction * FLING_POWER + Vector3.new(
-        math.random(-30, 30), --Reduced Randomness
+        math.random(-30, 30),
         math.random(15, 35),
         math.random(-30, 30)
     )
 end
 
--- Control System (fixed and optimized)
+-- Control System (fully fixed)
 toggleBtn.MouseButton1Click:Connect(function()
     flingActive = not flingActive
     toggleBtn.Text = flingActive and "STOP FLING" or "START FLING"
