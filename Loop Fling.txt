@@ -1,73 +1,137 @@
 local Players = game:GetService("Players")
+local UIS = game:GetService("UserInputService")
+local RS = game:GetService("RunService")
 local LP = Players.LocalPlayer
-local TweenService = game:GetService("TweenService")
+local Mouse = LP:GetMouse()
 
--- Destroy existing GUI if present
-if game:GetService("CoreGui"):FindFirstChild("FlingPanel") then
-    game:GetService("CoreGui").FlingPanel:Destroy()
+-- GUI Construction
+local GUI = Instance.new("ScreenGui")
+local Frame = Instance.new("Frame")
+local TextBox = Instance.new("TextBox")
+local Toggle = Instance.new("TextButton")
+local Status = Instance.new("TextLabel")
+
+GUI.Name = "MassFlingGUI"
+GUI.Parent = game.CoreGui
+GUI.Enabled = true
+
+Frame.Size = UDim2.new(0, 250, 0, 140)
+Frame.Position = UDim2.new(0.5, -125, 0.5, -70)
+Frame.BackgroundColor3 = Color3.new(0.15, 0.15, 0.15)
+Frame.Parent = GUI
+
+TextBox.Size = UDim2.new(0.8, 0, 0.2, 0)
+TextBox.Position = UDim2.new(0.1, 0, 0.1, 0)
+TextBox.PlaceholderText = "Users (comma separated)"
+TextBox.Parent = Frame
+
+Toggle.Size = UDim2.new(0.6, 0, 0.3, 0)
+Toggle.Position = UDim2.new(0.2, 0, 0.4, 0)
+Toggle.Text = "Toggle Nuclear Fling"
+Toggle.Parent = Frame
+
+Status.Size = UDim2.new(0.8, 0, 0.2, 0)
+Status.Position = UDim2.new(0.1, 0, 0.75, 0)
+Status.Text = "Status: Idle"
+Status.Parent = Frame
+
+-- Fling System
+local Flinging = false
+local ActiveThreads = {}
+local VoidPower = 8500
+local OrbitPattern = {
+    Vector3.new(7, 12, 4),
+    Vector3.new(-7, 12, -4),
+    Vector3.new(12, 7, -8),
+    Vector3.new(-12, 7, 8)
+}
+
+local function GetTargets()
+    local targets = {}
+    for username in string.gmatch(TextBox.Text:lower(), "[^,]+") do
+        username = username:gsub("^%s+", ""):gsub("%s+$", "")
+        for _, player in next, Players:GetPlayers() do
+            if player.Name:lower() == username and player ~= LP then
+                table.insert(targets, player)
+            end
+        end
+    end
+    return targets
 end
 
--- GUI Construction with forced visibility
-local FlingGUI = Instance.new("ScreenGui")
-local MainFrame = Instance.new("Frame")
-local InputBox = Instance.new("TextBox")
-local ToggleButton = Instance.new("TextButton")
-local StatusLabel = Instance.new("TextLabel")
-
-FlingGUI.Name = "FlingPanel"
-FlingGUI.ResetOnSpawn = false
-FlingGUI.DisplayOrder = 999
-FlingGUI.Parent = game:GetService("CoreGui")
-
-MainFrame.Name = "Main"
-MainFrame.Size = UDim2.new(0, 300, 0, 160)
-MainFrame.Position = UDim2.new(0.5, -150, 0.5, -80)
-MainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
-MainFrame.BorderSizePixel = 0
-MainFrame.Parent = FlingGUI
-
-local corner = Instance.new("UICorner")
-corner.CornerRadius = UDim.new(0, 8)
-corner.Parent = MainFrame
-
-InputBox.Name = "TargetInput"
-InputBox.Size = UDim2.new(0.8, 0, 0.25, 0)
-InputBox.Position = UDim2.new(0.1, 0, 0.1, 0)
-InputBox.PlaceholderText = "Enter usernames (comma separated)"
-InputBox.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
-InputBox.TextColor3 = Color3.fromRGB(255, 255, 255)
-InputBox.ClearTextOnFocus = false
-InputBox.Parent = MainFrame
-
-ToggleButton.Name = "FlingToggle"
-ToggleButton.Size = UDim2.new(0.6, 0, 0.35, 0)
-ToggleButton.Position = UDim2.new(0.2, 0, 0.4, 0)
-ToggleButton.Text = "START FLING"
-ToggleButton.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
-ToggleButton.TextColor3 = Color3.fromRGB(255, 50, 50)
-ToggleButton.Parent = MainFrame
-
-StatusLabel.Name = "Status"
-StatusLabel.Size = UDim2.new(0.8, 0, 0.2, 0)
-StatusLabel.Position = UDim2.new(0.1, 0, 0.8, 0)
-StatusLabel.Text = "Status: Inactive"
-StatusLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
-StatusLabel.BackgroundTransparency = 1
-StatusLabel.Parent = MainFrame
-
--- Add visual effects
-TweenService:Create(
-    MainFrame,
-    TweenInfo.new(0.5, Enum.EasingStyle.Quint),
-    {BackgroundTransparency = 0}
-):Play()
-
--- Ensure UI elements have visible borders
-for _, obj in pairs(MainFrame:GetChildren()) do
-    if obj:IsA("GuiObject") then
-        Instance.new("UIStroke", obj).Color = Color3.fromRGB(80, 80, 80)
+local function NuclearOrbit(target)
+    local cycle = 0
+    while Flinging and task.wait(0.01) do
+        if not target.Character then continue end
+        local targetHRP = target.Character:FindFirstChild("HumanoidRootPart")
+        local myHRP = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
+        
+        if targetHRP and myHRP then
+            cycle = (cycle % #OrbitPattern) + 1
+            local patternOffset = OrbitPattern[cycle] * 4
+            local calculatedPosition = targetHRP.Position + patternOffset
+            
+            -- Network ownership hijack
+            if targetHRP:GetNetworkOwner() then
+                targetHRP:SetNetworkOwner(LP)
+            end
+            
+            -- Position warp with velocity surge
+            myHRP.CFrame = CFrame.new(calculatedPosition)
+            myHRP.Velocity = (targetHRP.Position - myHRP.Position).Unit * VoidPower
+                            + Vector3.new(0, VoidPower/1.5, 0)
+            myHRP.RotVelocity = Vector3.new(math.random(-100,100), math.random(-100,100), math.random(-100,100))
+        end
     end
 end
 
--- Rest of the fling functionality remains similar to previous version 
--- (from NuclearOrbit function downward) but with these UI fixes
+-- Toggle Control
+Toggle.MouseButton1Click:Connect(function()
+    Flinging = not Flinging
+    
+    if Flinging then
+        local targets = GetTargets()
+        if #targets == 0 then
+            Status.Text = "Status: No valid targets!"
+            Flinging = false
+            return
+        end
+        
+        Status.Text = "Flinging "..#targets.." players"
+        
+        -- Initialize orbits for all targets
+        for _, target in next, targets do
+            ActiveThreads[target] = task.spawn(function()
+                NuclearOrbit(target)
+            end)
+            
+            -- Auto-reconnection system
+            target.CharacterAdded:Connect(function()
+                if Flinging then
+                    task.wait(1)
+                    ActiveThreads[target] = task.spawn(NuclearOrbit, target)
+                end
+            end)
+        end
+    else
+        -- Terminate all active fling threads
+        for target, thread in next, ActiveThreads do
+            task.cancel(thread)
+        end
+        ActiveThreads = {}
+        Status.Text = "Status: Idle"
+        
+        -- Reset character physics
+        if LP.Character and LP.Character:FindFirstChild("HumanoidRootPart") then
+            LP.Character.HumanoidRootPart.Velocity = Vector3.zero
+        end
+    end
+end)
+
+-- Auto-cleanup on player leave
+Players.PlayerRemoving:Connect(function(player)
+    if ActiveThreads[player] then
+        task.cancel(ActiveThreads[player])
+        ActiveThreads[player] = nil
+    end
+end)
