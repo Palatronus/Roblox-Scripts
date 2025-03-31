@@ -3,73 +3,56 @@ local LP = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 local UIS = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
-local PhysicsService = game:GetService("PhysicsService")
 
--- Collision groups setup
-PhysicsService:CreateCollisionGroup("Flinger")
-PhysicsService:CreateCollisionGroup("TargetPlayer")
-PhysicsService:CollisionGroupSetCollidable("Flinger", "TargetPlayer", true)
-PhysicsService:CollisionGroupSetCollidable("Flinger", "Default", false)
-
--- GUI Setup
-local GUI = Instance.new("ScreenGui")
-GUI.Parent = game.CoreGui
-
-local Main = Instance.new("Frame")
-Main.Size = UDim2.new(0, 300, 0, 200)
-Main.Position = UDim2.new(0.5, -150, 0.5, -100)
-Main.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
-Main.Active = true
-Main.Parent = GUI
-
--- Username Input (unchanged)
--- ... [Keep the original username input and suggestions code] ...
-
--- Fling System Modifications
-local Flinging = false
-local ActiveCoroutine = nil
-local PredictionTime = 0.35
-
-local function setCollisions(character, group)
-    for _, part in pairs(character:GetDescendants()) do
-        if part:IsA("BasePart") then
-            PhysicsService:SetPartCollisionGroup(part, group)
+-- Client-side collision bypass
+local function ghostCharacter(character)
+    if character then
+        for _, part in pairs(character:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.CanCollide = false
+                part.Massless = true
+                part.CustomPhysicalProperties = PhysicalProperties.new(0, 0, 0)
+            end
         end
     end
 end
 
-local function FlingTarget(target)
-    while Flinging and task.wait(0.02) do
-        if target and target.Character and LP.Character then
-            -- Apply collision groups
-            setCollisions(LP.Character, "Flinger")
-            setCollisions(target.Character, "TargetPlayer")
+-- Auto-apply to existing character
+if LP.Character then
+    ghostCharacter(LP.Character)
+end
+LP.CharacterAdded:Connect(ghostCharacter)
 
+-- Enhanced Fling System
+local Flinging = false
+local ActiveCoroutine = nil
+local PredictionTime = 0.45
+
+local function FlingTarget(target)
+    while Flinging and task.wait() do
+        if target and target.Character and LP.Character then
             local tHRP = target.Character:FindFirstChild("HumanoidRootPart")
             local myHRP = LP.Character:FindFirstChild("HumanoidRootPart")
-            local humanoid = target.Character:FindFirstChildOfClass("Humanoid")
             
-            if tHRP and myHRP and humanoid and humanoid.Health > 0 then
-                -- Dynamic prediction based on target speed
-                local targetSpeed = tHRP.Velocity.Magnitude
-                local dynamicPrediction = math.clamp(PredictionTime * (1 + targetSpeed/50), 0.35, 1.2)
-                
-                local predictedPos = tHRP.Position + (tHRP.Velocity * dynamicPrediction)
+            if tHRP and myHRP then
+                -- Advanced prediction with velocity averaging
+                local targetVel = tHRP.Velocity * 1.25
+                local predictedPos = tHRP.Position + (targetVel * PredictionTime)
                 local distance = (predictedPos - myHRP.Position).Magnitude
                 
-                -- Improved teleportation with offset
-                if distance > 30 then
-                    myHRP.CFrame = CFrame.new(predictedPos + Vector3.new(0, 5, 0)) 
-                                  * CFrame.Angles(0, math.rad(180), 0)
+                -- Teleportation with smart positioning
+                if distance > 25 then
+                    myHRP.CFrame = CFrame.new(predictedPos + Vector3.new(0,5,0)) * 
+                                  CFrame.Angles(math.rad(math.random(-15,15)), 
+                                           math.rad(180 + math.random(-15,15)), 
+                                           0)
                 end
                 
-                -- Enhanced velocity application
-                local dirVector = (predictedPos - myHRP.Position).Unit
-                myHRP.Velocity = dirVector * 7200 + (tHRP.Velocity * 0.8) + Vector3.new(
-                    0, 
-                    math.clamp(2800 + (distance * 5), 2800, 5000), 
-                    0
-                )
+                -- Force application with rotational boost
+                local dir = (predictedPos - myHRP.Position).Unit
+                myHRP.Velocity = dir * 8500 + 
+                                (targetVel * 0.9) + 
+                                Vector3.new(0, 3250 + math.abs(targetVel.Y * 0.5), 0)
             end
         else
             Flinging = false
@@ -79,45 +62,31 @@ local function FlingTarget(target)
     end
 end
 
--- Improved Camera System
+-- Smoother Camera System
 local Tracking = false
-local OriginalCameraType = Camera.CameraType
-local CameraDistance = 10
-local targetCameraDistance = 10
-local ZoomMomentum = 0
-local timeOffset = 0
+local CameraDistance = 12
+local targetZoom = 12
+local smoothness = 0.85
 
 local function TrackTarget(target)
-    local conn
-    conn = RunService.Heartbeat:Connect(function(deltaTime)
-        timeOffset = timeOffset + deltaTime
-        CameraDistance = CameraDistance + (targetCameraDistance - CameraDistance) * 0.1
-        
-        if not Tracking then 
-            conn:Disconnect()
-            return 
-        end
-        
-        if target and target.Character then
+    RunService.Heartbeat:Connect(function(delta)
+        if Tracking and target and target.Character then
             local hrp = target.Character:FindFirstChild("HumanoidRootPart")
             if hrp then
-                Camera.CameraType = Enum.CameraType.Scriptable
-                local baseOffset = Vector3.new(
-                    math.sin(timeOffset) * 2.5,
-                    4 + math.cos(timeOffset * 0.8) * 0.5,
-                    CameraDistance + ZoomMomentum
-                )
+                -- Smooth zoom interpolation
+                CameraDistance = CameraDistance + (targetZoom - CameraDistance) * (1 - smoothness)
                 
-                -- Smooth camera movement
-                Camera.CFrame = Camera.CFrame:Lerp(
-                    CFrame.new(hrp.Position + baseOffset, hrp.Position + Vector3.new(0, 2, 0)),
-                    0.3
+                -- Orbital camera with dynamic positioning
+                local angle = tick() * 2
+                Camera.CFrame = CFrame.new(
+                    hrp.Position + Vector3.new(
+                        math.sin(angle) * 3.5,
+                        5 + math.cos(angle * 0.7) * 0.8,
+                        math.cos(angle) * CameraDistance
+                    ),
+                    hrp.Position + Vector3.new(0, 2.5, 0)
                 )
             end
-        else
-            Tracking = false
-            CamButton.Text = "TOGGLE CAMERA"
-            Camera.CameraType = OriginalCameraType
         end
     end)
 end
@@ -125,11 +94,9 @@ end
 -- Improved Zoom Control
 UIS.InputChanged:Connect(function(input)
     if Tracking and input.UserInputType == Enum.UserInputType.MouseWheel then
-        local scrollDelta = input.Position.Y
-        targetCameraDistance = math.clamp(targetCameraDistance - scrollDelta * 2.5, 5, 25)
-        ZoomMomentum = math.clamp(ZoomMomentum + scrollDelta * 1.5, -4, 4)
+        targetZoom = math.clamp(targetZoom - input.Position.Y * 3.5, 8, 25)
     end
 end)
 
--- Keep the original dragging system and button handlers
--- ... [Keep the original GUI dragging and button handling code] ...
+-- Keep your original GUI code and button handlers
+-- ... [Your existing GUI implementation] ...
