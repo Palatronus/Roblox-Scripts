@@ -47,7 +47,7 @@ local function UpdateSuggestions()
                 Suggestions.Visible = false
             end)
             btn.Parent = Suggestions
-            suggestionsAdded = suggestionsAdded + 1 -- Fix += syntax
+            suggestionsAdded = suggestionsAdded + 1
         end
     end
     
@@ -94,8 +94,7 @@ local function FlingTarget(target)
                 
                 -- Velocity with prediction compensation
                 myHRP.Velocity = dirVector * 5150 + (tHRP.Velocity * 0.45) 
-                + Vector3.new(0, 2550, 0) -- Stabilized forces 
-                                + Vector3.new(0, 2650, 0)
+                + Vector3.new(0, 2550, 0) -- ✅ Single vertical force
             end
         else
             Flinging = false
@@ -111,9 +110,33 @@ local OriginalCameraType = Camera.CameraType
 local CameraDistance = 15
 local ZoomMomentum = 0 -- Added momentum variable
 local function TrackTarget(target)
-    local conn = RunService.Heartbeat:Connect(function()
-        if not Tracking then conn:Disconnect() return end -- Fix camera stuck
-        -- ... keep existing camera code here ...
+    local conn
+    conn = RunService.Heartbeat:Connect(function()
+        if not Tracking then 
+            conn:Disconnect() 
+            return 
+        end
+        
+        if target and target.Character then
+            local humanoid = target.Character:FindFirstChildOfClass("Humanoid")
+            local hrp = target.Character:FindFirstChild("HumanoidRootPart")
+            
+            if humanoid and humanoid.Health > 0 and hrp then
+                Camera.CameraType = Enum.CameraType.Scriptable
+                Camera.CFrame = CFrame.new(
+                    hrp.Position + Vector3.new(
+                        math.sin(tick())*1.5, 
+                        5 + math.cos(tick()*0.5)*0.5, 
+                        CameraDistance + ZoomMomentum
+                    ),
+                    hrp.Position
+                )
+            end
+        else
+            Tracking = false
+            CamButton.Text = "TOGGLE CAMERA"
+            Camera.CameraType = OriginalCameraType
+        end
     end)
 end
         if target and target.Character then
@@ -211,9 +234,9 @@ end)
 -- Enhanced Zoom Control with Momentum
 UIS.InputChanged:Connect(function(input)
     if Tracking and input.UserInputType == Enum.UserInputType.MouseWheel then
-        local scroll = -input.Position.Y -- Fix inverted zoom
+        local scrollDelta = input.Position.Y -- Remove extra negation
         ZoomMomentum = math.clamp(ZoomMomentum + scroll * 0.9, -4, 4)
-        CameraDistance = math.clamp(CameraDistance + scroll * 3, 5, 25)
+        CameraDistance = math.clamp(CameraDistance - scrollDelta * 3, 5, 25)
         RunService.Heartbeat:Wait() -- Smoothing update
         ZoomMomentum = ZoomMomentum * 0.85
     end
