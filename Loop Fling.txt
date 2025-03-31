@@ -1,108 +1,41 @@
 local Players = game:GetService("Players")
 local LP = Players.LocalPlayer
 local CoreGui = game:GetService("CoreGui")
-local Camera = workspace.CurrentCamera
-local UIS = game:GetService("UserInputService")
 
--- Collision Bypass System
-local function DisableCollisions()
-    if LP.Character then
-        for _, part in ipairs(LP.Character:GetDescendants()) do
-            if part:IsA("BasePart") then
-                part.CanCollide = false
-                part.Massless = true
-            end
-        end
-    end
+-- Delete previous UI
+if CoreGui:FindFirstChild("FlingSystem") then
+    CoreGui.FlingSystem:Destroy()
 end
 
--- Enhanced Fling System
-local Flinging = false
-local function ViolentFling(target)
-    while Flinging and task.wait(0.02) do
-        DisableCollisions()
-        
-        if LP.Character and target.Character then
-            local tHRP = target.Character:FindFirstChild("HumanoidRootPart")
-            local myHRP = LP.Character:FindFirstChild("HumanoidRootPart")
-            
-            if tHRP and myHRP then
-                -- Teleport INSIDE target with micro-offsets
-                local offset = CFrame.new(
-                    math.random(-1, 1),  -- Tight X
-                    math.random(-0.5, 0.5), -- Minimal Y
-                    math.random(-1, 1)   -- Tight Z
-                )
-                
-                -- Aggressive velocity application
-                myHRP.CFrame = tHRP.CFrame * offset
-                myHRP.Velocity = (tHRP.Position - myHRP.Position).Unit * 2500 + Vector3.new(0, 800, 0)
-                
-                -- Force network control
-                if tHRP:GetNetworkOwner() ~= LP then
-                    tHRP:SetNetworkOwner(LP)
-                end
-            end
+-- Force UI creation
+local GUI = Instance.new("ScreenGui")
+GUI.Name = "FlingSystem"
+GUI.ResetOnSpawn = false
+GUI.ZIndexBehavior = Enum.ZIndexBehavior.Global
+GUI.DisplayOrder = 9999
+GUI.Parent = CoreGui
+
+local Main = Instance.new("Frame")
+Main.Size = UDim2.new(0, 300, 0, 180)
+Main.Position = UDim2.new(0.5, -150, 0.5, -90)
+Main.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+Main.Active = true
+Main.Visible = true -- Explicit visibility
+Main.Parent = GUI
+
+-- Visibility enforcement
+task.spawn(function()
+    while task.wait(1) do
+        if not GUI:IsDescendantOf(game) then
+            GUI.Parent = CoreGui
+            GUI.Enabled = true
+            Main.Visible = true
         end
-    end
-end
-
--- Improved Camera System
-local Tracking = false
-local CameraDistance = 12
-local CameraThread
-
-local function TrackTarget(target)
-    while Tracking and task.wait() do
-        if target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
-            local hrp = target.Character.HumanoidRootPart
-            Camera.CameraType = Enum.CameraType.Scriptable
-            Camera.CFrame = CFrame.new(hrp.Position + Vector3.new(0, 5, CameraDistance), hrp.Position)
-        end
-    end
-    Camera.CameraType = Enum.CameraType.Custom
-end
-
--- Mouse Wheel Zoom Control
-UIS.InputChanged:Connect(function(input)
-    if Tracking and input.UserInputType == Enum.UserInputType.MouseWheel then
-        CameraDistance = math.clamp(CameraDistance - input.Position.Z * 2, 8, 20)
     end
 end)
 
--- Update Camera Toggle Handler
-CamButton.MouseButton1Click:Connect(function()
-    Tracking = not Tracking
-    if Tracking then
-        local target = Players:FindFirstChild(Input.Text)
-        if target then
-            CameraThread = task.spawn(TrackTarget, target)
-        end
-    else
-        if CameraThread then
-            task.cancel(CameraThread)
-        end
-        Camera.CameraType = Enum.CameraType.Custom
-    end
-end)
+-- Rest of your working code from previous version --
+-- [PASTE THE WORKING FLING/CAMERA CODE HERE] --
 
--- Update Fling Toggle Handler
-Toggle.MouseButton1Click:Connect(function()
-    Flinging = not Flinging
-    if Flinging then
-        local target = Players:FindFirstChild(Input.Text)
-        if target then
-            task.spawn(ViolentFling, target)
-        end
-    else
-        -- Reset collisions when disabled
-        if LP.Character then
-            for _, part in ipairs(LP.Character:GetDescendants()) do
-                if part:IsA("BasePart") then
-                    part.CanCollide = true
-                    part.Massless = false
-                end
-            end
-        end
-    end
-end)
+print("UI initialized at:", Main.AbsolutePosition)
+warn("GUI parent:", GUI.Parent)
