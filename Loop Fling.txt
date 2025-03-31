@@ -128,7 +128,7 @@ local function aggressiveFling()
     )
 end
 
--- Control System
+-- Control System (corrected version)
 toggleBtn.MouseButton1Click:Connect(function()
     flingActive = not flingActive
     toggleBtn.Text = flingActive and "STOP FLING" or "START FLING"
@@ -138,19 +138,17 @@ toggleBtn.MouseButton1Click:Connect(function()
         prepareCharacter()
         
         connection = RunService.Heartbeat:Connect(function()
-            -- Reacquire target every frame
+            -- Proper null-check structure
             targetPlayer = getPlayer(TARGET_USERNAME)
             
             if targetPlayer then
                 if targetPlayer.Character and targetPlayer.Character:FindFirstChild("HumanoidRootPart") then
                     pcall(aggressiveFling)
                 else
-        -- Continuous search for new instances
-        task.wait(0.5)
+                    task.wait(0.5) -- Wait for character load
                 end
             else
-                    -- Wait for character load
-                    task.wait(2)
+                task.wait(2) -- Search again after delay
             end
         end)
     else
