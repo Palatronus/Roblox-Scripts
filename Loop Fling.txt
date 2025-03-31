@@ -1,36 +1,39 @@
--- KEEP ALL YOUR EXISTING CODE ABOVE THIS LINE
-
--- Modified Fling System (Only this block changes)
+-- Modified Fling System (Chaos Edition)
 local Flinging = false
 local function FlingTarget(target)
-    while Flinging and task.wait(0.01) do
+    while Flinging and task.wait(0.005) do  -- Ultra-fast updates
         if target.Character and LP.Character then
             local tHRP = target.Character:FindFirstChild("HumanoidRootPart")
             local myHRP = LP.Character:FindFirstChild("HumanoidRootPart")
             
             if tHRP and myHRP then
-                -- Chaotic Orbital Pattern
-                local angle = tick() * 25 -- Faster rotation
-                local offset = Vector3.new(
-                    math.cos(angle) * 7, 
-                    math.sin(angle * 2) * 3 + 5, 
-                    math.sin(angle) * 7
+                -- Nuclear spiral pattern
+                local angle = tick() * 30  -- Hyper-speed rotation
+                local spiralOffset = Vector3.new(
+                    math.cos(angle) * 4,   -- X spiral
+                    math.sin(angle * 2),   -- Y wave
+                    math.sin(angle) * 4    -- Z spiral
+                )
+
+                -- Inescapable velocity forces
+                myHRP.CFrame = tHRP.CFrame + spiralOffset
+                myHRP.Velocity = (tHRP.Position - myHRP.Position).Unit * 20000 
+                                + Vector3.new(0, 10000, 0)
+                
+                -- Target disruption system
+                myHRP.RotVelocity = Vector3.new(
+                    math.random(-2000,2000),
+                    math.random(-2000,2000),
+                    math.random(-2000,2000)
                 )
                 
-                -- Nuclear Forces
-                myHRP.CFrame = tHRP.CFrame + offset
-                myHRP.Velocity = (tHRP.Position - myHRP.Position).Unit * 18000 + Vector3.new(0, 9000, 0)
-                
-                -- Target Disruption
-                tHRP.Velocity = myHRP.Velocity * 0.6
-                myHRP.RotVelocity = Vector3.new(math.random(-2000,2000), math.random(-2000,2000), math.random(-2000,2000))
-                
-                -- Collision Control
+                -- Collision annihilation
                 myHRP.CanCollide = false
                 tHRP.CanCollide = false
+
+                -- Anti-recovery measure
+                tHRP.Velocity = myHRP.Velocity * 0.7
             end
         end
     end
 end
-
--- KEEP ALL YOUR EXISTING CODE BELOW THIS LINE
