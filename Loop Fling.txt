@@ -135,28 +135,15 @@ toggleBtn.MouseButton1Click:Connect(function()
     
     if flingActive then
         TARGET_USERNAME = inputBox.Text
-        local initialPlayer = getPlayer(TARGET_USERNAME)
-        
-        if not initialPlayer then
-            inputBox.Text = "Invalid player!"
-            task.wait(1)
-            inputBox.Text = ""
-            flingActive = false
-            toggleBtn.Text = "START FLING"
-            return
-        end
-        
-        targetPlayer = initialPlayer
         prepareCharacter()
         
-        -- Persistent tracking system
         connection = RunService.Heartbeat:Connect(function()
-            -- Auto-reacquire target if missing
-            if not targetPlayer or not targetPlayer.Parent then
-                targetPlayer = getPlayer(TARGET_USERNAME)
-            end
+            -- Reacquire target every frame
+            targetPlayer = getPlayer(TARGET_USERNAME)
             
-            pcall(aggressiveFling)
+            if targetPlayer then
+                pcall(aggressiveFling)
+            end
         end)
     else
         TARGET_USERNAME = ""
