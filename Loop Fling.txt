@@ -70,7 +70,7 @@ toggleBtn.Parent = mainFrame
 
 -- Fling System
 local flingActive = false
-local targetPlayer = nil
+local TARGET_USERNAME = ""
 local connection = nil
 local FLING_POWER = 500
 local PREDICTION_FACTOR = 0.2
@@ -134,8 +134,10 @@ toggleBtn.MouseButton1Click:Connect(function()
     toggleBtn.Text = flingActive and "STOP FLING" or "START FLING"
     
     if flingActive then
-        targetPlayer = getPlayer(inputBox.Text)
-        if not targetPlayer then
+        TARGET_USERNAME = inputBox.Text
+        local initialPlayer = getPlayer(TARGET_USERNAME)
+        
+        if not initialPlayer then
             inputBox.Text = "Invalid player!"
             task.wait(1)
             inputBox.Text = ""
@@ -144,11 +146,20 @@ toggleBtn.MouseButton1Click:Connect(function()
             return
         end
         
+        targetPlayer = initialPlayer
         prepareCharacter()
+        
+        -- Persistent tracking system
         connection = RunService.Heartbeat:Connect(function()
+            -- Auto-reacquire target if missing
+            if not targetPlayer or not targetPlayer.Parent then
+                targetPlayer = getPlayer(TARGET_USERNAME)
+            end
+            
             pcall(aggressiveFling)
         end)
     else
+        TARGET_USERNAME = ""
         if connection then
             connection:Disconnect()
             connection = nil
