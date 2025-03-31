@@ -4,12 +4,12 @@ local CoreGui = game:GetService("CoreGui")
 local Camera = workspace.CurrentCamera
 local UIS = game:GetService("UserInputService")
 
--- Remove previous GUI
+-- Cleanup previous versions
 if CoreGui:FindFirstChild("UltimateFling") then
     CoreGui.UltimateFling:Destroy()
 end
 
--- GUI Construction
+-- GUI Setup
 local GUI = Instance.new("ScreenGui")
 local Frame = Instance.new("Frame")
 local Input = Instance.new("TextBox")
@@ -26,34 +26,36 @@ Frame.BackgroundColor3 = Color3.new(0.1, 0.1, 0.1)
 Frame.Active = true
 Frame.Parent = GUI
 
--- Dragging System
-local dragging, dragStart, startPos
-Frame.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 then
-        dragging = true
-        dragStart = input.Position
-        startPos = Frame.Position
-        input.Changed:Connect(function()
-            if input.UserInputState == Enum.UserInputState.End then
-                dragging = false
-            end
-        end)
-    end
-end)
+-- Improved Dragging System
+do
+    local dragging, dragStart, startPos
+    Frame.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = true
+            dragStart = input.Position
+            startPos = Frame.Position
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                end
+            end)
+        end
+    end)
 
-UIS.InputChanged:Connect(function(input)
-    if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
-        local delta = input.Position - dragStart
-        Frame.Position = UDim2.new(
-            startPos.X.Scale, 
-            startPos.X.Offset + delta.X,
-            startPos.Y.Scale, 
-            startPos.Y.Offset + delta.Y
-        )
-    end
-end)
+    UIS.InputChanged:Connect(function(input)
+        if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+            local delta = input.Position - dragStart
+            Frame.Position = UDim2.new(
+                startPos.X.Scale, 
+                startPos.X.Offset + delta.X,
+                startPos.Y.Scale, 
+                startPos.Y.Offset + delta.Y
+            )
+        end
+    end)
+end
 
--- Predictive Username System
+-- Enhanced Prediction System
 Input.PlaceholderText = "Search players..."
 Input.Size = UDim2.new(0.9, 0, 0.2, 0)
 Input.Position = UDim2.new(0.05, 0, 0.1, 0)
@@ -69,59 +71,44 @@ Suggestions.Parent = Input
 local function UpdateSuggestions()
     Suggestions:ClearAllChildren()
     local search = Input.Text:lower()
+    local matches = {}
     
     for _, player in pairs(Players:GetPlayers()) do
         if player ~= LP and player.Name:lower():find(search) then
-            local option = Instance.new("TextButton")
-            option.Text = player.Name
-            option.Size = UDim2.new(1, 0, 0, 20)
-            option.BackgroundTransparency = 1
-            option.TextColor3 = Color3.new(1,1,1)
-            option.MouseButton1Click:Connect(function()
-                Input.Text = player.Name
-                Suggestions.Visible = false
-            end)
-            option.Parent = Suggestions
+            table.insert(matches, player.Name)
         end
     end
-    Suggestions.Visible = #Suggestions:GetChildren() > 0
+    
+    for i, name in ipairs(matches) do
+        local option = Instance.new("TextButton")
+        option.Text = name
+        option.Size = UDim2.new(1, -10, 0, 20)
+        option.Position = UDim2.new(0, 5, 0, (i-1)*22)
+        option.BackgroundTransparency = 1
+        option.TextColor3 = Color3.new(1,1,1)
+        option.TextXAlignment = Enum.TextXAlignment.Left
+        option.MouseButton1Click:Connect(function()
+            Input.Text = name
+            Suggestions.Visible = false
+        end)
+        option.Parent = Suggestions
+    end
+    Suggestions.Visible = #matches > 0
 end
 
-Input.Focused:Connect(function()
-    UpdateSuggestions()
-end)
+Input.Focused:Connect(UpdateSuggestions)
+Input.Changed:Connect(UpdateSuggestions)
 
-Input.Changed:Connect(function()
-    UpdateSuggestions()
-end)
-
--- Improved Camera System
-local CameraDistance = 8
-local Tracking = false
-local TargetCamera
-
-UIS.InputChanged:Connect(function(input)
-    if Tracking and input.UserInputType == Enum.UserInputType.MouseWheel then
-        CameraDistance = math.clamp(CameraDistance - input.Position.Z, 5, 15)
+-- Enter key autocomplete
+Input.FocusLost:Connect(function(enterPressed)
+    if enterPressed and #Suggestions:GetChildren() > 0 then
+        Input.Text = Suggestions:GetChildren()[1].Text
+        Suggestions.Visible = false
     end
 end)
 
-local function TrackTarget(target)
-    while Tracking and task.wait() do
-        if target and target.Character then
-            local hrp = target.Character:FindFirstChild("HumanoidRootPart")
-            if hrp then
-                Camera.CameraType = Enum.CameraType.Scriptable
-                local offset = hrp.CFrame.lookVector * CameraDistance
-                Camera.CFrame = CFrame.new(hrp.Position + offset + Vector3.new(0, 3, 0), hrp.Position)
-            end
-        end
-    end
-end
-
--- Optimized Fling System
+-- Restored Fling System
 local Flinging = false
-
 local function ViolentFling(target)
     while Flinging and task.wait() do
         if LP.Character and target.Character then
@@ -129,33 +116,41 @@ local function ViolentFling(target)
             local myHRP = LP.Character:FindFirstChild("HumanoidRootPart")
             
             if tHRP and myHRP then
-                -- Controlled offset pattern
-                local offset = CFrame.new(
-                    math.random(-3, 3),
-                    math.random(-1, 2),
-                    math.random(-3, 3)
-                )
+                -- Optimal collision positioning
+                myHRP.CFrame = tHRP.CFrame * CFrame.new(0, 0, -1.5)
+                myHRP.Velocity = (tHRP.Position - myHRP.Position).Unit * 1500 + Vector3.new(0, 500, 0)
                 
-                -- Network ownership control
+                -- Force network control
                 if tHRP:GetNetworkOwner() ~= LP then
                     tHRP:SetNetworkOwner(LP)
                 end
-                
-                -- Precise positioning
-                myHRP.CFrame = tHRP.CFrame * offset
-                myHRP.Velocity = (tHRP.Position - myHRP.Position).Unit * 2000
             end
         end
     end
 end
 
--- Control Buttons
-Button.Text = "Toggle Fling"
+-- Fixed Camera System
+local Tracking = false
+local CameraThread
+local function TrackTarget(target)
+    while Tracking and target.Character do
+        local hrp = target.Character:FindFirstChild("HumanoidRootPart")
+        if hrp then
+            Camera.CameraType = Enum.CameraType.Scriptable
+            Camera.CFrame = CFrame.new(hrp.Position + Vector3.new(0, 5, 10), hrp.Position)
+        end
+        task.wait()
+    end
+    Camera.CameraType = Enum.CameraType.Custom
+end
+
+-- Control Handlers
+Button.Text = "TOGGLE FLING"
 Button.Size = UDim2.new(0.6, 0, 0.2, 0)
 Button.Position = UDim2.new(0.2, 0, 0.4, 0)
 Button.Parent = Frame
 
-CamToggle.Text = "Toggle Camera"
+CamToggle.Text = "TOGGLE CAMERA"
 CamToggle.Size = UDim2.new(0.6, 0, 0.2, 0)
 CamToggle.Position = UDim2.new(0.2, 0, 0.65, 0)
 CamToggle.Parent = Frame
@@ -163,10 +158,9 @@ CamToggle.Parent = Frame
 Button.MouseButton1Click:Connect(function()
     Flinging = not Flinging
     if Flinging then
-        for _, player in pairs(Players:GetPlayers()) do
-            if player.Name == Input.Text then
-                task.spawn(ViolentFling, player)
-            end
+        local target = Players:FindFirstChild(Input.Text)
+        if target then
+            task.spawn(ViolentFling, target)
         end
     end
 end)
@@ -176,10 +170,12 @@ CamToggle.MouseButton1Click:Connect(function()
     if Tracking then
         local target = Players:FindFirstChild(Input.Text)
         if target then
-            TargetCamera = target
-            task.spawn(TrackTarget, target)
+            CameraThread = task.spawn(TrackTarget, target)
         end
     else
+        if CameraThread then
+            task.cancel(CameraThread)
+        end
         Camera.CameraType = Enum.CameraType.Custom
     end
 end)
