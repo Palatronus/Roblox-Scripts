@@ -1,47 +1,32 @@
--- Final Working Version (Lua 5.1 Compatible)
 local Players = game:GetService("Players")
 local LP = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 local UIS = game:GetService("UserInputService")
 
--- GUI Setup (Keep everything identical)
--- [PASTE YOUR EXISTING GUI CODE HERE] --
-
--- Enhanced Fling System
-local Flinging = false
-local function FlingTarget(target)
-    while Flinging do
-        if target and target.Character and LP.Character then
-            local tHRP = target.Character:FindFirstChild("HumanoidRootPart")
-            local myHRP = LP.Character:FindFirstChild("HumanoidRootPart")
-            
-            if tHRP and myHRP then
-                -- Nameless Admin-style pattern
-                local pattern = {
-                    Vector3.new(8, 12, 8),
-                    Vector3.new(-8, 12, -8),
-                    Vector3.new(12, 8, -12),
-                    Vector3.new(-12, 8, 12)
-                }
-                
-                -- Cycle through positions with collision bypass
-                for _, offset in ipairs(pattern) do
-                    if not Flinging then break end
-                    
-                    -- Phase through target
-                    myHRP.CanCollide = false
-                    tHRP.CanCollide = false
-                    
-                    -- Position and velocity
-                    myHRP.CFrame = tHRP.CFrame + offset
-                    myHRP.Velocity = (tHRP.Position - myHRP.Position).Unit * 10000 + Vector3.new(0, 8000, 0)
-                    
-                    wait(0.03) -- Original Nameless timing
-                end
-            end
-        end
-        wait() -- Yield for Lua 5.1 compatibility
-    end
+-- Clear existing GUI
+if game.CoreGui:FindFirstChild("FlingGUI") then
+    game.CoreGui.FlingGUI:Destroy()
 end
 
--- [KEEP ALL OTHER CODE UNCHANGED] --
+-- GUI Setup (Force Visibility)
+local GUI = Instance.new("ScreenGui")
+GUI.Name = "FlingGUI"
+GUI.ResetOnSpawn = false
+GUI.ZIndexBehavior = Enum.ZIndexBehavior.Global
+GUI.DisplayOrder = 999
+GUI.Parent = game.CoreGui
+
+local Main = Instance.new("Frame")
+Main.Size = UDim2.new(0, 300, 0, 200)
+Main.Position = UDim2.new(0.5, -150, 0.5, -100)
+Main.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+Main.Active = true
+Main.Parent = GUI
+
+-- Force GUI visibility
+GUI.Enabled = true
+task.wait()
+GUI.Enabled = true
+
+-- Rest of your code (username input, buttons, fling system, etc.)
+-- [PASTE YOUR EXISTING CODE HERE STARTING FROM USERNAME INPUT] --
