@@ -70,8 +70,8 @@ toggleBtn.Parent = mainFrame
 
 -- Fling System
 local flingActive = false
+local targetPlayer = nil
 local TARGET_USERNAME = ""
-local connection = nil
 local FLING_POWER = 500
 local PREDICTION_FACTOR = 0.2
 local DIRECTIONAL_OFFSET = 0.8
