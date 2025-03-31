@@ -3,12 +3,12 @@ local LP = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 local UIS = game:GetService("UserInputService")
 
--- Clear existing GUI
+-- Cleanup previous GUI
 if game.CoreGui:FindFirstChild("FlingGUI") then
     game.CoreGui.FlingGUI:Destroy()
 end
 
--- GUI Setup (Force Visibility)
+-- GUI Setup
 local GUI = Instance.new("ScreenGui")
 GUI.Name = "FlingGUI"
 GUI.ResetOnSpawn = false
@@ -23,10 +23,67 @@ Main.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
 Main.Active = true
 Main.Parent = GUI
 
--- Force GUI visibility
-GUI.Enabled = true
-task.wait()
-GUI.Enabled = true
+-- Username Input
+local Input = Instance.new("TextBox")
+Input.PlaceholderText = "Type username..."
+Input.Size = UDim2.new(0.9, 0, 0.2, 0)
+Input.Position = UDim2.new(0.05, 0, 0.1, 0)
+Input.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+Input.TextColor3 = Color3.new(1, 1, 1)
+Input.Parent = Main
 
--- Rest of your code (username input, buttons, fling system, etc.)
--- [PASTE YOUR EXISTING CODE HERE STARTING FROM USERNAME INPUT] --
+-- Suggestions Dropdown
+local Suggestions = Instance.new("ScrollingFrame")
+Suggestions.Size = UDim2.new(1, 0, 0, 80)
+Suggestions.Position = UDim2.new(0, 0, 1, 0)
+Suggestions.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+Suggestions.Visible = false
+Suggestions.Parent = Input
+
+-- Control Buttons
+local Toggle = Instance.new("TextButton")
+Toggle.Text = "TOGGLE FLING"
+Toggle.Size = UDim2.new(0.6, 0, 0.2, 0)
+Toggle.Position = UDim2.new(0.2, 0, 0.4, 0)
+Toggle.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+Toggle.TextColor3 = Color3.new(1, 1, 1)
+Toggle.Parent = Main
+
+local CamButton = Instance.new("TextButton")
+CamButton.Text = "TOGGLE CAMERA"
+CamButton.Size = UDim2.new(0.6, 0, 0.2, 0)
+CamButton.Position = UDim2.new(0.2, 0, 0.65, 0)
+CamButton.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+CamButton.TextColor3 = Color3.new(1, 1, 1)
+CamButton.Parent = Main
+
+-- Dragging System Fix
+local dragging = false
+local dragStart, startPos
+
+Main.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = true
+        dragStart = input.Position
+        startPos = Main.Position
+    end
+end)
+
+Main.InputEnded:Connect(function(input)
+    dragging = false
+end)
+
+UIS.InputChanged:Connect(function(input)
+    if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+        local delta = input.Position - dragStart
+        Main.Position = UDim2.new(
+            startPos.X.Scale,
+            startPos.X.Offset + delta.X,
+            startPos.Y.Scale,
+            startPos.Y.Offset + delta.Y
+        )
+    end
+end)
+
+-- Rest of your original code below (suggestions, fling, camera, etc.)
+-- [PASTE YOUR EXISTING FLING/CAMERA CODE HERE] --
