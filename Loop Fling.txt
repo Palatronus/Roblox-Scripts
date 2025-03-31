@@ -2,56 +2,19 @@ local Players = game:GetService("Players")
 local UIS = game:GetService("UserInputService")
 local RS = game:GetService("RunService")
 local LP = Players.LocalPlayer
-local Mouse = LP:GetMouse()
-
--- GUI Construction
-local GUI = Instance.new("ScreenGui")
-local Frame = Instance.new("Frame")
-local TextBox = Instance.new("TextBox")
-local Toggle = Instance.new("TextButton")
-local Status = Instance.new("TextLabel")
-
-GUI.Name = "MassFlingGUI"
-GUI.Parent = game.CoreGui
-GUI.Enabled = true
-
-Frame.Size = UDim2.new(0, 250, 0, 140)
-Frame.Position = UDim2.new(0.5, -125, 0.5, -70)
-Frame.BackgroundColor3 = Color3.new(0.15, 0.15, 0.15)
-Frame.Parent = GUI
-
-TextBox.Size = UDim2.new(0.8, 0, 0.2, 0)
-TextBox.Position = UDim2.new(0.1, 0, 0.1, 0)
-TextBox.PlaceholderText = "Users (comma separated)"
-TextBox.Parent = Frame
-
-Toggle.Size = UDim2.new(0.6, 0, 0.3, 0)
-Toggle.Position = UDim2.new(0.2, 0, 0.4, 0)
-Toggle.Text = "Toggle Nuclear Fling"
-Toggle.Parent = Frame
-
-Status.Size = UDim2.new(0.8, 0, 0.2, 0)
-Status.Position = UDim2.new(0.1, 0, 0.75, 0)
-Status.Text = "Status: Idle"
-Status.Parent = Frame
-
--- Fling System
-local Flinging = false
 local ActiveThreads = {}
-local VoidPower = 8500
-local OrbitPattern = {
-    Vector3.new(7, 12, 4),
-    Vector3.new(-7, 12, -4),
-    Vector3.new(12, 7, -8),
-    Vector3.new(-12, 7, 8)
-}
+local Flinging = false
+local VoidPower = 10000
 
+-- [PASTE THE PREVIOUS GUI CODE HERE] --
+
+-- Nuclear Fling Core Functions
 local function GetTargets()
     local targets = {}
-    for username in string.gmatch(TextBox.Text:lower(), "[^,]+") do
+    for username in string.gmatch(Input.Text:lower(), "[^,]+") do
         username = username:gsub("^%s+", ""):gsub("%s+$", "")
         for _, player in next, Players:GetPlayers() do
-            if player.Name:lower() == username and player ~= LP then
+            if player ~= LP and player.Name:lower() == username then
                 table.insert(targets, player)
             end
         end
@@ -59,79 +22,78 @@ local function GetTargets()
     return targets
 end
 
-local function NuclearOrbit(target)
-    local cycle = 0
-    while Flinging and task.wait(0.01) do
+local function AtomicFling(target)
+    while Flinging and task.wait() do
         if not target.Character then continue end
         local targetHRP = target.Character:FindFirstChild("HumanoidRootPart")
-        local myHRP = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
+        local myChar = LP.Character
+        local myHRP = myChar and myChar:FindFirstChild("HumanoidRootPart")
         
         if targetHRP and myHRP then
-            cycle = (cycle % #OrbitPattern) + 1
-            local patternOffset = OrbitPattern[cycle] * 4
-            local calculatedPosition = targetHRP.Position + patternOffset
-            
-            -- Network ownership hijack
-            if targetHRP:GetNetworkOwner() then
+            -- Network control
+            if targetHRP:GetNetworkOwner() ~= LP then
                 targetHRP:SetNetworkOwner(LP)
             end
             
-            -- Position warp with velocity surge
-            myHRP.CFrame = CFrame.new(calculatedPosition)
-            myHRP.Velocity = (targetHRP.Position - myHRP.Position).Unit * VoidPower
-                            + Vector3.new(0, VoidPower/1.5, 0)
-            myHRP.RotVelocity = Vector3.new(math.random(-100,100), math.random(-100,100), math.random(-100,100))
+            -- Positional pattern
+            local orbitPos = targetHRP.Position + Vector3.new(
+                math.random(-15, 15),
+                math.random(10, 25),
+                math.random(-15, 15)
+            )
+            
+            -- Velocity manipulation
+            myHRP.CFrame = CFrame.new(orbitPos)
+            myHRP.Velocity = (targetHRP.Position - orbitPos).Unit * VoidPower
+                            + Vector3.new(0, VoidPower/1.2, 0)
+            myHRP.RotVelocity = Vector3.new(
+                math.random(-100,100),
+                math.random(-100,100),
+                math.random(-100,100)
+            )
         end
     end
 end
 
--- Toggle Control
+-- Toggle Functionality Fix
 Toggle.MouseButton1Click:Connect(function()
     Flinging = not Flinging
+    Status.Text = Flinging and "Status: Starting..." or "Status: Stopping..."
     
     if Flinging then
         local targets = GetTargets()
         if #targets == 0 then
-            Status.Text = "Status: No valid targets!"
+            Status.Text = "Error: No valid targets!"
             Flinging = false
             return
         end
         
-        Status.Text = "Flinging "..#targets.." players"
-        
-        -- Initialize orbits for all targets
-        for _, target in next, targets do
+        for _, target in pairs(targets) do
             ActiveThreads[target] = task.spawn(function()
-                NuclearOrbit(target)
-            end)
-            
-            -- Auto-reconnection system
-            target.CharacterAdded:Connect(function()
-                if Flinging then
-                    task.wait(1)
-                    ActiveThreads[target] = task.spawn(NuclearOrbit, target)
-                end
+                AtomicFling(target)
             end)
         end
+        Status.Text = `Flinging {#targets} targets`
+        
     else
-        -- Terminate all active fling threads
-        for target, thread in next, ActiveThreads do
+        for target, thread in pairs(ActiveThreads) do
             task.cancel(thread)
         end
         ActiveThreads = {}
-        Status.Text = "Status: Idle"
+        Status.Text = "Status: Inactive"
         
-        -- Reset character physics
         if LP.Character and LP.Character:FindFirstChild("HumanoidRootPart") then
             LP.Character.HumanoidRootPart.Velocity = Vector3.zero
         end
     end
 end)
 
--- Auto-cleanup on player leave
+-- Auto-cleanup
 Players.PlayerRemoving:Connect(function(player)
     if ActiveThreads[player] then
         task.cancel(ActiveThreads[player])
         ActiveThreads[player] = nil
     end
 end)
+
+print("Fling system initialized successfully")
