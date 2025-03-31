@@ -2,79 +2,154 @@ local Players = game:GetService("Players")
 local LP = Players.LocalPlayer
 local RS = game:GetService("RunService")
 local CoreGui = game:GetService("CoreGui")
+local Camera = workspace.CurrentCamera
 
--- Simple GUI that always appears
+-- Enhanced GUI with dragging and camera controls
 local GUI = Instance.new("ScreenGui")
 local Frame = Instance.new("Frame")
 local Input = Instance.new("TextBox")
 local Button = Instance.new("TextButton")
+local CamToggle = Instance.new("TextButton")
 
-GUI.Name = "BasicFling"
+GUI.Name = "AdvancedFling"
 GUI.Parent = CoreGui
 
-Frame.Size = UDim2.new(0, 250, 0, 150)
-Frame.Position = UDim2.new(0.5, -125, 0.5, -75)
+Frame.Size = UDim2.new(0, 280, 0, 180)
+Frame.Position = UDim2.new(0.5, -140, 0.5, -90)
 Frame.BackgroundColor3 = Color3.new(0.1, 0.1, 0.1)
+Frame.Active = true
+Frame.Draggable = false
 Frame.Parent = GUI
 
-Input.PlaceholderText = "Enter username"
+Input.PlaceholderText = "Username(s), comma separated"
 Input.Size = UDim2.new(0.8, 0, 0.2, 0)
 Input.Position = UDim2.new(0.1, 0, 0.1, 0)
 Input.Parent = Frame
 
 Button.Text = "Toggle Fling"
-Button.Size = UDim2.new(0.6, 0, 0.3, 0)
+Button.Size = UDim2.new(0.6, 0, 0.2, 0)
 Button.Position = UDim2.new(0.2, 0, 0.4, 0)
 Button.Parent = Frame
 
--- Basic fling system
-local Flinging = false
-local Target
+CamToggle.Text = "Toggle Camera"
+CamToggle.Size = UDim2.new(0.6, 0, 0.2, 0)
+CamToggle.Position = UDim2.new(0.2, 0, 0.65, 0)
+CamToggle.Parent = Frame
 
-local function GetPlayer(name)
-    for _, p in pairs(Players:GetPlayers()) do
-        if p.Name:lower() == name:lower() then
-            return p
-        end
-    end
-end
-
-local function FlailMovement(targetHRP, myHRP)
-    if not targetHRP or not myHRP then return end
-    
-    -- Random orbit pattern
-    local offset = Vector3.new(
-        math.random(-15, 15),
-        math.random(10, 25),
-        math.random(-15, 15)
-    )
-    
-    -- Direct position/velocity manipulation
-    myHRP.CFrame = targetHRP.CFrame + offset
-    myHRP.Velocity = (targetHRP.Position - myHRP.Position).Unit * 500 +
-                     Vector3.new(0, 1000, 0)
-end
-
-Button.MouseButton1Click:Connect(function()
-    Flinging = not Flinging
-    
-    if Flinging then
-        Target = GetPlayer(Input.Text)
-        if not Target then
-            Flinging = false
-            return
-        end
+-- Dragging Implementation
+local dragging, dragInput, dragStart
+Frame.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = true
+        dragStart = input.Position
+        local startPos = Frame.Position
         
-        RS.Heartbeat:Connect(function()
-            if Flinging and LP.Character and Target.Character then
-                FlailMovement(
-                    Target.Character:FindFirstChild("HumanoidRootPart"),
-                    LP.Character:FindFirstChild("HumanoidRootPart")
-                )
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                dragging = false
             end
         end)
     end
 end)
 
--- Simple visibility assurance
+Frame.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement then
+        dragInput = input
+    end
+end)
+
+game:GetService("UserInputService").InputChanged:Connect(function(input)
+    if dragging and input == dragInput then
+        local delta = input.Position - dragStart
+        Frame.Position = UDim2.new(
+            startPos.X.Scale, 
+            startPos.X.Offset + delta.X,
+            startPos.Y.Scale, 
+            startPos.Y.Offset + delta.Y
+        )
+    end
+end)
+
+-- Improved Fling System
+local Flinging = false
+local Tracking = false
+local Targets = {}
+
+local function GetPlayers()
+    Targets = {}
+    for name in Input.Text:gmatch("[^,]+") do
+        name = name:gsub("^%s+", ""):gsub("%s+$", ""):lower()
+        for _, p in pairs(Players:GetPlayers()) do
+            if p.Name:lower() == name and p ~= LP then
+                table.insert(Targets, p)
+            end
+        end
+    end
+end
+
+local function OrbitalOffset()
+    return CFrame.new(
+        math.random(-25, 25),
+        math.random(-5, 15),
+        math.random(-25, 25)
+    )
+end
+
+local function TrackTarget(target)
+    if Tracking and target.Character then
+        local hrp = target.Character:FindFirstChild("HumanoidRootPart")
+        if hrp then
+            Camera.CameraType = Enum.CameraType.Scriptable
+            Camera.CFrame = CFrame.new(Camera.CFrame.Position, hrp.Position)
+        end
+    end
+end
+
+local function FlingLoop()
+    while Flinging and task.wait() do
+        for _, target in pairs(Targets) do
+            if LP.Character and target.Character then
+                local tHrp = target.Character:FindFirstChild("HumanoidRootPart")
+                local myHrp = LP.Character:FindFirstChild("HumanoidRootPart")
+                
+                if tHrp and myHrp then
+                    -- Multi-directional fling
+                    local offset = OrbitalOffset()
+                    myHrp.CFrame = tHrp.CFrame * offset
+                    myHrp.Velocity = (tHrp.Position - myHrp.Position).Unit * 1500 + Vector3.new(0, 800, 0)
+                    
+                    -- Camera tracking
+                    TrackTarget(target)
+                end
+            end
+        end
+    end
+end
+
+-- Control Handlers
+Button.MouseButton1Click:Connect(function()
+    Flinging = not Flinging
+    GetPlayers()
+    if Flinging and #Targets == 0 then
+        Flinging = false
+        return
+    end
+    
+    if Flinging then
+        coroutine.wrap(FlingLoop)()
+    else
+        -- Reset camera
+        Camera.CameraType = Enum.CameraType.Custom
+        Camera.CameraSubject = LP.Character and LP.Character:FindFirstChild("Humanoid")
+    end
+end)
+
+CamToggle.MouseButton1Click:Connect(function()
+    Tracking = not Tracking
+    if not Tracking then
+        Camera.CameraType = Enum.CameraType.Custom
+    end
+end)
+
+-- Visibility Assurance
 GUI.Enabled = true
