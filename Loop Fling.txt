@@ -1,39 +1,30 @@
--- Fixed Fling System
-local Flinging = false
-local function FlingTarget(target)
-    while Flinging and wait(0.02) do
-        if target.Character and LP.Character then
-            local tHRP = target.Character:FindFirstChild("HumanoidRootPart")
-            local myHRP = LP.Character:FindFirstChild("HumanoidRootPart")
-            
-            if tHRP and myHRP then
-                -- Improved prediction pattern
-                local offsets = {
-                    Vector3.new(5, 3, 5),
-                    Vector3.new(-5, 3, -5),
-                    Vector3.new(5, 3, -5),
-                    Vector3.new(-5, 3, 5)
-                }
-                
-                -- Force network control
-                if tHRP:GetNetworkOwner() ~= LP then
-                    tHRP:SetNetworkOwner(LP)
-                end
-                
-                for _, offset in ipairs(offsets) do
-                    if not Flinging then break end
-                    
-                    -- Position and velocity adjustments
-                    myHRP.CFrame = tHRP.CFrame + offset
-                    myHRP.Velocity = (tHRP.Position - myHRP.Position).Unit * 6000 + Vector3.new(0, 3500, 0)
-                    
-                    -- Collision control
-                    myHRP.CanCollide = false
-                    tHRP.CanCollide = false
-                    
-                    wait(0.03)
-                end
-            end
-        end
-    end
-end
+cmd.add({"fling3"}, {"fling3 <player>", "Prediction-based fling"}, function(...)
+    local Target = getPlr(...)
+    if not Target then return end
+    
+    local Character = Target.Character
+    if not Character then return end
+    
+    local RootPart = Character:FindFirstChild("HumanoidRootPart")
+    if not RootPart then return end
+
+    -- Calculate fling direction (player's velocity + upward force)
+    local flingPower = 5000
+    local flingDirection = (RootPart.Velocity * 2) + Vector3.new(0, flingPower/2, 0)
+    
+    -- Apply prediction fling
+    local BV = Instance.new("BodyVelocity")
+    BV.Velocity = flingDirection
+    BV.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+    BV.P = 1250
+    BV.Parent = RootPart
+    
+    -- Cleanup after 0.1 seconds
+    game:GetService("Debris"):AddItem(BV, 0.1)
+    
+    Notify({
+        Description = "Flinging "..Target.Name.."!",
+        Title = "Nameless Admin",
+        Duration = 3
+    })
+end)
