@@ -1,40 +1,31 @@
--- Enhanced Prediction Fling System
+-- Enhanced Nameless Admin-Style Fling
 local Flinging = false
 local function FlingTarget(target)
-    while Flinging and task.wait(0.015) do
+    while Flinging and task.wait(0.01) do
         if target.Character and LP.Character then
             local tHRP = target.Character:FindFirstChild("HumanoidRootPart")
             local myHRP = LP.Character:FindFirstChild("HumanoidRootPart")
             
             if tHRP and myHRP then
-                -- Prediction pattern (8-direction cycle)
-                local offsets = {
-                    Vector3.new(5, 8, 5),
-                    Vector3.new(-5, 8, -5),
-                    Vector3.new(8, 5, -8),
-                    Vector3.new(-8, 5, 8),
-                    Vector3.new(5, 10, -5),
-                    Vector3.new(-5, 10, 5),
-                    Vector3.new(10, 7, 10),
-                    Vector3.new(-10, 7, -10)
-                }
+                -- Prediction pattern with phased collision
+                local angle = tick() * 15
+                local offset = Vector3.new(
+                    math.cos(angle) * 4,
+                    3,
+                    math.sin(angle) * 4
+                )
+
+                -- Phase through target
+                myHRP.CanCollide = false
+                tHRP.CanCollide = false
+
+                -- Position and velocity manipulation
+                myHRP.CFrame = tHRP.CFrame + offset
+                myHRP.Velocity = (tHRP.Position - myHRP.Position).Unit * 12000 + Vector3.new(0, 8000, 0)
                 
-                -- Cycle through positions
-                for i = 1, #offsets do
-                    if not Flinging then break end
-                    local offset = offsets[i] * 1.5
-                    
-                    -- Teleport and apply force
-                    myHRP.CFrame = tHRP.CFrame + offset
-                    myHRP.Velocity = (tHRP.Position - myHRP.Position).Unit * 8500 
-                                    + Vector3.new(0, 6500, 0)
-                    
-                    -- Collision bypass
-                    myHRP.CanCollide = false
-                    tHRP.CanCollide = false
-                    
-                    task.wait(0.02)
-                end
+                -- Force application (Nameless Admin-style)
+                tHRP.Velocity = (myHRP.Position - tHRP.Position).Unit * 6000
+                myHRP.RotVelocity = Vector3.new(math.random(-50,50), math.random(-50,50), math.random(-50,50))
             end
         end
     end
