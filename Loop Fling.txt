@@ -1,5 +1,9 @@
--- Ensure CoreGui access and cleanup
-if not game:IsLoaded() then game.Loaded:Wait() end
+local Players = game:GetService("Players")
+local LP = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+local UIS = game:GetService("UserInputService")
+
+-- Cleanup previous GUI
 if game:GetService("CoreGui"):FindFirstChild("FlingGUI") then
     game:GetService("CoreGui").FlingGUI:Destroy()
 end
@@ -27,6 +31,7 @@ Input.Size = UDim2.new(0.9, 0, 0.2, 0)
 Input.Position = UDim2.new(0.05, 0, 0.1, 0)
 Input.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
 Input.TextColor3 = Color3.new(1, 1, 1)
+Input.TextXAlignment = Enum.TextXAlignment.Left
 Input.Parent = Main
 
 -- Suggestions Dropdown
@@ -34,11 +39,15 @@ local Suggestions = Instance.new("ScrollingFrame")
 Suggestions.Size = UDim2.new(1, 0, 0, 100)
 Suggestions.Position = UDim2.new(0, 0, 1, 0)
 Suggestions.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+Suggestions.ScrollBarThickness = 5
 Suggestions.Visible = false
 Suggestions.Parent = Input
 
 local UIListLayout = Instance.new("UIListLayout")
 UIListLayout.Parent = Suggestions
+UIListLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+    Suggestions.CanvasSize = UDim2.new(0, 0, 0, UIListLayout.AbsoluteContentSize.Y)
+end)
 
 -- Control Buttons
 local Toggle = Instance.new("TextButton")
@@ -73,7 +82,7 @@ Main.InputEnded:Connect(function(input)
     dragging = false
 end)
 
-game:GetService("UserInputService").InputChanged:Connect(function(input)
+UIS.InputChanged:Connect(function(input)
     if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
         local delta = input.Position - dragStart
         Main.Position = UDim2.new(
@@ -95,7 +104,6 @@ local function UpdateSuggestions()
             local btn = Instance.new("TextButton")
             btn.Text = player.Name
             btn.Size = UDim2.new(1, -10, 0, 20)
-            btn.Position = UDim2.new(0, 5, 0, #Suggestions:GetChildren() * 22)
             btn.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
             btn.TextColor3 = Color3.new(1, 1, 1)
             btn.TextXAlignment = Enum.TextXAlignment.Left
@@ -106,40 +114,44 @@ local function UpdateSuggestions()
             btn.Parent = Suggestions
         end
     end
-    Suggestions.CanvasSize = UDim2.new(0, 0, 0, #Suggestions:GetChildren() * 22)
     Suggestions.Visible = #Suggestions:GetChildren() > 0
 end
 
-Input.Focused:Connect(UpdateSuggestions)
+Input.Focused:Connect(function()
+    UpdateSuggestions()
+    Suggestions.Visible = true
+end)
+
 Input.Changed:Connect(UpdateSuggestions)
 
--- Nameless Admin-Style Fling (Fixed)
+Input.FocusLost:Connect(function()
+    wait(0.1)
+    Suggestions.Visible = false
+end)
+
+-- Nameless Admin Fling System
 local Flinging = false
 local function FlingTarget(target)
-    while Flinging do
-        if target and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
+    while Flinging and task.wait(0.02) do
+        if target.Character and target.Character:FindFirstChild("HumanoidRootPart") and LP.Character and LP.Character:FindFirstChild("HumanoidRootPart") then
             local tHRP = target.Character.HumanoidRootPart
-            local myChar = LP.Character
-            if myChar and myChar:FindFirstChild("HumanoidRootPart") then
-                local myHRP = myChar.HumanoidRootPart
-                
-                -- Classic pattern
-                local offsets = {
-                    Vector3.new(5, 3, 5),
-                    Vector3.new(-5, 3, -5),
-                    Vector3.new(5, 3, -5),
-                    Vector3.new(-5, 3, 5)
-                }
-                
-                for _, offset in ipairs(offsets) do
-                    if not Flinging then break end
-                    myHRP.CFrame = tHRP.CFrame + offset
-                    myHRP.Velocity = (tHRP.Position - myHRP.Position).Unit * 7000 + Vector3.new(0, 4000, 0)
-                    wait(0.03)
-                end
+            local myHRP = LP.Character.HumanoidRootPart
+            
+            -- Prediction pattern
+            local offsets = {
+                Vector3.new(5, 3, 5),
+                Vector3.new(-5, 3, -5),
+                Vector3.new(5, 3, -5),
+                Vector3.new(-5, 3, 5)
+            }
+            
+            for _, offset in ipairs(offsets) do
+                if not Flinging then break end
+                myHRP.CFrame = tHRP.CFrame + offset
+                myHRP.Velocity = (tHRP.Position - myHRP.Position).Unit * 7500 + Vector3.new(0, 4000, 0)
+                task.wait(0.03)
             end
         end
-        wait()
     end
 end
 
@@ -148,7 +160,7 @@ local Tracking = false
 local CameraDistance = 15
 
 local function TrackTarget(target)
-    while Tracking do
+    while Tracking and task.wait() do
         if target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
             Camera.CameraType = Enum.CameraType.Scriptable
             Camera.CFrame = CFrame.new(
@@ -156,7 +168,6 @@ local function TrackTarget(target)
                 target.Character.HumanoidRootPart.Position
             )
         end
-        wait()
     end
     Camera.CameraType = Enum.CameraType.Custom
 end
@@ -193,4 +204,3 @@ end)
 
 -- Initialization
 GUI.Enabled = true
-print("Fling system initialized successfully")
