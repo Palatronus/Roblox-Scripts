@@ -2,93 +2,97 @@ local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UIS = game:GetService("UserInputService")
 local lp = Players.LocalPlayer
-local mouse = lp:GetMouse()
 
 -- Configuration
-local PREDICTION_STRENGTH = 0.35
+local FLING_POWER = 85
+local PREDICTION_STRENGTH = 0.4
 local MAX_VELOCITY = Vector3.new(500, 500, 500)
-local BASE_POWER = 85
 local OFFSET_RANGE = 8
-local UPDATE_INTERVAL = 0.016
 
--- Fling System
+-- System Variables
 local flingActive = false
 local targetPlayer = nil
-local connection = nil
-local dragToggle = nil
+local heartbeatConnection = nil
+local dragConnection = nil
 
--- GUI Setup
-local gui = Instance.new("ScreenGui", game.CoreGui)
-gui.Name = "AdvancedFlingGUI"
+-- GUI Creation
+local gui = Instance.new("ScreenGui")
+gui.Name = "FlingSystemGUI"
+gui.Parent = game.CoreGui
 
 local mainFrame = Instance.new("Frame")
-mainFrame.Size = UDim2.new(0, 200, 0, 120)
-mainFrame.Position = UDim2.new(0.5, -100, 0.5, -60)
-mainFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+mainFrame.Size = UDim2.new(0, 250, 0, 150)
+mainFrame.Position = UDim2.new(0.5, -125, 0.5, -75)
+mainFrame.BackgroundColor3 = Color3.fromRGB(28, 28, 28)
 mainFrame.Active = true
 mainFrame.Draggable = true
 mainFrame.Parent = gui
 
 local dragHandle = Instance.new("TextLabel")
-dragHandle.Size = UDim2.new(1, 0, 0, 20)
-dragHandle.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
-dragHandle.Text = "DRAG HERE"
+dragHandle.Size = UDim2.new(1, 0, 0, 25)
+dragHandle.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+dragHandle.Text = "Fling System (Drag Here)"
 dragHandle.TextColor3 = Color3.new(1, 1, 1)
 dragHandle.Parent = mainFrame
 
 local inputBox = Instance.new("TextBox")
-inputBox.Size = UDim2.new(0.9, 0, 0, 25)
+inputBox.Size = UDim2.new(0.9, 0, 0, 30)
 inputBox.Position = UDim2.new(0.05, 0, 0.25, 0)
 inputBox.PlaceholderText = "Enter username"
-inputBox.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+inputBox.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
 inputBox.TextColor3 = Color3.new(1, 1, 1)
 inputBox.Parent = mainFrame
 
 local toggleBtn = Instance.new("TextButton")
-toggleBtn.Size = UDim2.new(0.9, 0, 0, 30)
-toggleBtn.Position = UDim2.new(0.05, 0, 0.55, 0)
+toggleBtn.Size = UDim2.new(0.9, 0, 0, 35)
+toggleBtn.Position = UDim2.new(0.05, 0, 0.6, 0)
 toggleBtn.Text = "START FLING"
-toggleBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+toggleBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
 toggleBtn.TextColor3 = Color3.new(1, 1, 1)
 toggleBtn.Parent = mainFrame
 
--- Drag System
-local function setupDrag()
+-- Dragging Functionality
+local function enableDragging()
     local dragInput, dragStart, startPos
     
     local function update(input)
         local delta = input.Position - dragStart
-        mainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, 
-                                      startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+        mainFrame.Position = UDim2.new(
+            startPos.X.Scale, 
+            startPos.X.Offset + delta.X,
+            startPos.Y.Scale, 
+            startPos.Y.Offset + delta.Y
+        )
     end
 
     dragHandle.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            dragToggle = true
             dragStart = input.Position
             startPos = mainFrame.Position
-            input.Changed:Connect(function()
+            dragConnection = input.Changed:Connect(function()
                 if input.UserInputState == Enum.UserInputState.End then
-                    dragToggle = false
+                    dragConnection:Disconnect()
                 end
             end)
         end
     end)
 
     dragHandle.InputChanged:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseMovement and dragToggle then
+        if input.UserInputType == Enum.UserInputType.MouseMovement then
             update(input)
         end
     end)
 end
 
 -- Fling Mechanics
-local function setupCharacter()
-    for _,v in pairs(lp.Character:GetDescendants()) do
-        if v:IsA("BasePart") then
-            v.CanCollide = false
-            v.Massless = true
-            sethiddenproperty(v, "NetworkIsSleeping", true)
+local function prepareCharacter()
+    if not lp.Character then return end
+    
+    for _, part in pairs(lp.Character:GetDescendants()) do
+        if part:IsA("BasePart") then
+            part.CanCollide = false
+            part.Massless = true
+            sethiddenproperty(part, "NetworkIsSleeping", true)
         end
     end
     sethiddenproperty(lp, "SimulationRadius", 1000)
@@ -102,21 +106,16 @@ local function predictiveFling()
     local tVel = tRoot.Velocity * PREDICTION_STRENGTH
     local futurePos = tRoot.Position + tVel
     
-    -- Dynamic position adjustment with random offset
+    -- Dynamic offset pattern
     local offset = Vector3.new(
         math.random(-OFFSET_RANGE, OFFSET_RANGE),
         math.random(3, OFFSET_RANGE),
         math.random(-OFFSET_RANGE, OFFSET_RANGE)
     )
     
-    -- Velocity prediction with power scaling
-    root.Velocity = ((futurePos + offset) - root.Position) * BASE_POWER
+    -- Velocity calculation with prediction
+    root.Velocity = (futurePos + offset - root.Position) * FLING_POWER
     root.Velocity = root.Velocity:Clamp(-MAX_VELOCITY, MAX_VELOCITY)
-    
-    -- Movement prediction boost
-    if tVel.Magnitude > 10 then
-        root.Velocity += tRoot.CFrame.LookVector * (tVel.Magnitude * 2)
-    end
 end
 
 -- Control System
@@ -124,43 +123,53 @@ toggleBtn.MouseButton1Click:Connect(function()
     if flingActive then
         flingActive = false
         toggleBtn.Text = "START FLING"
-        if connection then connection:Disconnect() end
+        if heartbeatConnection then
+            heartbeatConnection:Disconnect()
+        end
         return
     end
     
-    targetPlayer = Players:FindFirstChild(inputBox.Text) or getPlr(inputBox.Text)
+    -- Find target player
+    local username = inputBox.Text
+    if username == "" then
+        inputBox.PlaceholderText = "Enter valid username!"
+        task.wait(1)
+        inputBox.PlaceholderText = "Enter username"
+        return
+    end
+    
+    targetPlayer = Players:FindFirstChild(username) or nil
     if not targetPlayer then
-        inputBox.Text = "Invalid player!"
+        for _, player in pairs(Players:GetPlayers()) do
+            if player.DisplayName:lower() == username:lower() then
+                targetPlayer = player
+                break
+            end
+        end
+    end
+    
+    if not targetPlayer then
+        inputBox.Text = "Player not found!"
         task.wait(1)
         inputBox.Text = ""
         return
     end
 
+    prepareCharacter()
     flingActive = true
     toggleBtn.Text = "STOP FLING"
     
-    setupCharacter()
-    
-    connection = RunService.Heartbeat:Connect(function()
+    -- Start fling loop
+    heartbeatConnection = RunService.Heartbeat:Connect(function()
         if lp.Character and lp.Character:FindFirstChild("HumanoidRootPart") then
             pcall(predictiveFling)
         else
             flingActive = false
             toggleBtn.Text = "START FLING"
-            connection:Disconnect()
+            heartbeatConnection:Disconnect()
         end
     end)
 end)
 
--- Auto-reconnect system
-Players.PlayerAdded:Connect(function(plr)
-    if plr == targetPlayer then
-        plr.CharacterAdded:Wait()
-        if flingActive then
-            task.wait(1)
-            setupCharacter()
-        end
-    end
-end)
-
-setupDrag()
+-- Initialize
+enableDragging()
