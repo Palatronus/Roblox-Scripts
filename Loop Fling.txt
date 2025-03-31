@@ -1,102 +1,112 @@
 local Players = game:GetService("Players")
-local LP = Players.LocalPlayer
-local Camera = workspace.CurrentCamera
-local UIS = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
+local UIS = game:GetService("UserInputService")
+local lp = Players.LocalPlayer
+local mouse = lp:GetMouse()
+local flingEnabled = false
+local target = nil
+local connection = nil
 
--- Client-side collision bypass
-local function ghostCharacter(character)
-    if character then
-        for _, part in pairs(character:GetDescendants()) do
-            if part:IsA("BasePart") then
-                part.CanCollide = false
-                part.Massless = true
-                part.CustomPhysicalProperties = PhysicalProperties.new(0, 0, 0)
-            end
+-- GUI Setup
+local gui = Instance.new("ScreenGui", game.CoreGui)
+gui.Name = "FlingGUI"
+
+local toggleBtn = Instance.new("TextButton")
+toggleBtn.Size = UDim2.new(0, 120, 0, 40)
+toggleBtn.Position = UDim2.new(1, -130, 0, 10)
+toggleBtn.Text = "FLING: OFF"
+toggleBtn.BackgroundColor3 = Color3.new(0.2, 0.2, 0.2)
+toggleBtn.TextColor3 = Color3.new(1, 1, 1)
+toggleBtn.Parent = gui
+
+-- Prediction Variables
+local predictionStrength = 0.4
+local velocityMultiplier = 85
+local maxDistance = 8
+local flingPower = Vector3.new(500, 500, 500)
+
+local function getPlr(name)
+    name = name:lower()
+    for _,v in pairs(Players:GetPlayers()) do
+        if v ~= lp and (v.Name:lower():find(name) or v.DisplayName:lower():find(name)) then
+            return v
         end
     end
 end
 
--- Auto-apply to existing character
-if LP.Character then
-    ghostCharacter(LP.Character)
-end
-LP.CharacterAdded:Connect(ghostCharacter)
-
--- Enhanced Fling System
-local Flinging = false
-local ActiveCoroutine = nil
-local PredictionTime = 0.45
-
-local function FlingTarget(target)
-    while Flinging and task.wait() do
-        if target and target.Character and LP.Character then
-            local tHRP = target.Character:FindFirstChild("HumanoidRootPart")
-            local myHRP = LP.Character:FindFirstChild("HumanoidRootPart")
-            
-            if tHRP and myHRP then
-                -- Advanced prediction with velocity averaging
-                local targetVel = tHRP.Velocity * 1.25
-                local predictedPos = tHRP.Position + (targetVel * PredictionTime)
-                local distance = (predictedPos - myHRP.Position).Magnitude
-                
-                -- Teleportation with smart positioning
-                if distance > 25 then
-                    myHRP.CFrame = CFrame.new(predictedPos + Vector3.new(0,5,0)) * 
-                                  CFrame.Angles(math.rad(math.random(-15,15)), 
-                                           math.rad(180 + math.random(-15,15)), 
-                                           0)
-                end
-                
-                -- Force application with rotational boost
-                local dir = (predictedPos - myHRP.Position).Unit
-                myHRP.Velocity = dir * 8500 + 
-                                (targetVel * 0.9) + 
-                                Vector3.new(0, 3250 + math.abs(targetVel.Y * 0.5), 0)
-            end
-        else
-            Flinging = false
-            Toggle.Text = "TOGGLE FLING"
-            break
+local function setupCharacter()
+    for _,v in pairs(lp.Character:GetDescendants()) do
+        if v:IsA("BasePart") then
+            v.CanCollide = false
+            v.Massless = true
+            sethiddenproperty(v, "NetworkIsSleeping", true)
         end
+    end
+    sethiddenproperty(lp, "SimulationRadius", 1000)
+end
+
+local function predictiveFling()
+    if not target or not target.Character or not target.Character:FindFirstChild("HumanoidRootPart") then return end
+    
+    local root = lp.Character.HumanoidRootPart
+    local tRoot = target.Character.HumanoidRootPart
+    local tVel = tRoot.Velocity * predictionStrength
+    local futurePos = tRoot.Position + tVel
+    
+    -- Dynamic position adjustment
+    local offset = Vector3.new(
+        math.random(-maxDistance, maxDistance),
+        math.random(3, maxDistance),
+        math.random(-maxDistance, maxDistance)
+    )
+    
+    -- Velocity prediction
+    root.Velocity = ((futurePos + offset) - root.Position) * velocityMultiplier
+    root.Velocity = root.Velocity:Clamp(-flingPower, flingPower)
+    
+    -- Movement hindrance
+    if tVel.Magnitude > 10 then
+        root.Velocity += tRoot.CFrame.LookVector * (tVel.Magnitude * 2)
     end
 end
 
--- Smoother Camera System
-local Tracking = false
-local CameraDistance = 12
-local targetZoom = 12
-local smoothness = 0.85
-
-local function TrackTarget(target)
-    RunService.Heartbeat:Connect(function(delta)
-        if Tracking and target and target.Character then
-            local hrp = target.Character:FindFirstChild("HumanoidRootPart")
-            if hrp then
-                -- Smooth zoom interpolation
-                CameraDistance = CameraDistance + (targetZoom - CameraDistance) * (1 - smoothness)
-                
-                -- Orbital camera with dynamic positioning
-                local angle = tick() * 2
-                Camera.CFrame = CFrame.new(
-                    hrp.Position + Vector3.new(
-                        math.sin(angle) * 3.5,
-                        5 + math.cos(angle * 0.7) * 0.8,
-                        math.cos(angle) * CameraDistance
-                    ),
-                    hrp.Position + Vector3.new(0, 2.5, 0)
-                )
-            end
+toggleBtn.MouseButton1Click:Connect(function()
+    flingEnabled = not flingEnabled
+    toggleBtn.Text = "FLING: " .. (flingEnabled and "ON" or "OFF")
+    
+    if flingEnabled then
+        target = getPlr(mouse.Target and mouse.Target.Parent.Name or "")
+        if not target then
+            flingEnabled = false
+            toggleBtn.Text = "FLING: OFF"
+            return
         end
-    end)
-end
-
--- Improved Zoom Control
-UIS.InputChanged:Connect(function(input)
-    if Tracking and input.UserInputType == Enum.UserInputType.MouseWheel then
-        targetZoom = math.clamp(targetZoom - input.Position.Y * 3.5, 8, 25)
+        
+        setupCharacter()
+        connection = RunService.Heartbeat:Connect(function()
+            if lp.Character and lp.Character:FindFirstChild("HumanoidRootPart") then
+                pcall(predictiveFling)
+            else
+                flingEnabled = false
+                toggleBtn.Text = "FLING: OFF"
+                connection:Disconnect()
+            end
+        end)
+    else
+        if connection then connection:Disconnect() end
+        if lp.Character and lp.Character:FindFirstChild("HumanoidRootPart") then
+            lp.Character.HumanoidRootPart.Velocity = Vector3.new()
+        end
     end
 end)
 
--- Keep your original GUI code and button handlers
--- ... [Your existing GUI implementation] ...
+-- Auto-reconnect if target respawns
+Players.PlayerAdded:Connect(function(plr)
+    if plr == target then
+        plr.CharacterAdded:Wait()
+        if flingEnabled then
+            task.wait(1)
+            setupCharacter()
+        end
+    end
+end)
