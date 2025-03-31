@@ -75,6 +75,7 @@ local TARGET_USERNAME = ""
 local FLING_POWER = 500
 local PREDICTION_FACTOR = 0.2
 local DIRECTIONAL_OFFSET = 0.8
+local connection = nil -- Explicitly declare connection
 
 local function getPlayer(name)
     name = name:lower()
@@ -107,12 +108,12 @@ end
 -- Modified aggressiveFling function
 local function aggressiveFling()
     -- Cache references first
+    local localChar = lp.Character
+    local localRoot = localChar and localChar:FindFirstChild("HumanoidRootPart")
     local targetChar = targetPlayer and targetPlayer.Character
     local tRoot = targetChar and targetChar:FindFirstChild("HumanoidRootPart")
-    local localChar = lp.Character
-    local root = localChar and localChar:FindFirstChild("HumanoidRootPart")
     
-    if not tRoot or not root then return end
+    if not tRoot or not localRoot then return end
     
     local targetVelocity = tRoot.Velocity
     local basePrediction = tRoot.Position + (targetVelocity * PREDICTION_FACTOR)
@@ -123,8 +124,8 @@ local function aggressiveFling()
         basePrediction += (movementDirection * math.clamp(targetVelocity.Magnitude, 0, 30) * DIRECTIONAL_OFFSET)
     end
 
-    local direction = (basePrediction - root.Position).Unit
-    root.Velocity = direction * FLING_POWER + Vector3.new(
+    local direction = (basePrediction - localRoot.Position).Unit
+    localRoot.Velocity = direction * FLING_POWER + Vector3.new(
         math.random(-30, 30),
         math.random(15, 35),
         math.random(-30, 30)
