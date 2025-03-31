@@ -128,7 +128,7 @@ local function aggressiveFling()
     )
 end
 
--- Control System (updated)
+-- Control System (fixed and optimized)
 toggleBtn.MouseButton1Click:Connect(function()
     flingActive = not flingActive
     toggleBtn.Text = flingActive and "STOP FLING" or "START FLING"
@@ -138,26 +138,30 @@ toggleBtn.MouseButton1Click:Connect(function()
         prepareCharacter()
         
         connection = RunService.Heartbeat:Connect(function()
-            targetPlayer = getPlayer(TARGET_USERNAME)
+            -- Safely get and cache references
+            local currentTarget = getPlayer(TARGET_USERNAME)
+            local localChar = lp.Character
+            local localRoot = localChar and localChar:FindFirstChild("HumanoidRootPart")
             
-            if targetPlayer then
-                -- Cache character references
-                local targetChar = targetPlayer.Character
+            if currentTarget then
+                local targetChar = currentTarget.Character
                 local targetRoot = targetChar and targetChar:FindFirstChild("HumanoidRootPart")
-                local localChar = lp.Character
-                local localRoot = localChar and localChar:FindFirstChild("HumanoidRootPart")
                 
-                if targetRoot and localRoot then
+                if localRoot and targetRoot then
+                    -- Update target reference before flinging
+                    targetPlayer = currentTarget
                     pcall(aggressiveFling)
                 else
                     task.wait(0.5)
                 end
             else
+                targetPlayer = nil
                 task.wait(2)
             end
         end)
     else
         TARGET_USERNAME = ""
+        targetPlayer = nil
         if connection then
             connection:Disconnect()
             connection = nil
