@@ -12,7 +12,6 @@ mainFrame.Size = UDim2.new(0, 250, 0, 150)
 mainFrame.Position = UDim2.new(0.5, -125, 0.5, -75)
 mainFrame.BackgroundColor3 = Color3.fromRGB(28, 28, 28)
 mainFrame.Active = true
-mainFrame.Draggable = true
 mainFrame.Parent = gui
 
 local dragHandle = Instance.new("TextLabel")
@@ -22,10 +21,34 @@ dragHandle.Text = "Fling Controller"
 dragHandle.TextColor3 = Color3.new(1, 1, 1)
 dragHandle.Parent = mainFrame
 
--- Dragging fix
+-- Fixed dragging system
+local dragging = false
+local dragStartPos
+local frameStartPos
+
 dragHandle.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 then
-        mainFrame:DragMove()
+        dragging = true
+        dragStartPos = Vector2.new(input.Position.X, input.Position.Y)
+        frameStartPos = mainFrame.Position
+    end
+end)
+
+UIS.InputChanged:Connect(function(input)
+    if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+        local dragDelta = Vector2.new(input.Position.X, input.Position.Y) - dragStartPos
+        mainFrame.Position = UDim2.new(
+            frameStartPos.X.Scale, 
+            frameStartPos.X.Offset + dragDelta.X,
+            frameStartPos.Y.Scale, 
+            frameStartPos.Y.Offset + dragDelta.Y
+        )
+    end
+end)
+
+UIS.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = false
     end
 end)
 
@@ -51,6 +74,7 @@ local targetPlayer = nil
 local connection = nil
 local FLING_POWER = 500
 local PREDICTION_FACTOR = 0.35
+local DIRECTIONAL_OFFSET = 1.5
 
 local function getPlayer(name)
     name = name:lower()
@@ -88,14 +112,15 @@ local function aggressiveFling()
     local tRoot = targetPlayer.Character.HumanoidRootPart
     
     local targetVelocity = tRoot.Velocity
-    local predictedPosition = tRoot.Position + (targetVelocity * PREDICTION_FACTOR)
+    local basePrediction = tRoot.Position + (targetVelocity * PREDICTION_FACTOR)
     
-    -- Stationary target handling
-    if targetVelocity.Magnitude < 5 then
-        predictedPosition = tRoot.Position
+    -- Enhanced directional prediction
+    if targetVelocity.Magnitude > 5 then
+        local movementDirection = targetVelocity.Unit
+        basePrediction += (movementDirection * targetVelocity.Magnitude * DIRECTIONAL_OFFSET)
     end
-    
-    local direction = (predictedPosition - root.Position).Unit
+
+    local direction = (basePrediction - root.Position).Unit
     root.Velocity = direction * FLING_POWER + Vector3.new(
         math.random(-50, 50),
         math.random(25, 50),
@@ -103,7 +128,7 @@ local function aggressiveFling()
     )
 end
 
--- Control System (remainder same as before)
+-- Control System
 toggleBtn.MouseButton1Click:Connect(function()
     flingActive = not flingActive
     toggleBtn.Text = flingActive and "STOP FLING" or "START FLING"
@@ -134,4 +159,19 @@ toggleBtn.MouseButton1Click:Connect(function()
     end
 end)
 
--- Auto-cleanup and safety checks remain unchanged
+-- Auto-cleanup
+Players.PlayerRemoving:Connect(function(player)
+    if player == targetPlayer then
+        flingActive = false
+        toggleBtn.Text = "START FLING"
+        if connection then
+            connection:Disconnect()
+            connection = nil
+        end
+    end
+end)
+
+-- Final safety check
+if connection then
+    connection:Disconnect()
+end
