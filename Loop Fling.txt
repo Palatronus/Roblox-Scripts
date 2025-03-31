@@ -1,175 +1,77 @@
+--!luau
 local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
-local UIS = game:GetService("UserInputService")
-local lp = Players.LocalPlayer
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local MarketplaceService = game:GetService("MarketplaceService")
 
--- Configuration
-local FLING_POWER = 85
-local PREDICTION_STRENGTH = 0.4
-local MAX_VELOCITY = Vector3.new(500, 500, 500)
-local OFFSET_RANGE = 8
+-- Compatible module loading for Lua 5.1
+local ItemModule = require(ReplicatedStorage:WaitForChild("ItemModule"))
 
--- System Variables
-local flingActive = false
-local targetPlayer = nil
-local heartbeatConnection = nil
-local dragConnection = nil
+-- Traditional table initialization
+local STORE_ITEMS = {
+    [1] = {
+        Name = "Basic Sword",
+        Price = 100,
+        UnlockFlag = 1,
+        AssetId = 0000000
+    },
+    [2] = {
+        Name = "Premium Armor",
+        Price = 500,
+        UnlockFlag = 2,
+        AssetId = 0000000
+    }
+}
 
--- GUI Creation
-local gui = Instance.new("ScreenGui")
-gui.Name = "FlingSystemGUI"
-gui.Parent = game.CoreGui
+local function displayStoreItems(player)
+    local playerData = {
+        Coins = player:WaitForChild("leaderstats").Coins,
+        Upgrades = player:GetAttribute("Upgrades") or 0
+    }
 
-local mainFrame = Instance.new("Frame")
-mainFrame.Size = UDim2.new(0, 250, 0, 150)
-mainFrame.Position = UDim2.new(0.5, -125, 0.5, -75)
-mainFrame.BackgroundColor3 = Color3.fromRGB(28, 28, 28)
-mainFrame.Active = true
-mainFrame.Draggable = true
-mainFrame.Parent = gui
-
-local dragHandle = Instance.new("TextLabel")
-dragHandle.Size = UDim2.new(1, 0, 0, 25)
-dragHandle.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-dragHandle.Text = "Fling System (Drag Here)"
-dragHandle.TextColor3 = Color3.new(1, 1, 1)
-dragHandle.Parent = mainFrame
-
-local inputBox = Instance.new("TextBox")
-inputBox.Size = UDim2.new(0.9, 0, 0, 30)
-inputBox.Position = UDim2.new(0.05, 0, 0.25, 0)
-inputBox.PlaceholderText = "Enter username"
-inputBox.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
-inputBox.TextColor3 = Color3.new(1, 1, 1)
-inputBox.Parent = mainFrame
-
-local toggleBtn = Instance.new("TextButton")
-toggleBtn.Size = UDim2.new(0.9, 0, 0, 35)
-toggleBtn.Position = UDim2.new(0.05, 0, 0.6, 0)
-toggleBtn.Text = "START FLING"
-toggleBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-toggleBtn.TextColor3 = Color3.new(1, 1, 1)
-toggleBtn.Parent = mainFrame
-
--- Dragging Functionality
-local function enableDragging()
-    local dragInput, dragStart, startPos
-    
-    local function update(input)
-        local delta = input.Position - dragStart
-        mainFrame.Position = UDim2.new(
-            startPos.X.Scale, 
-            startPos.X.Offset + delta.X,
-            startPos.Y.Scale, 
-            startPos.Y.Offset + delta.Y
-        )
+    -- Lua 5.1-compatible bitwise operations
+    local unlockedItems = {}
+    for index = 1, #STORE_ITEMS do
+        local item = STORE_ITEMS[index]
+        if bit32.band(item.UnlockFlag, playerData.Upgrades) ~= 0 then
+            table.insert(unlockedItems, item)
+        end
     end
 
-    dragHandle.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            dragStart = input.Position
-            startPos = mainFrame.Position
-            dragConnection = input.Changed:Connect(function()
-                if input.UserInputState == Enum.UserInputState.End then
-                    dragConnection:Disconnect()
-                end
-            end)
-        end
-    end)
-
-    dragHandle.InputChanged:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseMovement then
-            update(input)
-        end
-    end)
+    -- Traditional numeric for-loop
+    for i = 1, #unlockedItems do
+        local item = unlockedItems[i]
+        local itemFrame = Instance.new("Frame")
+        -- ... GUI creation logic ...
+    end
 end
 
--- Fling Mechanics
-local function prepareCharacter()
-    if not lp.Character then return end
-    
-    for _, part in pairs(lp.Character:GetDescendants()) do
-        if part:IsA("BasePart") then
-            part.CanCollide = false
-            part.Massless = true
-            sethiddenproperty(part, "NetworkIsSleeping", true)
-        end
+local function attemptPurchase(player, itemId)
+    local itemData = STORE_ITEMS[itemId]
+    if not itemData then return false end
+
+    -- Safe numerical comparison
+    if player.leaderstats.Coins.Value >= itemData.Price then
+        player.leaderstats.Coins.Value = player.leaderstats.Coins.Value - itemData.Price
+        -- Update upgrades using bit32
+        player:SetAttribute("Upgrades", bit32.bor(
+            player:GetAttribute("Upgrades"),
+            itemData.UnlockFlag
+        ))
+        return true
     end
-    sethiddenproperty(lp, "SimulationRadius", 1000)
+    return false
 end
 
-local function predictiveFling()
-    if not targetPlayer or not targetPlayer.Character then return end
+-- Proper event connection syntax
+game.Players.PlayerAdded:Connect(function(player)
+    player:WaitForChild("leaderstats")
+    displayStoreItems(player)
     
-    local root = lp.Character.HumanoidRootPart
-    local tRoot = targetPlayer.Character.HumanoidRootPart
-    local tVel = tRoot.Velocity * PREDICTION_STRENGTH
-    local futurePos = tRoot.Position + tVel
-    
-    -- Dynamic offset pattern
-    local offset = Vector3.new(
-        math.random(-OFFSET_RANGE, OFFSET_RANGE),
-        math.random(3, OFFSET_RANGE),
-        math.random(-OFFSET_RANGE, OFFSET_RANGE)
-    )
-    
-    -- Velocity calculation with prediction
-    root.Velocity = (futurePos + offset - root.Position) * FLING_POWER
-    root.Velocity = root.Velocity:Clamp(-MAX_VELOCITY, MAX_VELOCITY)
-end
-
--- Control System
-toggleBtn.MouseButton1Click:Connect(function()
-    if flingActive then
-        flingActive = false
-        toggleBtn.Text = "START FLING"
-        if heartbeatConnection then
-            heartbeatConnection:Disconnect()
-        end
-        return
-    end
-    
-    -- Find target player
-    local username = inputBox.Text
-    if username == "" then
-        inputBox.PlaceholderText = "Enter valid username!"
-        task.wait(1)
-        inputBox.PlaceholderText = "Enter username"
-        return
-    end
-    
-    targetPlayer = Players:FindFirstChild(username) or nil
-    if not targetPlayer then
-        for _, player in pairs(Players:GetPlayers()) do
-            if player.DisplayName:lower() == username:lower() then
-                targetPlayer = player
-                break
-            end
-        end
-    end
-    
-    if not targetPlayer then
-        inputBox.Text = "Player not found!"
-        task.wait(1)
-        inputBox.Text = ""
-        return
-    end
-
-    prepareCharacter()
-    flingActive = true
-    toggleBtn.Text = "STOP FLING"
-    
-    -- Start fling loop
-    heartbeatConnection = RunService.Heartbeat:Connect(function()
-        if lp.Character and lp.Character:FindFirstChild("HumanoidRootPart") then
-            pcall(predictiveFling)
-        else
-            flingActive = false
-            toggleBtn.Text = "START FLING"
-            heartbeatConnection:Disconnect()
+    -- Module communication using WaitForChild
+    local purchaseEvent = ReplicatedStorage:WaitForChild("PurchaseEvent")
+    purchaseEvent.OnServerEvent:Connect(function(plr, itemId)
+        if plr == player then
+            attemptPurchase(plr, itemId)
         end
     end)
 end)
-
--- Initialize
-enableDragging()
