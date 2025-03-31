@@ -1,4 +1,8 @@
--- Add PhysicsService at the top
+local Players = game:GetService("Players")
+local LP = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+local UIS = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
 local PhysicsService = game:GetService("PhysicsService")
 
 -- Collision groups setup
@@ -7,21 +11,34 @@ PhysicsService:CreateCollisionGroup("TargetPlayer")
 PhysicsService:CollisionGroupSetCollidable("Flinger", "TargetPlayer", true)
 PhysicsService:CollisionGroupSetCollidable("Flinger", "Default", false)
 
--- Existing services and variables remain the same
-local Players = game:GetService("Players")
--- ... rest of initial declarations ...
+-- GUI Setup
+local GUI = Instance.new("ScreenGui")
+GUI.Parent = game.CoreGui
 
--- Modified Fling System with collision handling
-local function FlingTarget(target)
-    -- Set collision groups
-    local function setCollisions(character, group)
-        for _, part in pairs(character:GetDescendants()) do
-            if part:IsA("BasePart") then
-                PhysicsService:SetPartCollisionGroup(part, group)
-            end
+local Main = Instance.new("Frame")
+Main.Size = UDim2.new(0, 300, 0, 200)
+Main.Position = UDim2.new(0.5, -150, 0.5, -100)
+Main.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+Main.Active = true
+Main.Parent = GUI
+
+-- Username Input (unchanged)
+-- ... [Keep the original username input and suggestions code] ...
+
+-- Fling System Modifications
+local Flinging = false
+local ActiveCoroutine = nil
+local PredictionTime = 0.35
+
+local function setCollisions(character, group)
+    for _, part in pairs(character:GetDescendants()) do
+        if part:IsA("BasePart") then
+            PhysicsService:SetPartCollisionGroup(part, group)
         end
     end
+end
 
+local function FlingTarget(target)
     while Flinging and task.wait(0.02) do
         if target and target.Character and LP.Character then
             -- Apply collision groups
@@ -62,7 +79,9 @@ local function FlingTarget(target)
     end
 end
 
--- Improved Camera System with smoothing
+-- Improved Camera System
+local Tracking = false
+local OriginalCameraType = Camera.CameraType
 local CameraDistance = 10
 local targetCameraDistance = 10
 local ZoomMomentum = 0
@@ -111,3 +130,6 @@ UIS.InputChanged:Connect(function(input)
         ZoomMomentum = math.clamp(ZoomMomentum + scrollDelta * 1.5, -4, 4)
     end
 end)
+
+-- Keep the original dragging system and button handlers
+-- ... [Keep the original GUI dragging and button handling code] ...
