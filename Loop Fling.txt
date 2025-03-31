@@ -206,8 +206,8 @@ end)
 -- Enhanced Zoom Control with Momentum
 UIS.InputChanged:Connect(function(input)
     if Tracking and input.UserInputType == Enum.UserInputType.MouseWheel then
-        ZoomMomentum = math.clamp(ZoomMomentum - input.Position.Z * 0.8, -4, 4)
-        CameraDistance = math.clamp(CameraDistance - input.Position.Z * 2.5, 5, 25)
+        ZoomMomentum = math.clamp(ZoomMomentum - input.Position.Y * 0.8, -4, 4)
+        CameraDistance = math.clamp(CameraDistance - input.Position.Y * 2.5, 5, 25)
         RunService.Heartbeat:Wait() -- Smoothing update
         ZoomMomentum = ZoomMomentum * 0.85
     end
