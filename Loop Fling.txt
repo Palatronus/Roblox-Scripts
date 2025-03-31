@@ -1,77 +1,119 @@
 --!luau
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local MarketplaceService = game:GetService("MarketplaceService")
+local TweenService = game:GetService("TweenService")
 
--- Compatible module loading for Lua 5.1
-local ItemModule = require(ReplicatedStorage:WaitForChild("ItemModule"))
-
--- Traditional table initialization
-local STORE_ITEMS = {
-    [1] = {
-        Name = "Basic Sword",
-        Price = 100,
-        UnlockFlag = 1,
-        AssetId = 0000000
-    },
-    [2] = {
-        Name = "Premium Armor",
-        Price = 500,
-        UnlockFlag = 2,
-        AssetId = 0000000
-    }
-}
+-- GUI Creation
+local function createStoreGUI(player)
+    local playerGui = player:WaitForChild("PlayerGui")
+    
+    -- Main GUI Container
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "StoreSystem"
+    screenGui.ResetOnSpawn = false
+    
+    local mainFrame = Instance.new("Frame")
+    mainFrame.Size = UDim2.new(0.4, 0, 0.6, 0)
+    mainFrame.Position = UDim2.new(0.3, 0, 0.2, 0)
+    mainFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+    mainFrame.Parent = screenGui
+    
+    local scrollFrame = Instance.new("ScrollingFrame")
+    scrollFrame.Size = UDim2.new(0.95, 0, 0.9, 0)
+    scrollFrame.Position = UDim2.new(0.025, 0, 0.05, 0)
+    scrollFrame.BackgroundTransparency = 1
+    scrollFrame.ScrollBarThickness = 8
+    scrollFrame.Parent = mainFrame
+    
+    -- Parent GUI to player's UI last
+    screenGui.Parent = playerGui
+    return scrollFrame
+end
 
 local function displayStoreItems(player)
+    local scrollFrame = createStoreGUI(player)
     local playerData = {
         Coins = player:WaitForChild("leaderstats").Coins,
         Upgrades = player:GetAttribute("Upgrades") or 0
     }
 
-    -- Lua 5.1-compatible bitwise operations
-    local unlockedItems = {}
+    -- Clear existing items
+    scrollFrame:ClearAllChildren()
+
+    -- Create UIListLayout for items
+    local uiListLayout = Instance.new("UIListLayout")
+    uiListLayout.Parent = scrollFrame
+
+    -- Get store items from module
+    local ItemModule = require(ReplicatedStorage:WaitForChild("ItemModule"))
+    local STORE_ITEMS = ItemModule.getStoreItems()
+
+    -- Populate store items
     for index = 1, #STORE_ITEMS do
         local item = STORE_ITEMS[index]
         if bit32.band(item.UnlockFlag, playerData.Upgrades) ~= 0 then
-            table.insert(unlockedItems, item)
+            local itemFrame = Instance.new("Frame")
+            itemFrame.Size = UDim2.new(1, -20, 0, 80)
+            itemFrame.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+            itemFrame.Parent = scrollFrame
+            
+            -- Item Name Label
+            local nameLabel = Instance.new("TextLabel")
+            nameLabel.Size = UDim2.new(0.6, 0, 0.5, 0)
+            nameLabel.Text = item.Name
+            nameLabel.TextColor3 = Color3.new(1, 1, 1)
+            nameLabel.Parent = itemFrame
+            
+            -- Purchase Button
+            local buyButton = Instance.new("TextButton")
+            buyButton.Size = UDim2.new(0.3, 0, 0.8, 0)
+            buyButton.Position = UDim2.new(0.65, 0, 0.1, 0)
+            buyButton.Text = "Buy ("..item.Price..")"
+            buyButton.Name = item.Id
+            buyButton.Parent = itemFrame
+            
+            -- Button click handler
+            buyButton.MouseButton1Click:Connect(function()
+                ReplicatedStorage.PurchaseEvent:FireServer(item.Id)
+            end)
         end
     end
-
-    -- Traditional numeric for-loop
-    for i = 1, #unlockedItems do
-        local item = unlockedItems[i]
-        local itemFrame = Instance.new("Frame")
-        -- ... GUI creation logic ...
-    end
+    
+    -- Update scrolling frame canvas
+    scrollFrame.CanvasSize = UDim2.new(0, 0, 0, uiListLayout.AbsoluteContentSize.Y + 20)
 end
 
-local function attemptPurchase(player, itemId)
-    local itemData = STORE_ITEMS[itemId]
-    if not itemData then return false end
-
-    -- Safe numerical comparison
-    if player.leaderstats.Coins.Value >= itemData.Price then
-        player.leaderstats.Coins.Value = player.leaderstats.Coins.Value - itemData.Price
-        -- Update upgrades using bit32
-        player:SetAttribute("Upgrades", bit32.bor(
-            player:GetAttribute("Upgrades"),
-            itemData.UnlockFlag
-        ))
-        return true
-    end
-    return false
-end
-
--- Proper event connection syntax
+-- Initialize system
 game.Players.PlayerAdded:Connect(function(player)
-    player:WaitForChild("leaderstats")
+    -- Create leaderstats if needed
+    if not player:FindFirstChild("leaderstats") then
+        local leaderstats = Instance.new("Folder")
+        leaderstats.Name = "leaderstats"
+        
+        local coins = Instance.new("IntValue")
+        coins.Name = "Coins"
+        coins.Value = 1000  -- Starting coins
+        coins.Parent = leaderstats
+        
+        leaderstats.Parent = player
+    end
+
+    -- Initial store display
     displayStoreItems(player)
     
-    -- Module communication using WaitForChild
-    local purchaseEvent = ReplicatedStorage:WaitForChild("PurchaseEvent")
-    purchaseEvent.OnServerEvent:Connect(function(plr, itemId)
+    -- Update store when coins change
+    player.leaderstats.Coins.Changed:Connect(function()
+        displayStoreItems(player)
+    end)
+    
+    -- Handle purchases
+    ReplicatedStorage.PurchaseEvent.OnServerEvent:Connect(function(plr, itemId)
         if plr == player then
-            attemptPurchase(plr, itemId)
+            local ItemModule = require(ReplicatedStorage:WaitForChild("ItemModule"))
+            local success = ItemModule.processPurchase(plr, itemId)
+            if success then
+                displayStoreItems(plr)
+            end
         end
     end)
 end)
