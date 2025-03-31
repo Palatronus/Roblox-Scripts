@@ -1,156 +1,80 @@
--- Universal FE Fling Script v3.1
--- Verified working on Synapse/ScriptWare/Krnl/Fluxus
-
 local Players = game:GetService("Players")
-local UIS = game:GetService("UserInputService")
+local LP = Players.LocalPlayer
 local RS = game:GetService("RunService")
 local CoreGui = game:GetService("CoreGui")
-local LP = Players.LocalPlayer
 
--- ====================== GUI SETUP ======================
--- Destroy existing GUI
-if CoreGui:FindFirstChild("FlingSystem") then
-    CoreGui.FlingSystem:Destroy()
-end
-
--- Create persistent GUI
+-- Simple GUI that always appears
 local GUI = Instance.new("ScreenGui")
-GUI.Name = "FlingSystem"
-GUI.ResetOnSpawn = false
-GUI.ZIndexBehavior = Enum.ZIndexBehavior.Global
-GUI.DisplayOrder = 9999
-
-local Main = Instance.new("Frame")
-Main.Size = UDim2.new(0, 300, 0, 180)
-Main.Position = UDim2.new(0.5, -150, 0.5, -90)
-Main.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-Main.BorderSizePixel = 0
-
-local Header = Instance.new("TextLabel")
-Header.Text = "FLING CONTROLLER"
-Header.Size = UDim2.new(1, 0, 0, 30)
-Header.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-Header.TextColor3 = Color3.fromRGB(255, 50, 50)
-
+local Frame = Instance.new("Frame")
 local Input = Instance.new("TextBox")
-Input.PlaceholderText = "Enter targets (comma sep)"
-Input.Size = UDim2.new(0.9, 0, 0, 35)
-Input.Position = UDim2.new(0.05, 0, 0.2, 0)
-Input.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
-Input.TextColor3 = Color3.fromRGB(255, 255, 255)
+local Button = Instance.new("TextButton")
 
-local Toggle = Instance.new("TextButton")
-Toggle.Text = "☢ TOGGLE FLING ☢"
-Toggle.Size = UDim2.new(0.8, 0, 0, 40)
-Toggle.Position = UDim2.new(0.1, 0, 0.55, 0)
-Toggle.BackgroundColor3 = Color3.fromRGB(200, 0, 0)
-Toggle.TextColor3 = Color3.fromRGB(255, 255, 255)
-
-local Status = Instance.new("TextLabel")
-Status.Text = "STATUS: IDLE"
-Status.Size = UDim2.new(0.9, 0, 0, 20)
-Status.Position = UDim2.new(0.05, 0, 0.85, 0)
-Status.TextColor3 = Color3.fromRGB(150, 150, 150)
-
--- Assemble GUI
-for _, element in pairs({Header, Input, Toggle, Status}) do
-    element.Parent = Main
-    Instance.new("UIStroke", element).Color = Color3.fromRGB(80, 80, 80)
-end
-
-Main.Parent = GUI
+GUI.Name = "BasicFling"
 GUI.Parent = CoreGui
 
--- ====================== FLING CORE ======================
+Frame.Size = UDim2.new(0, 250, 0, 150)
+Frame.Position = UDim2.new(0.5, -125, 0.5, -75)
+Frame.BackgroundColor3 = Color3.new(0.1, 0.1, 0.1)
+Frame.Parent = GUI
+
+Input.PlaceholderText = "Enter username"
+Input.Size = UDim2.new(0.8, 0, 0.2, 0)
+Input.Position = UDim2.new(0.1, 0, 0.1, 0)
+Input.Parent = Frame
+
+Button.Text = "Toggle Fling"
+Button.Size = UDim2.new(0.6, 0, 0.3, 0)
+Button.Position = UDim2.new(0.2, 0, 0.4, 0)
+Button.Parent = Frame
+
+-- Basic fling system
 local Flinging = false
-local ActiveThreads = {}
-local FLING_POWER = 12000
-local ANTI_ANCHOR_FORCE = 15000
+local Target
 
-local function GetTargets()
-    local targets = {}
-    for username in Input.Text:gmatch("[^,]+") do
-        username = username:gsub("^%s+", ""):gsub("%s+$", ""):lower()
-        for _, player in pairs(Players:GetPlayers()) do
-            if player ~= LP and player.Name:lower() == username then
-                table.insert(targets, player)
-            end
+local function GetPlayer(name)
+    for _, p in pairs(Players:GetPlayers()) do
+        if p.Name:lower() == name:lower() then
+            return p
         end
-    end
-    return targets
-end
-
-local function NuclearFling(target)
-    while Flinging and task.wait() do
-        -- Character validation
-        if not (LP.Character and target.Character) then continue end
-        local targetHRP = target.Character:FindFirstChild("HumanoidRootPart")
-        local myHRP = LP.Character:FindFirstChild("HumanoidRootPart")
-        if not (targetHRP and myHRP) then continue end
-
-        -- Network control
-        if targetHRP:GetNetworkOwner() ~= LP then
-            targetHRP:SetNetworkOwner(LP)
-        end
-
-        -- Positional pattern
-        local orbitOffset = Vector3.new(
-            math.random(-25, 25),
-            math.random(15, 35),
-            math.random(-25, 25)
-        
-        -- Velocity manipulation
-        myHRP.CFrame = targetHRP.CFrame + orbitOffset
-        myHRP.Velocity = (targetHRP.Position - myHRP.Position).Unit * FLING_POWER
-                        + Vector3.new(0, ANTI_ANCHOR_FORCE, 0)
-        myHRP.RotVelocity = Vector3.new(
-            math.random(-100, 100),
-            math.random(-100, 100),
-            math.random(-100, 100)
-        )
     end
 end
 
--- ====================== TOGGLE HANDLER ======================
-Toggle.MouseButton1Click:Connect(function()
+local function FlailMovement(targetHRP, myHRP)
+    if not targetHRP or not myHRP then return end
+    
+    -- Random orbit pattern
+    local offset = Vector3.new(
+        math.random(-15, 15),
+        math.random(10, 25),
+        math.random(-15, 15)
+    )
+    
+    -- Direct position/velocity manipulation
+    myHRP.CFrame = targetHRP.CFrame + offset
+    myHRP.Velocity = (targetHRP.Position - myHRP.Position).Unit * 500 +
+                     Vector3.new(0, 1000, 0)
+end
+
+Button.MouseButton1Click:Connect(function()
     Flinging = not Flinging
-    Status.Text = Flinging and "STATUS: SCANNING..." or "STATUS: STOPPING..."
-
+    
     if Flinging then
-        local targets = GetTargets()
-        if #targets == 0 then
-            Status.Text = "ERROR: NO TARGETS"
+        Target = GetPlayer(Input.Text)
+        if not Target then
             Flinging = false
             return
         end
-
-        Status.Text = "STATUS: FLINGING "..#targets.." TARGETS"
-        for _, target in pairs(targets) do
-            ActiveThreads[target] = task.spawn(function()
-                NuclearFling(target)
-            end)
-        end
-    else
-        -- Cleanup sequence
-        for target, thread in pairs(ActiveThreads) do
-            task.cancel(thread)
-        end
-        ActiveThreads = {}
-        Status.Text = "STATUS: IDLE"
         
-        -- Reset physics
-        if LP.Character and LP.Character:FindFirstChild("HumanoidRootPart") then
-            LP.Character.HumanoidRootPart.Velocity = Vector3.zero
-        end
+        RS.Heartbeat:Connect(function()
+            if Flinging and LP.Character and Target.Character then
+                FlailMovement(
+                    Target.Character:FindFirstChild("HumanoidRootPart"),
+                    LP.Character:FindFirstChild("HumanoidRootPart")
+                )
+            end
+        end)
     end
 end)
 
--- ====================== AUTO-RECONNECT ======================
-Players.PlayerAdded:Connect(function(player)
-    if Flinging and table.find(GetTargets(), player) then
-        ActiveThreads[player] = task.spawn(NuclearFling, player)
-    end
-end)
-
-print("Fling system initialized successfully")
-warn("Power level:", FLING_POWER, "studs/sec")
+-- Simple visibility assurance
+GUI.Enabled = true
