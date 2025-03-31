@@ -9,7 +9,7 @@ if CoreGui:FindFirstChild("FlingSystem") then
     CoreGui.FlingSystem:Destroy()
 end
 
--- GUI Creation
+-- GUI Setup
 local GUI = Instance.new("ScreenGui")
 GUI.Name = "FlingSystem"
 GUI.ResetOnSpawn = false
@@ -25,13 +25,25 @@ Main.BorderSizePixel = 0
 Main.Active = true
 Main.Parent = GUI
 
--- Username Input Field
+-- Username Input
 local Input = Instance.new("TextBox")
-Input.Name = "Input"
-Input.PlaceholderText = "Search player..."
+Input.PlaceholderText = "Enter username..."
 Input.Size = UDim2.new(0.9, 0, 0.2, 0)
 Input.Position = UDim2.new(0.05, 0, 0.1, 0)
 Input.Parent = Main
+
+-- Control Buttons
+local Toggle = Instance.new("TextButton")
+Toggle.Text = "TOGGLE FLING"
+Toggle.Size = UDim2.new(0.6, 0, 0.2, 0)
+Toggle.Position = UDim2.new(0.2, 0, 0.4, 0)
+Toggle.Parent = Main
+
+local CamButton = Instance.new("TextButton")
+CamButton.Text = "TOGGLE CAMERA"
+CamButton.Size = UDim2.new(0.6, 0, 0.2, 0)
+CamButton.Position = UDim2.new(0.2, 0, 0.65, 0)
+CamButton.Parent = Main
 
 -- Dragging System
 local dragging, dragStart, startPos
@@ -61,54 +73,105 @@ UIS.InputChanged:Connect(function(input)
     end
 end)
 
--- Control Buttons
-local Toggle = Instance.new("TextButton")
-Toggle.Text = "TOGGLE FLING"
-Toggle.Size = UDim2.new(0.6, 0, 0.2, 0)
-Toggle.Position = UDim2.new(0.2, 0, 0.4, 0)
-Toggle.Parent = Main
-
-local CamButton = Instance.new("TextButton")
-CamButton.Text = "TOGGLE CAMERA"
-CamButton.Size = UDim2.new(0.6, 0, 0.2, 0)
-CamButton.Position = UDim2.new(0.2, 0, 0.65, 0)
-CamButton.Parent = Main
-
--- Username Suggestions
-local Suggestions = Instance.new("ScrollingFrame")
-Suggestions.Size = UDim2.new(1, 0, 0, 80)
-Suggestions.Position = UDim2.new(0, 0, 1, 0)
-Suggestions.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
-Suggestions.Visible = false
-Suggestions.Parent = Input
-
-local function UpdateSuggestions()
-    Suggestions:ClearAllChildren()
-    local query = Input.Text:lower()
-    
-    for _, player in pairs(Players:GetPlayers()) do
-        if player ~= LP and player.Name:lower():find(query) then
-            local btn = Instance.new("TextButton")
-            btn.Text = player.Name
-            btn.Size = UDim2.new(1, -10, 0, 20)
-            btn.Position = UDim2.new(0, 5, 0, #Suggestions:GetChildren()*22)
-            btn.BackgroundTransparency = 1
-            btn.TextXAlignment = Enum.TextXAlignment.Left
-            btn.MouseButton1Click:Connect(function()
-                Input.Text = player.Name
-                Suggestions.Visible = false
-            end)
-            btn.Parent = Suggestions
+-- Fling System
+local Flinging = false
+local function CollisionBypass()
+    if LP.Character then
+        for _, part in pairs(LP.Character:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.CanCollide = false
+                part.Massless = true
+            end
         end
     end
-    Suggestions.Visible = #Suggestions:GetChildren() > 0
 end
 
-Input.Focused:Connect(UpdateSuggestions)
-Input.Changed:Connect(UpdateSuggestions)
+local function ViolentFling(target)
+    while Flinging and task.wait() do
+        CollisionBypass()
+        
+        if LP.Character and target.Character then
+            local tHRP = target.Character:FindFirstChild("HumanoidRootPart")
+            local myHRP = LP.Character:FindFirstChild("HumanoidRootPart")
+            
+            if tHRP and myHRP then
+                -- Network ownership control
+                if tHRP:GetNetworkOwner() ~= LP then
+                    tHRP:SetNetworkOwner(LP)
+                end
+                
+                -- Teleport pattern
+                local offset = CFrame.new(
+                    math.random(-2, 2),
+                    math.random(-1, 1),
+                    math.random(-2, 2)
+                )
+                
+                -- Velocity application
+                myHRP.CFrame = tHRP.CFrame * offset
+                myHRP.Velocity = (tHRP.Position - myHRP.Position).Unit * 2500 + Vector3.new(0, 800, 0)
+            end
+        end
+    end
+end
 
--- Rest of the functionality remains unchanged from previous working version
--- [INSERT YOUR FLING AND CAMERA CODE HERE] --
+-- Camera System
+local Tracking = false
+local CameraDistance = 12
+local CameraThread
+
+local function TrackTarget(target)
+    while Tracking and task.wait() do
+        if target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
+            local hrp = target.Character.HumanoidRootPart
+            Camera.CameraType = Enum.CameraType.Scriptable
+            Camera.CFrame = CFrame.new(hrp.Position + Vector3.new(0, 5, CameraDistance), hrp.Position)
+        end
+    end
+    Camera.CameraType = Enum.CameraType.Custom
+end
+
+-- Input Handlers
+UIS.InputChanged:Connect(function(input)
+    if Tracking and input.UserInputType == Enum.UserInputType.MouseWheel then
+        CameraDistance = math.clamp(CameraDistance - input.Position.Z * 2, 8, 20)
+    end
+end)
+
+Toggle.MouseButton1Click:Connect(function()
+    Flinging = not Flinging
+    if Flinging then
+        local target = Players:FindFirstChild(Input.Text)
+        if target then
+            task.spawn(ViolentFling, target)
+        end
+    else
+        -- Reset physics
+        if LP.Character then
+            for _, part in pairs(LP.Character:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    part.CanCollide = true
+                    part.Massless = false
+                end
+            end
+        end
+    end
+end)
+
+CamButton.MouseButton1Click:Connect(function()
+    Tracking = not Tracking
+    if Tracking then
+        local target = Players:FindFirstChild(Input.Text)
+        if target then
+            CameraThread = task.spawn(TrackTarget, target)
+        end
+    else
+        if CameraThread then
+            task.cancel(CameraThread)
+        end
+        Camera.CameraType = Enum.CameraType.Custom
+    end
+end)
 
 -- Force GUI visibility
 GUI.Enabled = true
