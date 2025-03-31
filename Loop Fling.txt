@@ -3,46 +3,30 @@ local LP = Players.LocalPlayer
 local RS = game:GetService("RunService")
 local CoreGui = game:GetService("CoreGui")
 local Camera = workspace.CurrentCamera
+local UIS = game:GetService("UserInputService")
 
--- Enhanced GUI with dragging and camera controls
+-- GUI Setup
 local GUI = Instance.new("ScreenGui")
-local Frame = Instance.new("Frame")
-local Input = Instance.new("TextBox")
-local Button = Instance.new("TextButton")
-local CamToggle = Instance.new("TextButton")
-
-GUI.Name = "AdvancedFling"
+GUI.Name = "UltimateFling"
 GUI.Parent = CoreGui
 
-Frame.Size = UDim2.new(0, 280, 0, 180)
-Frame.Position = UDim2.new(0.5, -140, 0.5, -90)
+local Frame = Instance.new("Frame")
+Frame.Size = UDim2.new(0, 300, 0, 180)
+Frame.Position = UDim2.new(0.5, -150, 0.5, -90)
 Frame.BackgroundColor3 = Color3.new(0.1, 0.1, 0.1)
 Frame.Active = true
-Frame.Draggable = false
 Frame.Parent = GUI
 
-Input.PlaceholderText = "Username(s), comma separated"
-Input.Size = UDim2.new(0.8, 0, 0.2, 0)
-Input.Position = UDim2.new(0.1, 0, 0.1, 0)
-Input.Parent = Frame
+-- Dragging System Fix
+local dragging = false
+local dragStart
+local startPos
 
-Button.Text = "Toggle Fling"
-Button.Size = UDim2.new(0.6, 0, 0.2, 0)
-Button.Position = UDim2.new(0.2, 0, 0.4, 0)
-Button.Parent = Frame
-
-CamToggle.Text = "Toggle Camera"
-CamToggle.Size = UDim2.new(0.6, 0, 0.2, 0)
-CamToggle.Position = UDim2.new(0.2, 0, 0.65, 0)
-CamToggle.Parent = Frame
-
--- Dragging Implementation
-local dragging, dragInput, dragStart
 Frame.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 then
         dragging = true
         dragStart = input.Position
-        local startPos = Frame.Position
+        startPos = Frame.Position
         
         input.Changed:Connect(function()
             if input.UserInputState == Enum.UserInputState.End then
@@ -52,14 +36,8 @@ Frame.InputBegan:Connect(function(input)
     end
 end)
 
-Frame.InputChanged:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseMovement then
-        dragInput = input
-    end
-end)
-
-game:GetService("UserInputService").InputChanged:Connect(function(input)
-    if dragging and input == dragInput then
+UIS.InputChanged:Connect(function(input)
+    if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
         local delta = input.Position - dragStart
         Frame.Position = UDim2.new(
             startPos.X.Scale, 
@@ -70,58 +48,93 @@ game:GetService("UserInputService").InputChanged:Connect(function(input)
     end
 end)
 
--- Improved Fling System
+-- Fling Components
+local Input = Instance.new("TextBox")
+local Button = Instance.new("TextButton")
+local CamToggle = Instance.new("TextButton")
+
+Input.PlaceholderText = "Target(s), comma separated"
+Input.Size = UDim2.new(0.8, 0, 0.2, 0)
+Input.Position = UDim2.new(0.1, 0, 0.1, 0)
+Input.Parent = Frame
+
+Button.Text = "Toggle Fling"
+Button.Size = UDim2.new(0.6, 0, 0.2, 0)
+Button.Position = UDim2.new(0.2, 0, 0.4, 0)
+Button.Parent = Frame
+
+CamToggle.Text = "Track View"
+CamToggle.Size = UDim2.new(0.6, 0, 0.2, 0)
+CamToggle.Position = UDim2.new(0.2, 0, 0.65, 0)
+CamToggle.Parent = Frame
+
+-- Enhanced Fling Logic
 local Flinging = false
 local Tracking = false
-local Targets = {}
 
-local function GetPlayers()
-    Targets = {}
+local function GetTargets()
+    local targets = {}
     for name in Input.Text:gmatch("[^,]+") do
         name = name:gsub("^%s+", ""):gsub("%s+$", ""):lower()
         for _, p in pairs(Players:GetPlayers()) do
-            if p.Name:lower() == name and p ~= LP then
-                table.insert(Targets, p)
+            if p ~= LP and p.Name:lower() == name then
+                table.insert(targets, p)
+            end
+        end
+    end
+    return targets
+end
+
+local function CollisionBypass()
+    if LP.Character then
+        for _, part in pairs(LP.Character:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.CanCollide = false
+                part.Massless = true
             end
         end
     end
 end
 
-local function OrbitalOffset()
-    return CFrame.new(
-        math.random(-25, 25),
-        math.random(-5, 15),
-        math.random(-25, 25)
-    )
+local function ViolentFling(target)
+    local forceMultiplier = 2500
+    while Flinging and task.wait(0.02) do
+        if not (target and target.Character) then continue end
+        CollisionBypass()
+        
+        local tHRP = target.Character:FindFirstChild("HumanoidRootPart")
+        local myHRP = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
+        
+        if tHRP and myHRP then
+            -- Teleport INSIDE target with micro-offsets
+            local offset = CFrame.new(
+                math.random(-1.5, 1.5),  -- Tight X range
+                math.random(-1, 2),      -- Body-level Y
+                math.random(-1.5, 1.5)   -- Tight Z range
+            )
+            
+            -- Direct position manipulation
+            myHRP.CFrame = tHRP.CFrame * offset
+            myHRP.Velocity = (tHRP.Position - myHRP.Position).Unit * forceMultiplier
+                            + Vector3.new(0, forceMultiplier/1.2, 0)
+            
+            -- Force network update
+            if tHRP:GetNetworkOwner() ~= LP then
+                tHRP:SetNetworkOwner(LP)
+            end
+        end
+    end
 end
 
+-- Camera Tracking
 local function TrackTarget(target)
-    if Tracking and target.Character then
-        local hrp = target.Character:FindFirstChild("HumanoidRootPart")
-        if hrp then
+    while Tracking and task.wait() do
+        if target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
             Camera.CameraType = Enum.CameraType.Scriptable
-            Camera.CFrame = CFrame.new(Camera.CFrame.Position, hrp.Position)
-        end
-    end
-end
-
-local function FlingLoop()
-    while Flinging and task.wait() do
-        for _, target in pairs(Targets) do
-            if LP.Character and target.Character then
-                local tHrp = target.Character:FindFirstChild("HumanoidRootPart")
-                local myHrp = LP.Character:FindFirstChild("HumanoidRootPart")
-                
-                if tHrp and myHrp then
-                    -- Multi-directional fling
-                    local offset = OrbitalOffset()
-                    myHrp.CFrame = tHrp.CFrame * offset
-                    myHrp.Velocity = (tHrp.Position - myHrp.Position).Unit * 1500 + Vector3.new(0, 800, 0)
-                    
-                    -- Camera tracking
-                    TrackTarget(target)
-                end
-            end
+            Camera.CFrame = CFrame.new(
+                target.Character.HumanoidRootPart.Position + Vector3.new(0, 3, 5),
+                target.Character.HumanoidRootPart.Position
+            )
         end
     end
 end
@@ -129,27 +142,22 @@ end
 -- Control Handlers
 Button.MouseButton1Click:Connect(function()
     Flinging = not Flinging
-    GetPlayers()
-    if Flinging and #Targets == 0 then
-        Flinging = false
-        return
-    end
-    
     if Flinging then
-        coroutine.wrap(FlingLoop)()
-    else
-        -- Reset camera
-        Camera.CameraType = Enum.CameraType.Custom
-        Camera.CameraSubject = LP.Character and LP.Character:FindFirstChild("Humanoid")
+        local targets = GetTargets()
+        if #targets == 0 then return end
+        
+        for _, target in pairs(targets) do
+            task.spawn(function() ViolentFling(target) end)
+        end
     end
 end)
 
 CamToggle.MouseButton1Click:Connect(function()
     Tracking = not Tracking
-    if not Tracking then
+    if Tracking then
+        local target = GetTargets()[1]
+        if target then task.spawn(function() TrackTarget(target) end) end
+    else
         Camera.CameraType = Enum.CameraType.Custom
     end
 end)
-
--- Visibility Assurance
-GUI.Enabled = true
