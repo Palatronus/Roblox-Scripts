@@ -1,7 +1,6 @@
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UIS = game:GetService("UserInputService")
-local TweenService = game:GetService("TweenService")
 local lp = Players.LocalPlayer
 
 -- GUI Setup
@@ -17,14 +16,14 @@ mainFrame.BackgroundColor3 = Color3.fromRGB(28, 28, 28)
 mainFrame.Active = true
 mainFrame.Parent = gui
 
+-- Draggable UI
 local dragHandle = Instance.new("TextLabel")
 dragHandle.Size = UDim2.new(1, 0, 0, 25)
 dragHandle.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-dragHandle.Text = "Fling Controller (Drag Me)"
+dragHandle.Text = "Fling Controller"
 dragHandle.TextColor3 = Color3.new(1, 1, 1)
 dragHandle.Parent = mainFrame
 
--- Dragging System
 local dragging = false
 local dragStartPos, frameStartPos
 
@@ -76,52 +75,46 @@ toggleBtn.Parent = mainFrame
 local flingActive = false
 local targetPlayer = nil
 local TARGET_USERNAME = ""
-local FLING_POWER = 1000
-local PREDICTION_FACTOR = 0.2
+local FLING_POWER = 75000 -- Balanced force
+local PREDICTION_FACTOR = 0.3 -- Improved tracking
 local connection = nil
 
--- Noclip System
+-- Noclip System (Lightweight)
 local function enableNoclip()
     if lp.Character then
         for _, part in pairs(lp.Character:GetDescendants()) do
             if part:IsA("BasePart") then
                 part.CanCollide = false
-                part.Massless = true
             end
         end
     end
 end
 
-lp.CharacterAdded:Connect(enableNoclip)
-
--- Prediction System
-local function calculatePredictedPosition(targetRoot)
-    local targetVelocity = targetRoot.Velocity
-    return targetRoot.Position + (targetVelocity * PREDICTION_FACTOR)
+-- Prediction System (Optimized)
+local function getPredictedPosition(targetRoot)
+    return targetRoot.Position + (targetRoot.Velocity * PREDICTION_FACTOR)
 end
 
--- Force Application
-local function applyFlingForce(targetRoot, localRoot)
-    local predictedPos = calculatePredictedPosition(targetRoot)
-    localRoot.CFrame = CFrame.new(predictedPos + Vector3.new(0, 3, 0))
+-- Force Application (Fixed)
+local function applyForce(targetRoot, localRoot)
+    local predictedPos = getPredictedPosition(targetRoot)
+    localRoot.CFrame = CFrame.new(predictedPos + Vector3.new(0, 2, 0)) -- Minor vertical offset
     
-    local direction = (targetRoot.Position - localRoot.Position).Unit
-    targetRoot.Velocity = direction * FLING_POWER + Vector3.new(
-        math.random(-500, 500),
-        math.random(250, 750),
-        math.random(-500, 500)
-    )
+    -- Apply force to TARGET instead of local player
+    targetRoot.Velocity = (targetRoot.Position - localRoot.Position).Unit * FLING_POWER +
+        Vector3.new(math.random(-800,800), math.random(300,900), math.random(-800,800))
 end
 
--- Main Loop
+-- Main Loop (Optimized)
 local function maintainFling()
-    while flingActive and task.wait(0.1) do
+    while flingActive and task.wait(0.15) do -- Reduced frequency
         pcall(function()
             if not targetPlayer or not targetPlayer.Character then return end
             local targetRoot = targetPlayer.Character:FindFirstChild("HumanoidRootPart")
             local localRoot = lp.Character and lp.Character:FindFirstChild("HumanoidRootPart")
-            if targetRoot and localRoot then
-                applyFlingForce(targetRoot, localRoot)
+            
+            if targetRoot and localRoot and (targetRoot.Position - localRoot.Position).Magnitude < 100 then
+                applyForce(targetRoot, localRoot)
             end
         end)
     end
@@ -138,7 +131,7 @@ local function getPlayer(name)
     return nil
 end
 
--- Toggle Logic
+-- Toggle Logic (Fixed)
 toggleBtn.MouseButton1Click:Connect(function()
     flingActive = not flingActive
     toggleBtn.Text = flingActive and "STOP FLING" or "START FLING"
