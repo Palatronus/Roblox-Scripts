@@ -74,12 +74,12 @@ toggleBtn.Parent = mainFrame
 local flingActive = false
 local targetPlayer = nil
 local TARGET_USERNAME = ""
-local FLING_POWER = 50000 -- Increased power
+local FLING_POWER = 50000
 local PREDICTION_FACTOR = 0.15
 local DIRECTIONAL_OFFSET = 0.5
 local connection = nil
 
--- Simplified noclip
+-- Simplified noclip (remove massless)
 local function enableNoclip()
     if lp.Character then
         for _, v in pairs(lp.Character:GetDescendants()) do
@@ -103,39 +103,17 @@ local function calculatePredictedPosition(targetRoot)
     local basePosition = targetRoot.Position
     local prediction = basePosition + (targetVelocity * PREDICTION_FACTOR)
     
-    -- Add directional offset for moving targets
+    -- Improved directional offset
     if targetVelocity.Magnitude > 5 then
-        prediction += (targetVelocity.Unit * targetVelocity.Magnitude * DIRECTIONAL_OFFSET)
+        prediction += (targetVelocity.Unit * (targetVelocity.Magnitude * 0.3)) -- Reduced offset multiplier
     end
     
     return prediction
 end
 
--- Hybrid fling system
-local function executeFling()
-    if not targetPlayer or not targetPlayer.Character then return end
-    local targetRoot = targetPlayer.Character:FindFirstChild("HumanoidRootPart")
-    local localRoot = lp.Character and lp.Character:FindFirstChild("HumanoidRootPart")
-    
-    if targetRoot and localRoot then
-        -- Phase through walls to predicted position
-        local predictedPos = calculatePredictedPosition(targetRoot)
-        local tweenInfo = TweenInfo.new(0.05, Enum.EasingStyle.Linear)
-        TweenService:Create(localRoot, tweenInfo, {CFrame = CFrame.new(predictedPos)}):Play()
-        
-        -- Apply fling velocity AFTER positioning
-        local direction = (targetRoot.Position - localRoot.Position).Unit
-        localRoot.Velocity = direction * -FLING_POWER + Vector3.new(
-            math.random(-50, 50),
-            math.random(25, 75),
-            math.random(-50, 50)
-        )
-    end
-end
-
--- Single maintainFling function
+-- Single maintainFling function (critical fix)
 local function maintainFling()
-    while flingActive and task.wait(0.08) do -- Reduced frequency
+    while flingActive and task.wait(0.15) do -- Reduced frequency further
         pcall(function()
             targetPlayer = getPlayer(TARGET_USERNAME)
             if targetPlayer and targetPlayer.Character and lp.Character then
@@ -143,14 +121,14 @@ local function maintainFling()
                 local localRoot = lp.Character:FindFirstChild("HumanoidRootPart")
                 
                 if targetRoot and localRoot then
-                    -- Instant teleport without tween
+                    -- Teleport LOCAL player to target
                     local predictedPos = calculatePredictedPosition(targetRoot)
                     localRoot.CFrame = CFrame.new(predictedPos)
                     
-                    -- Direct velocity application
+                    -- Apply velocity to TARGET (not local player)
                     local direction = (localRoot.Position - targetRoot.Position).Unit
-                    localRoot.Velocity = direction * FLING_POWER + Vector3.new(
-                        math.random(-500, 500), -- Increased randomness
+                    targetRoot.Velocity = direction * FLING_POWER + Vector3.new( -- Changed to targetRoot
+                        math.random(-500, 500),
                         math.random(250, 750),
                         math.random(-500, 500)
                     )
@@ -160,7 +138,7 @@ local function maintainFling()
     end
 end
 
--- Updated executeFling removal
+-- Updated toggle button logic
 toggleBtn.MouseButton1Click:Connect(function()
     flingActive = not flingActive
     toggleBtn.Text = flingActive and "STOP FLING" or "START FLING"
