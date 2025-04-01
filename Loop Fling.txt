@@ -74,17 +74,17 @@ toggleBtn.Parent = mainFrame
 local flingActive = false
 local targetPlayer = nil
 local TARGET_USERNAME = ""
-local FLING_POWER = 50000
-local PREDICTION_FACTOR = 0.15
-local DIRECTIONAL_OFFSET = 0.5
+local FLING_POWER = 85000 -- Optimal power
+local PREDICTION_FACTOR = 0.12
 local connection = nil
 
--- Simplified noclip (remove massless)
+-- Optimized noclip
 local function enableNoclip()
     if lp.Character then
         for _, v in pairs(lp.Character:GetDescendants()) do
             if v:IsA("BasePart") then
                 v.CanCollide = false
+                v.Massless = true -- Re-enabled for smooth movement
             end
         end
     end
@@ -111,34 +111,32 @@ local function calculatePredictedPosition(targetRoot)
     return prediction
 end
 
--- Single maintainFling function (critical fix)
+-- Single efficient maintainFling
 local function maintainFling()
-    while flingActive and task.wait(0.15) do -- Reduced frequency further
+    while flingActive and task.wait(0.12) do -- Balanced frequency
         pcall(function()
+            -- Target validation
             targetPlayer = getPlayer(TARGET_USERNAME)
-            if targetPlayer and targetPlayer.Character and lp.Character then
-                local targetRoot = targetPlayer.Character:FindFirstChild("HumanoidRootPart")
-                local localRoot = lp.Character:FindFirstChild("HumanoidRootPart")
-                
-                if targetRoot and localRoot then
-                    -- Teleport LOCAL player to target
-                    local predictedPos = calculatePredictedPosition(targetRoot)
-                    localRoot.CFrame = CFrame.new(predictedPos)
-                    
-                    -- Apply velocity to TARGET (not local player)
-                    local direction = (localRoot.Position - targetRoot.Position).Unit
-                    targetRoot.Velocity = direction * FLING_POWER + Vector3.new( -- Changed to targetRoot
-                        math.random(-500, 500),
-                        math.random(250, 750),
-                        math.random(-500, 500)
-                    )
-                end
-            end
+            if not targetPlayer or not targetPlayer.Character then return end
+            
+            local targetRoot = targetPlayer.Character:FindFirstChild("HumanoidRootPart")
+            local localRoot = lp.Character and lp.Character:FindFirstChild("HumanoidRootPart")
+            if not targetRoot or not localRoot then return end
+
+            -- Improved prediction
+            local predictedPos = targetRoot.Position + (targetRoot.Velocity * 0.18)
+            
+            -- Direct CFrame assignment
+            localRoot.CFrame = CFrame.new(predictedPos) 
+            
+            -- Apply force to TARGET (not local player)
+            targetRoot.Velocity = (targetRoot.Position - localRoot.Position).Unit * FLING_POWER +
+                Vector3.new(math.random(-800,800), math.random(300,900), math.random(-800,800))
         end)
     end
 end
 
--- Updated toggle button logic
+-- Fixed toggle system
 toggleBtn.MouseButton1Click:Connect(function()
     flingActive = not flingActive
     toggleBtn.Text = flingActive and "STOP FLING" or "START FLING"
@@ -146,12 +144,15 @@ toggleBtn.MouseButton1Click:Connect(function()
     if flingActive then
         TARGET_USERNAME = inputBox.Text
         enableNoclip()
+        -- Single connection point
+        if connection then connection:Disconnect() end
         connection = RunService.Heartbeat:Connect(maintainFling)
     else
         TARGET_USERNAME = ""
         targetPlayer = nil
         if connection then
             connection:Disconnect()
+            connection = nil
         end
     end
 end)
