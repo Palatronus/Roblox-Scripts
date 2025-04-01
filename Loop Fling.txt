@@ -75,7 +75,7 @@ local TARGET_USERNAME = ""
 local FLING_POWER = 500
 local PREDICTION_FACTOR = 0.2
 local DIRECTIONAL_OFFSET = 0.8
-local connection = nil -- Explicitly declare connection
+local connection = nil
 
 local function getPlayer(name)
     name = name:lower()
@@ -110,10 +110,11 @@ local function aggressiveFling()
     -- Cache references first
     local localChar = lp.Character
     local localRoot = localChar and localChar:FindFirstChild("HumanoidRootPart")
-    local targetChar = targetPlayer and targetPlayer.Character
+    local currentTarget = targetPlayer
+    local targetChar = currentTarget and currentTarget.Character
     local tRoot = targetChar and targetChar:FindFirstChild("HumanoidRootPart")
     
-    if not tRoot or not localRoot then return end
+    if not (localRoot and tRoot) then return end
     
     local targetVelocity = tRoot.Velocity
     local basePrediction = tRoot.Position + (targetVelocity * PREDICTION_FACTOR)
@@ -142,17 +143,17 @@ toggleBtn.MouseButton1Click:Connect(function()
         prepareCharacter()
         
         connection = RunService.Heartbeat:Connect(function()
-            -- Safely get and cache references
+            -- Fresh validation each frame
             local currentTarget = getPlayer(TARGET_USERNAME)
             local localChar = lp.Character
             local localRoot = localChar and localChar:FindFirstChild("HumanoidRootPart")
             
             if currentTarget then
+                -- Temporary references only
                 local targetChar = currentTarget.Character
                 local targetRoot = targetChar and targetChar:FindFirstChild("HumanoidRootPart")
                 
                 if localRoot and targetRoot then
-                    -- Update target reference before flinging
                     targetPlayer = currentTarget
                     pcall(aggressiveFling)
                 else
