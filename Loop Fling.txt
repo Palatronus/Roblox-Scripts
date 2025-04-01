@@ -74,18 +74,17 @@ toggleBtn.Parent = mainFrame
 local flingActive = false
 local targetPlayer = nil
 local TARGET_USERNAME = ""
-local FLING_POWER = 10000
-local PREDICTION_FACTOR = 0.2
-local DIRECTIONAL_OFFSET = 0.8
+local FLING_POWER = 50000 -- Increased power
+local PREDICTION_FACTOR = 0.15
+local DIRECTIONAL_OFFSET = 0.5
 local connection = nil
 
--- Noclip system
+-- Simplified noclip
 local function enableNoclip()
     if lp.Character then
         for _, v in pairs(lp.Character:GetDescendants()) do
             if v:IsA("BasePart") then
                 v.CanCollide = false
-                v.Massless = true
             end
         end
     end
@@ -134,32 +133,34 @@ local function executeFling()
     end
 end
 
--- Target tracking
+-- Single maintainFling function
 local function maintainFling()
-    while flingActive and task.wait() do
+    while flingActive and task.wait(0.08) do -- Reduced frequency
         pcall(function()
-            -- Reacquire target
             targetPlayer = getPlayer(TARGET_USERNAME)
-            if targetPlayer and targetPlayer.Character then
-                executeFling()
+            if targetPlayer and targetPlayer.Character and lp.Character then
+                local targetRoot = targetPlayer.Character:FindFirstChild("HumanoidRootPart")
+                local localRoot = lp.Character:FindFirstChild("HumanoidRootPart")
+                
+                if targetRoot and localRoot then
+                    -- Instant teleport without tween
+                    local predictedPos = calculatePredictedPosition(targetRoot)
+                    localRoot.CFrame = CFrame.new(predictedPos)
+                    
+                    -- Direct velocity application
+                    local direction = (localRoot.Position - targetRoot.Position).Unit
+                    localRoot.Velocity = direction * FLING_POWER + Vector3.new(
+                        math.random(-500, 500), -- Increased randomness
+                        math.random(250, 750),
+                        math.random(-500, 500)
+                    )
+                end
             end
         end)
     end
 end
 
--- Replace the duplicate maintainFling functions with this single version:
-local function maintainFling()
-    while flingActive and task.wait(0.01) do
-        pcall(function()
-            targetPlayer = getPlayer(TARGET_USERNAME)
-            if targetPlayer and targetPlayer.Character then
-                executeFling() -- Use executeFling instead of teleportToTarget
-            end
-        end)
-    end
-end
-
--- Control System
+-- Updated executeFling removal
 toggleBtn.MouseButton1Click:Connect(function()
     flingActive = not flingActive
     toggleBtn.Text = flingActive and "STOP FLING" or "START FLING"
@@ -173,7 +174,6 @@ toggleBtn.MouseButton1Click:Connect(function()
         targetPlayer = nil
         if connection then
             connection:Disconnect()
-            connection = nil
         end
     end
 end)
