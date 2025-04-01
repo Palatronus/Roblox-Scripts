@@ -1,6 +1,7 @@
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UIS = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
 local lp = Players.LocalPlayer
 
 -- GUI Setup
@@ -21,7 +22,7 @@ dragHandle.Text = "Fling Controller"
 dragHandle.TextColor3 = Color3.new(1, 1, 1)
 dragHandle.Parent = mainFrame
 
--- Fixed dragging system
+-- Dragging system
 local dragging = false
 local dragStartPos
 local frameStartPos
@@ -72,98 +73,59 @@ toggleBtn.Parent = mainFrame
 local flingActive = false
 local targetPlayer = nil
 local TARGET_USERNAME = ""
-local FLING_POWER = 10000
-local PREDICTION_FACTOR = 0.2
-local DIRECTIONAL_OFFSET = 0.8
 local connection = nil
 
-local function getPlayer(name)
-    name = name:lower()
-    for _, player in pairs(Players:GetPlayers()) do
-        if player ~= lp and (player.Name:lower():find(name) or player.DisplayName:lower():find(name)) then
-            return player
+-- Noclip system
+local function enableNoclip()
+    if lp.Character then
+        for _, v in pairs(lp.Character:GetDescendants()) do
+            if v:IsA("BasePart") then
+                v.CanCollide = false
+                v.Massless = true
+            end
         end
     end
-    return nil
 end
 
--- Improved character preparation
 lp.CharacterAdded:Connect(function()
-    prepareCharacter()
-end)
-
-local function prepareCharacter()
-    repeat task.wait() until lp.Character
-    for _, v in pairs(lp.Character:GetDescendants()) do
-        if v:IsA("BasePart") then
-            v.CanCollide = false
-            v.Massless = true
-        end
-    end
+    enableNoclip()
     if lp.Character:FindFirstChild("Humanoid") then
         lp.Character.Humanoid:ChangeState(Enum.HumanoidStateType.Physics)
     end
-end
+end)
 
--- Modified aggressiveFling function
-local function aggressiveFling()
-    -- Cache references first
-    local localChar = lp.Character
-    local localRoot = localChar and localChar:FindFirstChild("HumanoidRootPart")
-    local currentTarget = targetPlayer
-    local targetChar = currentTarget and currentTarget.Character
-    local tRoot = targetChar and targetChar:FindFirstChild("HumanoidRootPart")
+-- Tween-based flinging
+local function teleportToTarget()
+    if not targetPlayer or not targetPlayer.Character then return end
+    local targetRoot = targetPlayer.Character:FindFirstChild("HumanoidRootPart")
+    local localRoot = lp.Character and lp.Character:FindFirstChild("HumanoidRootPart")
     
-    if not (localRoot and tRoot) then return end
-    
-    local targetVelocity = tRoot.Velocity
-    local basePrediction = tRoot.Position + (targetVelocity * PREDICTION_FACTOR)
-    
-    -- Enhanced directional prediction
-    if targetVelocity.Magnitude > 5 then
-        local movementDirection = targetVelocity.Unit
-        basePrediction += (movementDirection * math.clamp(targetVelocity.Magnitude, 0, 30) * DIRECTIONAL_OFFSET)
+    if targetRoot and localRoot then
+        -- Instant teleport with tween
+        local tweenInfo = TweenInfo.new(0.01, Enum.EasingStyle.Linear)
+        TweenService:Create(localRoot, tweenInfo, {CFrame = targetRoot.CFrame}):Play()
     end
-
-    local direction = (basePrediction - localRoot.Position).Unit
-    localRoot.Velocity = direction * FLING_POWER + Vector3.new(
-        math.random(-30, 30),
-        math.random(15, 35),
-        math.random(-30, 30)
-    )
 end
 
--- Control System (fully fixed)
+-- Target tracking
+local function maintainFling()
+    while flingActive and task.wait(0.01) do
+        -- Reacquire target
+        targetPlayer = getPlayer(TARGET_USERNAME)
+        if targetPlayer then
+            pcall(teleportToTarget)
+        end
+    end
+end
+
 toggleBtn.MouseButton1Click:Connect(function()
     flingActive = not flingActive
     toggleBtn.Text = flingActive and "STOP FLING" or "START FLING"
     
     if flingActive then
         TARGET_USERNAME = inputBox.Text
-        prepareCharacter()
-        
-        connection = RunService.Heartbeat:Connect(function()
-            -- Fresh validation each frame
-            local currentTarget = getPlayer(TARGET_USERNAME)
-            local localChar = lp.Character
-            local localRoot = localChar and localChar:FindFirstChild("HumanoidRootPart")
-            
-            if currentTarget then
-                -- Temporary references only
-                local targetChar = currentTarget.Character
-                local targetRoot = targetChar and targetChar:FindFirstChild("HumanoidRootPart")
-                
-                if localRoot and targetRoot then
-                    targetPlayer = currentTarget
-                    pcall(aggressiveFling)
-                else
-                    task.wait(0.5)
-                end
-            else
-                targetPlayer = nil
-                task.wait(2)
-            end
-        end)
+        enableNoclip()
+        connection = RunService.Heartbeat:Connect(maintainFling)
     else
         TARGET_USERNAME = ""
         targetPlayer = nil
@@ -171,24 +133,10 @@ toggleBtn.MouseButton1Click:Connect(function()
             connection:Disconnect()
             connection = nil
         end
-        if lp.Character and lp.Character:FindFirstChild("HumanoidRootPart") then
-            lp.Character.HumanoidRootPart.Velocity = Vector3.new()
-        end
     end
 end)
 
-Players.PlayerRemoving:Connect(function(player)
-    if player == targetPlayer then
-        flingActive = false
-        toggleBtn.Text = "START FLING"
-        if connection then
-            connection:Disconnect()
-            connection = nil
-        end
-    end
+-- Final cleanup
+game:GetService("UserInputService").WindowFocused:Connect(function()
+    if connection then connection:Disconnect() end
 end)
-
--- Final safety check
-if connection then
-    connection:Disconnect()
-end
