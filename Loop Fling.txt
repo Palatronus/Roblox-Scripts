@@ -146,25 +146,15 @@ local function maintainFling()
     end
 end
 
--- Modified maintainFling function with error handling
+-- Replace the duplicate maintainFling functions with this single version:
 local function maintainFling()
     while flingActive and task.wait(0.01) do
         pcall(function()
-            -- Reacquire target with proper validation
             targetPlayer = getPlayer(TARGET_USERNAME)
             if targetPlayer and targetPlayer.Character then
-                teleportToTarget()
+                executeFling() -- Use executeFling instead of teleportToTarget
             end
         end)
-    end
-end
-local function maintainFling()
-    while flingActive and task.wait(0.01) do
-        -- Reacquire target
-        targetPlayer = getPlayer(TARGET_USERNAME)
-        if targetPlayer then
-            pcall(teleportToTarget)
-        end
     end
 end
 
