@@ -6,8 +6,9 @@ local lp = Players.LocalPlayer
 
 -- GUI Setup
 local gui = Instance.new("ScreenGui")
-gui.Parent = lp:WaitForChild("PlayerGui")
 gui.Name = "FlingSystem"
+gui.ResetOnSpawn = false -- Prevents GUI from disappearing
+gui.Parent = lp:WaitForChild("PlayerGui")
 
 local mainFrame = Instance.new("Frame")
 mainFrame.Size = UDim2.new(0, 250, 0, 150)
@@ -124,7 +125,7 @@ local function maintainFling()
             local predictedPos = targetRoot.Position + (targetRoot.Velocity * 0.25)
             localRoot.CFrame = CFrame.new(predictedPos + Vector3.new(0, 3, 0))
             
-            targetRoot.Velocity = (targetRoot.Position - localRoot.Position).Unit * FLING_POWER * 1.5 +
+            localRoot.Velocity = (targetRoot.Position - localRoot.Position).Unit * -FLING_POWER + -- Negative sign
                 Vector3.new(math.random(-1200,1200), math.random(800,2000), math.random(-1200,1200))
         end)
     end
@@ -138,9 +139,6 @@ toggleBtn.MouseButton1Click:Connect(function()
     if flingActive then
         TARGET_USERNAME = inputBox.Text
         enableNoclip()
-        if lp.Character and lp.Character:FindFirstChild("Humanoid") then
-            lp.Character.Humanoid:ChangeState(Enum.HumanoidStateType.Physics) -- Error fixed here
-        end
         if connection then connection:Disconnect() end
         connection = RunService.Heartbeat:Connect(maintainFling)
     else
