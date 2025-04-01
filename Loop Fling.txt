@@ -73,6 +73,9 @@ toggleBtn.Parent = mainFrame
 local flingActive = false
 local targetPlayer = nil
 local TARGET_USERNAME = ""
+local FLING_POWER = 10000
+local PREDICTION_FACTOR = 0.2
+local DIRECTIONAL_OFFSET = 0.8
 local connection = nil
 
 -- Noclip system
@@ -94,28 +97,53 @@ lp.CharacterAdded:Connect(function()
     end
 end)
 
--- Tween-based flinging
-local function teleportToTarget()
+-- Prediction math
+local function calculatePredictedPosition(targetRoot)
+    local targetVelocity = targetRoot.Velocity
+    local basePosition = targetRoot.Position
+    local prediction = basePosition + (targetVelocity * PREDICTION_FACTOR)
+    
+    -- Add directional offset for moving targets
+    if targetVelocity.Magnitude > 5 then
+        prediction += (targetVelocity.Unit * targetVelocity.Magnitude * DIRECTIONAL_OFFSET)
+    end
+    
+    return prediction
+end
+
+-- Hybrid fling system
+local function executeFling()
     if not targetPlayer or not targetPlayer.Character then return end
     local targetRoot = targetPlayer.Character:FindFirstChild("HumanoidRootPart")
     local localRoot = lp.Character and lp.Character:FindFirstChild("HumanoidRootPart")
     
     if targetRoot and localRoot then
-        -- Instant teleport with tween
-        local tweenInfo = TweenInfo.new(0.01, Enum.EasingStyle.Linear)
-        TweenService:Create(localRoot, tweenInfo, {CFrame = targetRoot.CFrame}):Play()
+        -- Phase through walls to predicted position
+        local predictedPos = calculatePredictedPosition(targetRoot)
+        local tweenInfo = TweenInfo.new(0.05, Enum.EasingStyle.Linear)
+        TweenService:Create(localRoot, tweenInfo, {CFrame = CFrame.new(predictedPos)}):Play()
+        
+        -- Apply fling velocity AFTER positioning
+        local direction = (targetRoot.Position - localRoot.Position).Unit
+        localRoot.Velocity = direction * -FLING_POWER + Vector3.new(
+            math.random(-50, 50),
+            math.random(25, 75),
+            math.random(-50, 50)
+        )
     end
 end
 
 -- Target tracking
-local function getPlayer(name)
-    name = name:lower()
-    for _, player in pairs(Players:GetPlayers()) do
-        if player ~= lp and (player.Name:lower():find(name) or player.DisplayName:lower():find(name)) then
-            return player
-        end
+local function maintainFling()
+    while flingActive and task.wait() do
+        pcall(function()
+            -- Reacquire target
+            targetPlayer = getPlayer(TARGET_USERNAME)
+            if targetPlayer and targetPlayer.Character then
+                executeFling()
+            end
+        end)
     end
-    return nil
 end
 
 -- Modified maintainFling function with error handling
@@ -140,6 +168,7 @@ local function maintainFling()
     end
 end
 
+-- Control System
 toggleBtn.MouseButton1Click:Connect(function()
     flingActive = not flingActive
     toggleBtn.Text = flingActive and "STOP FLING" or "START FLING"
@@ -157,6 +186,17 @@ toggleBtn.MouseButton1Click:Connect(function()
         end
     end
 end)
+
+-- Player lookup function
+local function getPlayer(name)
+    name = name:lower()
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= lp and (player.Name:lower():find(name) or player.DisplayName:lower():find(name)) then
+            return player
+        end
+    end
+    return nil
+end
 
 -- Final cleanup
 game:GetService("UserInputService").WindowFocused:Connect(function()
