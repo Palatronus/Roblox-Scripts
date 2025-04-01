@@ -122,10 +122,12 @@ local function maintainFling()
             local localRoot = lp.Character and lp.Character:FindFirstChild("HumanoidRootPart")
             if not targetRoot or not localRoot then return end
 
+            -- Teleport to target
             local predictedPos = targetRoot.Position + (targetRoot.Velocity * 0.25)
             localRoot.CFrame = CFrame.new(predictedPos + Vector3.new(0, 3, 0))
             
-            localRoot.Velocity = (targetRoot.Position - localRoot.Position).Unit * -FLING_POWER + -- Negative sign
+            -- Apply force to TARGET (not local player)
+            targetRoot.Velocity = (localRoot.Position - targetRoot.Position).Unit * FLING_POWER +
                 Vector3.new(math.random(-1200,1200), math.random(800,2000), math.random(-1200,1200))
         end)
     end
@@ -139,9 +141,14 @@ toggleBtn.MouseButton1Click:Connect(function()
     if flingActive then
         TARGET_USERNAME = inputBox.Text
         enableNoclip()
+        -- Remove physics state change
         if connection then connection:Disconnect() end
         connection = RunService.Heartbeat:Connect(maintainFling)
     else
+        -- Add character reset
+        if lp.Character and lp.Character:FindFirstChild("Humanoid") then
+            lp.Character.Humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
+        end
         TARGET_USERNAME = ""
         targetPlayer = nil
         if connection then
