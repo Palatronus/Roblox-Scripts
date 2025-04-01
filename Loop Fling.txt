@@ -5,7 +5,8 @@ local TweenService = game:GetService("TweenService")
 local lp = Players.LocalPlayer
 
 -- GUI Setup
-local gui = Instance.new("ScreenGui", game.CoreGui)
+local gui = Instance.new("ScreenGui")
+gui.Parent = lp:WaitForChild("PlayerGui")
 gui.Name = "FlingSystem"
 
 local mainFrame = Instance.new("Frame")
