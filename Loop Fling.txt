@@ -74,8 +74,8 @@ toggleBtn.Parent = mainFrame
 local flingActive = false
 local targetPlayer = nil
 local TARGET_USERNAME = ""
-local FLING_POWER = 150000 -- Increased from 85000
-local PREDICTION_FACTOR = 0.25 -- Changed from 0.12
+local FLING_POWER = 150000
+local PREDICTION_FACTOR = 0.25
 local connection = nil
 
 -- Optimized noclip
@@ -84,7 +84,7 @@ local function enableNoclip()
         for _, v in pairs(lp.Character:GetDescendants()) do
             if v:IsA("BasePart") then
                 v.CanCollide = false
-                v.Massless = true -- Re-enabled for smooth movement
+                v.Massless = true
             end
         end
     end
@@ -103,9 +103,8 @@ local function calculatePredictedPosition(targetRoot)
     local basePosition = targetRoot.Position
     local prediction = basePosition + (targetVelocity * PREDICTION_FACTOR)
     
-    -- Improved directional offset
     if targetVelocity.Magnitude > 5 then
-        prediction += (targetVelocity.Unit * (targetVelocity.Magnitude * 0.3)) -- Reduced offset multiplier
+        prediction += (targetVelocity.Unit * (targetVelocity.Magnitude * 0.3))
     end
     
     return prediction
@@ -113,7 +112,7 @@ end
 
 -- Single efficient maintainFling
 local function maintainFling()
-    while flingActive and task.wait(0.2) do -- Reduced frequency from 0.12 to 0.2
+    while flingActive and task.wait(0.2) do
         pcall(function()
             targetPlayer = getPlayer(TARGET_USERNAME)
             if not targetPlayer or not targetPlayer.Character then return end
@@ -122,15 +121,11 @@ local function maintainFling()
             local localRoot = lp.Character and lp.Character:FindFirstChild("HumanoidRootPart")
             if not targetRoot or not localRoot then return end
 
-            -- Simplified prediction
-            local predictedPos = targetRoot.Position + (targetRoot.Velocity * 0.25) -- Adjusted multiplier
+            local predictedPos = targetRoot.Position + (targetRoot.Velocity * 0.25)
+            localRoot.CFrame = CFrame.new(predictedPos + Vector3.new(0, 3, 0))
             
-            -- Direct teleport with offset
-            localRoot.CFrame = CFrame.new(predictedPos + Vector3.new(0, 3, 0)) -- Added vertical offset
-            
-            -- Explosive directional force
             targetRoot.Velocity = (targetRoot.Position - localRoot.Position).Unit * FLING_POWER * 1.5 +
-                Vector3.new(math.random(-1200,1200), math.random(800,2000), math.random(-1200,1200)) -- Increased randomness
+                Vector3.new(math.random(-1200,1200), math.random(800,2000), math.random(-1200,1200))
         end)
     end
 end
@@ -143,10 +138,9 @@ toggleBtn.MouseButton1Click:Connect(function()
     if flingActive then
         TARGET_USERNAME = inputBox.Text
         enableNoclip()
-if lp.Character and lp.Character:FindFirstChild("Humanoid") then
-    lp.Character.Humanoid:ChangeState(Enum.HumanoidStateType.Physics)
-end
-        -- Single connection point
+        if lp.Character and lp.Character:FindFirstChild("Humanoid") then
+            lp.Character.Humanoid:ChangeState(Enum.HumanoidStateType.Physics) -- Error fixed here
+        end
         if connection then connection:Disconnect() end
         connection = RunService.Heartbeat:Connect(maintainFling)
     else
