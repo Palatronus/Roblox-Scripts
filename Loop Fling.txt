@@ -75,8 +75,9 @@ toggleBtn.Parent = mainFrame
 local flingActive = false
 local targetPlayer = nil
 local TARGET_USERNAME = ""
-local FLING_POWER = 150000
+local FLING_POWER = 10000
 local PREDICTION_FACTOR = 0.25
+local DIRECTIONAL_BOOST = 1.5 -- Added directional multiplier
 local connection = nil
 
 -- Optimized noclip
@@ -101,19 +102,18 @@ end)
 -- Prediction math
 local function calculatePredictedPosition(targetRoot)
     local targetVelocity = targetRoot.Velocity
-    local basePosition = targetRoot.Position
-    local prediction = basePosition + (targetVelocity * PREDICTION_FACTOR)
+    local basePrediction = targetRoot.Position + (targetVelocity * PREDICTION_FACTOR)
     
     if targetVelocity.Magnitude > 5 then
-        prediction += (targetVelocity.Unit * (targetVelocity.Magnitude * 0.3))
+        local movementDirection = targetVelocity.Unit
+        return basePrediction + (movementDirection * targetVelocity.Magnitude * DIRECTIONAL_BOOST)
     end
-    
-    return prediction
+    return basePrediction
 end
 
 -- Single efficient maintainFling
 local function maintainFling()
-    while flingActive and task.wait(0.2) do
+    while flingActive and task.wait(0.15) do -- Faster update rate
         pcall(function()
             targetPlayer = getPlayer(TARGET_USERNAME)
             if not targetPlayer or not targetPlayer.Character then return end
@@ -122,11 +122,13 @@ local function maintainFling()
             local localRoot = lp.Character and lp.Character:FindFirstChild("HumanoidRootPart")
             if not targetRoot or not localRoot then return end
 
-            local predictedPos = targetRoot.Position + (targetRoot.Velocity * 0.25)
-            localRoot.CFrame = CFrame.new(predictedPos + Vector3.new(0, 3, 0))
+            local predictedPos = calculatePredictedPosition(targetRoot)
+            local verticalOffset = targetRoot.Velocity.Y > 0 and 5 or 3 -- Higher offset for jumping targets
+            localRoot.CFrame = CFrame.new(predictedPos + Vector3.new(0, verticalOffset, 0))
             
-            localRoot.Velocity = (targetRoot.Position - localRoot.Position).Unit * -FLING_POWER + -- Negative sign
-                Vector3.new(math.random(-1200,1200), math.random(800,2000), math.random(-1200,1200))
+            local forceDirection = (targetRoot.Position - localRoot.Position).Unit
+            targetRoot.Velocity = forceDirection * FLING_POWER + 
+                Vector3.new(math.random(-1500,1500), math.random(800,2000), math.random(-1500,1500))
         end)
     end
 end
