@@ -1,6 +1,5 @@
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
-local RunService = game:GetService("RunService")
 local Player = Players.LocalPlayer
 
 -- GUI Setup
@@ -18,23 +17,22 @@ ToggleButton.Image = "rbxasset://textures/ui/mouseLock_off@2x.png"
 -- System Variables
 local IsActive = false
 local InputConnection
-local Yaw = 0
-local Sensitivity = 0.5
+local Sensitivity = 0.5 -- Adjust rotation speed here
 
-local function UpdateRotation(deltaX)
+local function RotateCharacter(deltaX)
     local character = Player.Character
     local rootPart = character and character:FindFirstChild("HumanoidRootPart")
     if not rootPart then return end
     
-    Yaw = Yaw - (deltaX * Sensitivity)
-    rootPart.CFrame = CFrame.new(rootPart.Position) * CFrame.Angles(0, math.rad(Yaw), 0)
+    -- Convert mouse delta to rotation
+    rootPart.CFrame = rootPart.CFrame * CFrame.Angles(0, math.rad(-deltaX * Sensitivity), 0)
 end
 
 local function HandleInput(input, gameProcessed)
     if not IsActive or gameProcessed then return end
     
     if input.UserInputType == Enum.UserInputType.MouseMovement then
-        UpdateRotation(input.Delta.X)
+        RotateCharacter(input.Delta.X)
     end
 end
 
@@ -44,10 +42,11 @@ ToggleButton.MouseButton1Click:Connect(function()
         or "rbxasset://textures/ui/mouseLock_off@2x.png"
 
     if IsActive then
+        -- Initialize
         Player.Character.Humanoid.AutoRotate = false
-        Yaw = Player.Character.HumanoidRootPart.Orientation.Y
         InputConnection = UserInputService.InputChanged:Connect(HandleInput)
     else
+        -- Cleanup
         Player.Character.Humanoid.AutoRotate = true
         if InputConnection then
             InputConnection:Disconnect()
