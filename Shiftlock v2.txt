@@ -5,10 +5,10 @@ local Player = Players.LocalPlayer
 
 -- GUI Setup
 local ShiftLockUI = Instance.new("ScreenGui")
-local ToggleButton = Instance.new("ImageButton")
 ShiftLockUI.Parent = game:GetService("CoreGui")
 ShiftLockUI.ResetOnSpawn = false
 
+local ToggleButton = Instance.new("ImageButton")
 ToggleButton.Parent = ShiftLockUI
 ToggleButton.BackgroundTransparency = 1
 ToggleButton.Size = UDim2.new(0, 40, 0, 40)
@@ -17,44 +17,47 @@ ToggleButton.Image = "rbxasset://textures/ui/mouseLock_off@2x.png"
 
 -- System Variables
 local IsActive = false
-local Yaw = 0
-local Connection
+local YawOffset = 0
+local MouseConnection
 
 local function RotateCharacter(deltaX)
-    local Character = Player.Character
-    if not Character then return end
+    local character = Player.Character
+    if not character then return end
     
-    local HumanoidRootPart = Character:FindFirstChild("HumanoidRootPart")
-    if HumanoidRootPart then
-        Yaw = Yaw - (deltaX * 0.4) -- Adjust sensitivity here
-        HumanoidRootPart.CFrame = CFrame.new(HumanoidRootPart.Position) 
-            * CFrame.Angles(0, math.rad(Yaw), 0)
+    local humanoid = character:FindFirstChild("Humanoid")
+    local rootPart = character:FindFirstChild("HumanoidRootPart")
+    
+    if humanoid and rootPart then
+        YawOffset = YawOffset - (deltaX * 0.5) -- Adjust sensitivity here
+        rootPart.CFrame = CFrame.new(rootPart.Position) * CFrame.Angles(0, math.rad(YawOffset), 0)
     end
 end
 
 ToggleButton.MouseButton1Click:Connect(function()
     IsActive = not IsActive
-    ToggleButton.Image = IsActive and "rbxasset://textures/ui/mouseLock_on@2x.png" 
-        or "rbxasset://textures/ui/mouseLock_off@2x.png"
-
+    ToggleButton.Image = IsActive and "rbxasset://textures/ui/mouseLock_on@2x.png" or "rbxasset://textures/ui/mouseLock_off@2x.png"
+    
     if IsActive then
         -- Initialize rotation
-        local HumanoidRootPart = Player.Character:FindFirstChild("HumanoidRootPart")
-        if HumanoidRootPart then
-            Yaw = HumanoidRootPart.Orientation.Y
+        local rootPart = Player.Character and Player.Character:FindFirstChild("HumanoidRootPart")
+        if rootPart then
+            YawOffset = rootPart.Orientation.Y
             Player.Character.Humanoid.AutoRotate = false
         end
-
+        
         -- Mouse movement handler
-        Connection = UserInputService.InputChanged:Connect(function(input)
+        MouseConnection = UserInputService.InputChanged:Connect(function(input)
             if input.UserInputType == Enum.UserInputType.MouseMovement then
                 RotateCharacter(input.Delta.X)
             end
         end)
     else
-        Player.Character.Humanoid.AutoRotate = true
-        if Connection then
-            Connection:Disconnect()
+        -- Cleanup
+        if Player.Character and Player.Character:FindFirstChild("Humanoid") then
+            Player.Character.Humanoid.AutoRotate = true
+        end
+        if MouseConnection then
+            MouseConnection:Disconnect()
         end
     end
 end)
