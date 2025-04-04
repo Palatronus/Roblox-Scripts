@@ -1,103 +1,80 @@
 --[[
-    WARNING: Heads up! This script has not been verified by ScriptBlox. Use at your own risk!
+    Official-style ShiftLock with GUI Toggle (FIXED)
 ]]
-local ShiftLockScreenGui = Instance.new("ScreenGui")
-local ShiftLockButton = Instance.new("ImageButton")
-local ShiftlockCursor = Instance.new("ImageLabel")
-local CoreGui = game:GetService("CoreGui")
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
+local CoreGui = game:GetService("CoreGui")
 local Player = Players.LocalPlayer
 
--- Configuration
-local CAMERA_OFFSET = CFrame.new(0, 2, 10) -- Adjust these values to your preference
-local SENSITIVITY = 0.3
-local MAX_PITCH = 70
-local MIN_PITCH = -70
-
--- States and References
-local States = {
-    Off = "rbxasset://textures/ui/mouseLock_off@2x.png",
-    On = "rbxasset://textures/ui/mouseLock_on@2x.png",
-    Lock = "rbxasset://textures/MouseLockedCursor.png"
-}
-local ActiveConnection
-local CurrentPitch = 0
-local CurrentYaw = 0
-
 -- GUI Setup
-ShiftLockScreenGui.Name = "Shiftlock"
-ShiftLockScreenGui.Parent = CoreGui
-ShiftLockScreenGui.ResetOnSpawn = false
+local ShiftLockUI = Instance.new("ScreenGui")
+local ToggleButton = Instance.new("ImageButton")
+local LockCursor = Instance.new("ImageLabel")
 
-ShiftLockButton.Name = "ShiftLockButton"
-ShiftLockButton.Parent = ShiftLockScreenGui
-ShiftLockButton.BackgroundTransparency = 1
-ShiftLockButton.Position = UDim2.new(0.9, 0, 0.5, 0)
-ShiftLockButton.Size = UDim2.new(0.06, 0, 0.06, 0)
-ShiftLockButton.Image = States.Off
+ShiftLockUI.Name = "ShiftLockSystem"
+ShiftLockUI.Parent = CoreGui
+ShiftLockUI.ResetOnSpawn = false
 
-ShiftlockCursor.Name = "ShiftlockCursor"
-ShiftlockCursor.Parent = ShiftLockScreenGui
-ShiftlockCursor.Image = States.Lock
-ShiftlockCursor.Size = UDim2.new(0, 32, 0, 32) -- Fixed pixel size
-ShiftlockCursor.AnchorPoint = Vector2.new(0.5, 0.5)
-ShiftlockCursor.Position = UDim2.new(0.5, 0, 0.5, 0)
-ShiftlockCursor.BackgroundTransparency = 1
-ShiftlockCursor.Visible = false
+ToggleButton.Name = "ToggleButton"
+ToggleButton.Parent = ShiftLockUI
+ToggleButton.BackgroundTransparency = 1
+ToggleButton.Size = UDim2.new(0, 40, 0, 40)
+ToggleButton.Position = UDim2.new(1, -50, 0.5, -20)
+ToggleButton.Image = "rbxasset://textures/ui/mouseLock_off@2x.png"
 
--- Core Functionality
-local function UpdateCamera()
-    local HumanoidRootPart = Player.Character:WaitForChild("HumanoidRootPart")
-    local Camera = workspace.CurrentCamera
+LockCursor.Name = "LockCursor"
+LockCursor.Parent = ShiftLockUI
+LockCursor.Image = "rbxasset://textures/MouseLockedCursor.png"
+LockCursor.Size = UDim2.new(0, 32, 0, 32)
+LockCursor.AnchorPoint = Vector2.new(0.5, 0.5)
+LockCursor.Position = UDim2.new(0.5, 0, 0.5, 0)
+LockCursor.BackgroundTransparency = 1
+LockCursor.Visible = false
+
+-- System Variables
+local IsActive = false
+local CameraOffset = CFrame.new(0, 2, 8) -- Standard offset
+local Yaw = 0
+local Pitch = 0
+
+-- Core Rotation Logic
+local function UpdateCharacterRotation()
+    local Character = Player.Character
+    if not Character then return end
     
-    -- Calculate new CFrame
-    local BaseCFrame = CFrame.new(HumanoidRootPart.Position)
-    local RotatedCFrame = BaseCFrame * CFrame.Angles(0, math.rad(CurrentYaw), 0)
-    local PitchedCFrame = RotatedCFrame * CFrame.Angles(math.rad(-CurrentPitch), 0, 0)
-    
-    -- Update camera and character
-    HumanoidRootPart.CFrame = RotatedCFrame
-    Camera.CFrame = PitchedCFrame * CAMERA_OFFSET
+    local HumanoidRootPart = Character:FindFirstChild("HumanoidRootPart")
+    local Humanoid = Character:FindFirstChild("Humanoid")
+    if not HumanoidRootPart or not Humanoid then return end
+
+    HumanoidRootPart.CFrame = CFrame.new(HumanoidRootPart.Position) * CFrame.Angles(0, math.rad(Yaw), 0)
+    workspace.CurrentCamera.CFrame = HumanoidRootPart.CFrame
+        * CFrame.Angles(math.rad(-Pitch), 0, 0)
+        * CameraOffset
 end
 
-ShiftLockButton.MouseButton1Click:Connect(function()
-    if not ActiveConnection then
-        -- Enable Shiftlock
-        ShiftLockButton.Image = States.On
-        ShiftlockCursor.Visible = true
+-- Fixed Toggle Functionality
+ToggleButton.MouseButton1Click:Connect(function()
+    IsActive = not IsActive
+    LockCursor.Visible = IsActive
+    ToggleButton.Image = IsActive and "rbxasset://textures/ui/mouseLock_on@2x.png" or "rbxasset://textures/ui/mouseLock_off@2x.png"
+
+    if IsActive then
         Player.Character.Humanoid.AutoRotate = false
-        
-        -- Store initial rotation
-        CurrentYaw = Player.Character.HumanoidRootPart.Orientation.Y
-        CurrentPitch = 0
-        
-        ActiveConnection = RunService.RenderStepped:Connect(function()
-            -- Allow RMB override
-            if UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2) then
-                -- Preserve default RMB camera behavior
-                workspace.CurrentCamera.CameraType = Enum.CameraType.Custom
-                return
-            end
-            
-            -- Process mouse movement
-            workspace.CurrentCamera.CameraType = Enum.CameraType.Scriptable
+        workspace.CurrentCamera.CameraType = Enum.CameraType.Scriptable
+        Yaw = Player.Character.HumanoidRootPart.Orientation.Y
+        Pitch = 0
+
+        -- Corrected RenderStep binding
+        RunService:BindToRenderStep("ShiftLockRotation", Enum.RenderPriority.Camera.Value, function()
             local MouseDelta = UserInputService:GetMouseDelta()
-            
-            CurrentYaw = CurrentYaw - (MouseDelta.X * SENSITIVITY)
-            CurrentPitch = math.clamp(CurrentPitch + (MouseDelta.Y * SENSITIVITY), MIN_PITCH, MAX_PITCH)
-            
-            UpdateCamera()
+            Yaw = Yaw - (MouseDelta.X * 0.4)
+            Pitch = math.clamp(Pitch + (MouseDelta.Y * 0.4), -70, 70) -- Fixed math.clamp syntax
+            UpdateCharacterRotation()
         end)
     else
-        -- Disable Shiftlock
-        ShiftLockButton.Image = States.Off
-        ShiftlockCursor.Visible = false
         Player.Character.Humanoid.AutoRotate = true
         workspace.CurrentCamera.CameraType = Enum.CameraType.Custom
-        
-        ActiveConnection:Disconnect()
-        ActiveConnection = nil
+        RunService:UnbindFromRenderStep("ShiftLockRotation")
     end
 end)
