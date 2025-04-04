@@ -19,10 +19,9 @@ ToggleButton.Image = "rbxasset://textures/ui/mouseLock_off@2x.png"
 local IsActive = false
 local RenderConnection
 local Sensitivity = 0.4
-local InitialCameraCFrame = CFrame.new()
-local CameraOffset = Vector3.new()
+local InitialOffset = Vector3.new()
 
-local function UpdateRotation()
+local function UpdateSystem()
     if not IsActive then return end
     
     local character = Player.Character
@@ -30,18 +29,17 @@ local function UpdateRotation()
     local camera = workspace.CurrentCamera
     
     if rootPart and camera then
-        -- Get mouse movement
+        -- Get input
         local delta = UserInputService:GetMouseDelta()
         
-        -- Rotate character based on mouse X
+        -- Rotate character
         rootPart.CFrame = CFrame.new(rootPart.Position) 
             * CFrame.Angles(0, math.rad(-delta.X * Sensitivity), 0)
-            * InitialCameraCFrame.Rotation
         
-        -- Update camera position relative to character
-        camera.CFrame = rootPart.CFrame 
-            * CFrame.new(CameraOffset) 
+        -- Update camera (free-view preservation)
+        camera.CFrame = CFrame.new(rootPart.Position + InitialOffset) 
             * CFrame.Angles(math.rad(-delta.Y * Sensitivity * 0.5), 0, 0)
+            * CFrame.fromEulerAnglesYXZ(0, math.rad(-delta.X * Sensitivity), 0)
     end
 end
 
@@ -51,18 +49,17 @@ ToggleButton.MouseButton1Click:Connect(function()
         or "rbxasset://textures/ui/mouseLock_off@2x.png"
 
     if IsActive then
-        -- Capture current camera setup
+        -- Capture current camera relationship
         local rootPart = Player.Character.HumanoidRootPart
-        InitialCameraCFrame = workspace.CurrentCamera.CFrame
-        CameraOffset = InitialCameraCFrame.Position - rootPart.Position
+        InitialOffset = workspace.CurrentCamera.CFrame.Position - rootPart.Position
         
         -- Initialize system
         Player.Character.Humanoid.AutoRotate = false
         workspace.CurrentCamera.CameraType = Enum.CameraType.Scriptable
         
-        RenderConnection = RunService.RenderStepped:Connect(UpdateRotation)
+        RenderConnection = RunService.RenderStepped:Connect(UpdateSystem)
     else
-        -- Restore defaults
+        -- Cleanup
         Player.Character.Humanoid.AutoRotate = true
         workspace.CurrentCamera.CameraType = Enum.CameraType.Custom
         if RenderConnection then
