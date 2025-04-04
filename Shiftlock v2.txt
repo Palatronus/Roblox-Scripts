@@ -18,29 +18,17 @@ ToggleButton.Image = "rbxasset://textures/ui/mouseLock_off@2x.png"
 -- System Variables
 local IsActive = false
 local InputConnection
-local RenderConnection
 local Yaw = 0
 local Sensitivity = 0.4
-
-local function UpdateRotation(deltaX)
-    local character = Player.Character
-    local rootPart = character and character:FindFirstChild("HumanoidRootPart")
-    if not rootPart then return end
-    
-    Yaw = Yaw - (deltaX * Sensitivity)
-    rootPart.CFrame = CFrame.new(rootPart.Position) * CFrame.Angles(0, math.rad(Yaw), 0)
-end
 
 local function HandleInput(input, gameProcessed)
     if not IsActive or gameProcessed then return end
     
-    if input.UserInputType == Enum.UserInputType.Touch then
-        if input.UserInputState == Enum.UserInputState.Begin then
-            -- Reset Yaw on new touch
-            Yaw = Player.Character.HumanoidRootPart.Orientation.Y
-        elseif input.UserInputState == Enum.UserInputState.Change then
-            UpdateRotation(input.Delta.X)
-        end
+    if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseMovement then
+        -- Rotate character based on horizontal input
+        Yaw = Yaw - (input.Delta.X * Sensitivity)
+        Player.Character.HumanoidRootPart.CFrame = CFrame.new(Player.Character.HumanoidRootPart.Position) 
+            * CFrame.Angles(0, math.rad(Yaw), 0)
     end
 end
 
