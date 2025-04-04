@@ -18,33 +18,40 @@ ToggleButton.Image = "rbxasset://textures/ui/mouseLock_off@2x.png"
 -- System Variables
 local IsActive = false
 local InputConnection
-local RenderConnection
+local LastInputPosition = Vector2.new()
 local Yaw = 0
-local Sensitivity = 0.4
+local Pitch = 0
+local Sensitivity = 0.5
 
-local function UpdateRotation()
-    if not IsActive then return end
-    
+local function UpdateCharacterRotation()
     local character = Player.Character
     local rootPart = character and character:FindFirstChild("HumanoidRootPart")
-    local camera = workspace.CurrentCamera
+    if not rootPart then return end
     
-    if rootPart and camera then
-        -- Get horizontal camera direction
-        local lookVector = camera.CFrame.LookVector
-        local flatLook = Vector3.new(lookVector.X, 0, lookVector.Z).Unit
-        
-        -- Update character rotation
-        rootPart.CFrame = CFrame.new(rootPart.Position, rootPart.Position + flatLook)
-    end
+    -- Apply rotation to character
+    rootPart.CFrame = CFrame.new(rootPart.Position) * CFrame.Angles(0, math.rad(Yaw), 0)
+end
+
+local function UpdateCamera()
+    workspace.CurrentCamera.CFrame = CFrame.new(workspace.CurrentCamera.CFrame.Position)
+        * CFrame.Angles(math.rad(-Pitch), math.rad(Yaw), 0)
 end
 
 local function HandleInput(input, gameProcessed)
     if not IsActive or gameProcessed then return end
-    
-    -- Allow default camera rotation for mouse/touch
-    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
-        UpdateRotation()
+
+    if input.UserInputType == Enum.UserInputType.MouseMovement
+    or input.UserInputType == Enum.UserInputType.Touch then
+        -- Calculate delta from screen center
+        local delta = input.Position - LastInputPosition
+        LastInputPosition = input.Position
+
+        -- Update rotations
+        Yaw = Yaw - (delta.X * Sensitivity)
+        Pitch = math.clamp(Pitch + (delta.Y * Sensitivity), -70, 70)
+
+        UpdateCharacterRotation()
+        UpdateCamera()
     end
 end
 
@@ -56,12 +63,13 @@ ToggleButton.MouseButton1Click:Connect(function()
     if IsActive then
         -- Initialize
         Player.Character.Humanoid.AutoRotate = false
+        LastInputPosition = UserInputService:GetMouseLocation()
         InputConnection = UserInputService.InputChanged:Connect(HandleInput)
-        RenderConnection = RunService.RenderStepped:Connect(UpdateRotation)
     else
         -- Cleanup
         Player.Character.Humanoid.AutoRotate = true
-        if InputConnection then InputConnection:Disconnect() end
-        if RenderConnection then RenderConnection:Disconnect() end
+        if InputConnection then
+            InputConnection:Disconnect()
+        end
     end
 end)
