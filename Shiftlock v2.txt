@@ -1,5 +1,4 @@
 local Players = game:GetService("Players")
-local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 local Player = Players.LocalPlayer
 
@@ -19,7 +18,7 @@ ToggleButton.Image = "rbxasset://textures/ui/mouseLock_off@2x.png"
 local IsActive = false
 local RenderConnection
 
-local function UpdateCharacterRotation()
+local function UpdateRotation()
     if not IsActive then return end
     
     local character = Player.Character
@@ -27,12 +26,13 @@ local function UpdateCharacterRotation()
     local camera = workspace.CurrentCamera
     
     if rootPart and camera then
-        -- Get horizontal camera direction
+        -- Calculate target rotation from camera direction
         local lookVector = camera.CFrame.LookVector
         local flatLook = Vector3.new(lookVector.X, 0, lookVector.Z).Unit
+        local targetCFrame = CFrame.new(rootPart.Position, rootPart.Position + flatLook)
         
-        -- Rotate character to match camera direction
-        rootPart.CFrame = CFrame.new(rootPart.Position, rootPart.Position + flatLook)
+        -- Apply rotation
+        rootPart.CFrame = targetCFrame
     end
 end
 
@@ -42,11 +42,11 @@ ToggleButton.MouseButton1Click:Connect(function()
         or "rbxasset://textures/ui/mouseLock_off@2x.png"
 
     if IsActive then
-        -- Enable shiftlock
+        -- Initialize
         Player.Character.Humanoid.AutoRotate = false
-        RenderConnection = RunService.RenderStepped:Connect(UpdateCharacterRotation)
+        RenderConnection = RunService.RenderStepped:Connect(UpdateRotation)
     else
-        -- Disable shiftlock
+        -- Cleanup
         Player.Character.Humanoid.AutoRotate = true
         if RenderConnection then
             RenderConnection:Disconnect()
