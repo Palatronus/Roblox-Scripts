@@ -1,0 +1,42 @@
+ShiftLockButton.MouseButton1Click:Connect(
+    function()
+        if not Active then
+            Player.Character.Humanoid.AutoRotate = false
+            ShiftLockButton.Image = States.On
+            ShiftlockCursor.Visible = true
+            workspace.CurrentCamera.CameraType = Enum.CameraType.Scriptable
+            
+            local yaw = 0
+            local pitch = 0
+            local sensitivity = 0.3 -- Adjust sensitivity as needed
+            
+            Active = UserInputService.InputChanged:Connect(function(input, gameProcessed)
+                if input.UserInputType == Enum.UserInputType.MouseMovement then
+                    local delta = input.Delta
+                    local humanoidRootPart = Player.Character.HumanoidRootPart
+                    if humanoidRootPart then
+                        -- Update character rotation (yaw)
+                        yaw = yaw - delta.X * sensitivity
+                        humanoidRootPart.CFrame = CFrame.new(humanoidRootPart.Position) * CFrame.Angles(0, math.rad(yaw), 0)
+                        
+                        -- Update camera pitch and position
+                        pitch = math.clamp(pitch + delta.Y * sensitivity, -70, 70)
+                        local cameraOffset = CFrame.new(0, 3, 10) -- Adjust offset (Z = distance behind)
+                        local cameraCFrame = humanoidRootPart.CFrame 
+                            * CFrame.Angles(math.rad(-pitch), 0, 0) 
+                            * cameraOffset
+                        workspace.CurrentCamera.CFrame = cameraCFrame
+                    end
+                end
+            end)
+        else
+            Player.Character.Humanoid.AutoRotate = true
+            ShiftLockButton.Image = States.Off
+            ShiftlockCursor.Visible = false
+            workspace.CurrentCamera.CameraType = Enum.CameraType.Custom -- Restore default camera
+            
+            Active:Disconnect()
+            Active = nil
+        end
+    end
+)
