@@ -19,9 +19,8 @@ ToggleButton.Image = "rbxasset://textures/ui/mouseLock_off@2x.png"
 local IsActive = false
 local RenderConnection
 local Sensitivity = 0.4
-local InitialOffset = Vector3.new()
 
-local function UpdateSystem()
+local function UpdateRotation()
     if not IsActive then return end
     
     local character = Player.Character
@@ -29,17 +28,12 @@ local function UpdateSystem()
     local camera = workspace.CurrentCamera
     
     if rootPart and camera then
-        -- Get input
-        local delta = UserInputService:GetMouseDelta()
+        -- Get camera direction
+        local lookVector = camera.CFrame.LookVector
+        local targetAngle = math.atan2(-lookVector.Z, lookVector.X) + math.pi/2
         
-        -- Rotate character
-        rootPart.CFrame = CFrame.new(rootPart.Position) 
-            * CFrame.Angles(0, math.rad(-delta.X * Sensitivity), 0)
-        
-        -- Update camera (free-view preservation)
-        camera.CFrame = CFrame.new(rootPart.Position + InitialOffset) 
-            * CFrame.Angles(math.rad(-delta.Y * Sensitivity * 0.5), 0, 0)
-            * CFrame.fromEulerAnglesYXZ(0, math.rad(-delta.X * Sensitivity), 0)
+        -- Smoothly rotate character to face camera direction
+        rootPart.CFrame = CFrame.new(rootPart.Position) * CFrame.Angles(0, targetAngle, 0)
     end
 end
 
@@ -49,19 +43,10 @@ ToggleButton.MouseButton1Click:Connect(function()
         or "rbxasset://textures/ui/mouseLock_off@2x.png"
 
     if IsActive then
-        -- Capture current camera relationship
-        local rootPart = Player.Character.HumanoidRootPart
-        InitialOffset = workspace.CurrentCamera.CFrame.Position - rootPart.Position
-        
-        -- Initialize system
         Player.Character.Humanoid.AutoRotate = false
-        workspace.CurrentCamera.CameraType = Enum.CameraType.Scriptable
-        
-        RenderConnection = RunService.RenderStepped:Connect(UpdateSystem)
+        RenderConnection = RunService.RenderStepped:Connect(UpdateRotation)
     else
-        -- Cleanup
         Player.Character.Humanoid.AutoRotate = true
-        workspace.CurrentCamera.CameraType = Enum.CameraType.Custom
         if RenderConnection then
             RenderConnection:Disconnect()
         end
