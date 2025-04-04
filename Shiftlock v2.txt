@@ -17,19 +17,32 @@ ToggleButton.Image = "rbxasset://textures/ui/mouseLock_off@2x.png"
 
 -- System Variables
 local IsActive = false
-local YawOffset = 0
+local BaseYaw = 0
 local MouseConnection
+local RenderConnection
 
-local function RotateCharacter(deltaX)
+local function UpdateRotation()
+    if not IsActive then return end
+    
     local character = Player.Character
-    if not character then return end
+    local humanoid = character and character:FindFirstChild("Humanoid")
+    local rootPart = character and character:FindFirstChild("HumanoidRootPart")
+    local camera = workspace.CurrentCamera
     
-    local humanoid = character:FindFirstChild("Humanoid")
-    local rootPart = character:FindFirstChild("HumanoidRootPart")
-    
-    if humanoid and rootPart then
-        YawOffset = YawOffset - (deltaX * 0.5) -- Adjust sensitivity here
-        rootPart.CFrame = CFrame.new(rootPart.Position) * CFrame.Angles(0, math.rad(YawOffset), 0)
+    if humanoid and rootPart and camera then
+        -- Get mouse delta
+        local mouseDelta = UserInputService:GetMouseDelta()
+        
+        -- Calculate new rotation based on camera orientation
+        local cameraCFrame = camera.CFrame
+        local lookVector = cameraCFrame.LookVector
+        local currentYaw = math.atan2(-lookVector.Z, lookVector.X) + math.pi/2
+        
+        -- Apply mouse movement to rotation
+        currentYaw = currentYaw - math.rad(mouseDelta.X * 0.5)
+        
+        -- Update character rotation
+        rootPart.CFrame = CFrame.new(rootPart.Position) * CFrame.Angles(0, currentYaw, 0)
     end
 end
 
@@ -38,26 +51,27 @@ ToggleButton.MouseButton1Click:Connect(function()
     ToggleButton.Image = IsActive and "rbxasset://textures/ui/mouseLock_on@2x.png" or "rbxasset://textures/ui/mouseLock_off@2x.png"
     
     if IsActive then
-        -- Initialize rotation
-        local rootPart = Player.Character and Player.Character:FindFirstChild("HumanoidRootPart")
-        if rootPart then
-            YawOffset = rootPart.Orientation.Y
-            Player.Character.Humanoid.AutoRotate = false
+        -- Initialize rotation lock
+        local character = Player.Character
+        local humanoid = character and character:FindFirstChild("Humanoid")
+        local rootPart = character and character:FindFirstChild("HumanoidRootPart")
+        
+        if humanoid and rootPart then
+            humanoid.AutoRotate = false
+            BaseYaw = rootPart.Orientation.Y
         end
         
-        -- Mouse movement handler
-        MouseConnection = UserInputService.InputChanged:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.MouseMovement then
-                RotateCharacter(input.Delta.X)
-            end
-        end)
+        -- Use RenderStepped for smooth updates
+        RenderConnection = RunService.RenderStepped:Connect(UpdateRotation)
     else
         -- Cleanup
-        if Player.Character and Player.Character:FindFirstChild("Humanoid") then
-            Player.Character.Humanoid.AutoRotate = true
+        local character = Player.Character
+        if character and character:FindFirstChild("Humanoid") then
+            character.Humanoid.AutoRotate = true
         end
-        if MouseConnection then
-            MouseConnection:Disconnect()
+        if RenderConnection then
+            RenderConnection:Disconnect()
+            RenderConnection = nil
         end
     end
 end)
