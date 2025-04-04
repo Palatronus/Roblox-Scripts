@@ -18,9 +18,9 @@ ToggleButton.Image = "rbxasset://textures/ui/mouseLock_off@2x.png"
 -- System Variables
 local IsActive = false
 local RenderConnection
-local Sensitivity = 0.4
+local LastCameraCFrame = CFrame.new()
 
-local function UpdateRotation()
+local function UpdateCharacterToView()
     if not IsActive then return end
     
     local character = Player.Character
@@ -28,12 +28,14 @@ local function UpdateRotation()
     local camera = workspace.CurrentCamera
     
     if rootPart and camera then
-        -- Get camera direction
-        local lookVector = camera.CFrame.LookVector
-        local targetAngle = math.atan2(-lookVector.Z, lookVector.X) + math.pi/2
+        -- Get camera look direction (horizontal only)
+        local flatLookVector = Vector3.new(camera.CFrame.LookVector.X, 0, camera.CFrame.LookVector.Z).Unit
         
-        -- Smoothly rotate character to face camera direction
-        rootPart.CFrame = CFrame.new(rootPart.Position) * CFrame.Angles(0, targetAngle, 0)
+        -- Calculate target rotation
+        local targetCFrame = CFrame.new(rootPart.Position, rootPart.Position + flatLookVector)
+        
+        -- Apply smooth rotation (5% lerp for stability)
+        rootPart.CFrame = rootPart.CFrame:Lerp(targetCFrame, 0.05)
     end
 end
 
@@ -43,9 +45,16 @@ ToggleButton.MouseButton1Click:Connect(function()
         or "rbxasset://textures/ui/mouseLock_off@2x.png"
 
     if IsActive then
+        -- Initialize
         Player.Character.Humanoid.AutoRotate = false
-        RenderConnection = RunService.RenderStepped:Connect(UpdateRotation)
+        LastCameraCFrame = workspace.CurrentCamera.CFrame
+        
+        -- Use RenderStepped for smooth updates
+        RenderConnection = RunService.RenderStepped:Connect(function()
+            UpdateCharacterToView()
+        end)
     else
+        -- Cleanup
         Player.Character.Humanoid.AutoRotate = true
         if RenderConnection then
             RenderConnection:Disconnect()
