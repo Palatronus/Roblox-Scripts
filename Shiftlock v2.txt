@@ -1,78 +1,60 @@
-local Players = game:GetService("Players")
-local UserInputService = game:GetService("UserInputService")
-local RunService = game:GetService("RunService")
-local Player = Players.LocalPlayer
+#NoEnv
+SendMode Input
+SetTitleMatchMode, 2
+CoordMode, Mouse, Screen
 
--- ===== GUI SETUP =====
-local ShiftLockUI = Instance.new("ScreenGui")
-ShiftLockUI.Name = "ShiftLockSystem"
-ShiftLockUI.ResetOnSpawn = false
-ShiftLockUI.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-ShiftLockUI.Parent = game:GetService("CoreGui")
+; === CONFIGURATION ===
+targetWindow := "ahk_exe RobloxPlayerBeta.exe"  ; Roblox window identifier
+toggleKey := "F1"                               ; ShiftLock toggle key
+sensitivity := 0.6                              ; Lower = slower rotation
+centerX := A_ScreenWidth // 2                   ; Screen center X
+centerY := A_ScreenHeight // 2                  ; Screen center Y
+; =====================
 
-local ToggleButton = Instance.new("ImageButton")
-ToggleButton.Name = "ShiftLockToggle"
-ToggleButton.Image = "rbxassetid://13270449333" -- Default OFF texture
-ToggleButton.ImageTransparency = 0
-ToggleButton.BackgroundTransparency = 1
-ToggleButton.Size = UDim2.new(0, 45, 0, 45)
-ToggleButton.Position = UDim2.new(1, -60, 0.5, -22.5)
-ToggleButton.AnchorPoint = Vector2.new(1, 0.5)
-ToggleButton.Visible = true
-ToggleButton.Parent = ShiftLockUI
+isShiftLockActive := false
+originalMouseSpeed := A_MouseSpeed
 
--- ===== CORE LOGIC =====
-local isActive = false
-local yaw = 0
-local connection
+; === MAIN TOGGLE ===
+Hotkey, %toggleKey%, ToggleShiftLock
+return
 
--- Wait for character to load
-local function waitForCharacter()
-    repeat task.wait() until Player.Character
-    return Player.Character
-end
-
--- Rotation handler
-local function rotateCharacter(deltaX)
-    pcall(function()
-        local character = waitForCharacter()
-        local rootPart = character:WaitForChild("HumanoidRootPart")
-        yaw = yaw - (deltaX * 0.4)
-        rootPart.CFrame = CFrame.new(rootPart.Position) * CFrame.Angles(0, math.rad(yaw), 0)
-    end)
-end
-
--- Input handler
-local function onInputChanged(input)
-    if isActive and (input.UserInputType == Enum.UserInputType.MouseMovement or 
-       input.UserInputType == Enum.UserInputType.Touch) then
-        rotateCharacter(input.Delta.X)
-    end
-end
-
--- Toggle button click
-ToggleButton.MouseButton1Click:Connect(function()
-    isActive = not isActive
-    ToggleButton.Image = isActive and "rbxassetid://13270450007" or "rbxassetid://13270449333"
+ToggleShiftLock:
+    if (!WinActive(targetWindow)) {
+        return
+    }
     
-    pcall(function()
-        local character = waitForCharacter()
-        local humanoid = character:WaitForChild("Humanoid")
-        humanoid.AutoRotate = not isActive
-        
-        if isActive then
-            yaw = character.HumanoidRootPart.Orientation.Y
-            connection = UserInputService.InputChanged:Connect(onInputChanged)
-        else
-            if connection then
-                connection:Disconnect()
-                connection = nil
-            end
-        end
-    end)
-end)
+    isShiftLockActive := !isShiftLockActive
+    
+    if (isShiftLockActive) {
+        ; Enter ShiftLock mode
+        BlockInput, MouseMove
+        MouseGetPos, originalX, originalY
+        DllCall("SetCursorPos", "int", centerX, "int", centerY)
+        Send {RButton down}
+        SetDefaultMouseSpeed, 0
+        MouseMove, centerX, centerY, 0
+        SoundBeep, 1000, 100
+    } else {
+        ; Exit ShiftLock mode
+        BlockInput, MouseMoveOff
+        Send {RButton up}
+        DllCall("SetCursorPos", "int", originalX, "int", originalY)
+        SoundBeep, 500, 100
+    }
+return
 
--- Initialize
-game.Loaded:Wait()
-ShiftLockUI.Enabled = true
-print("ShiftLock System Initialized")
+; === INPUT HANDLING ===
+#IfWinActive %targetWindow%
+~LButton::return  ; Disable accidental clicks
+
+~MouseMove:
+    if (isShiftLockActive) {
+        MouseGetPos, currX, currY
+        deltaX := (currX - centerX) * sensitivity
+        deltaY := (currY - centerY) * sensitivity * 0.3  ; Reduce vertical sensitivity
+        
+        ; Send adjusted input
+        DllCall("mouse_event", "UInt", 0x0001, "Int", deltaX, "Int", deltaY)
+        DllCall("SetCursorPos", "int", centerX, "int", centerY)
+    }
+return
