@@ -18,25 +18,37 @@ ToggleButton.Image = "rbxasset://textures/ui/mouseLock_off@2x.png"
 -- System Variables
 local IsActive = false
 local InputConnection
-local RenderConnection
+local CameraOffset = CFrame.new()
 local Yaw = 0
+local Pitch = 0
 local Sensitivity = 0.4
 
-local function UpdateRotation(deltaX)
+local function UpdateRotation(delta)
     local character = Player.Character
     local rootPart = character and character:FindFirstChild("HumanoidRootPart")
-    if not rootPart then return end
+    local camera = workspace.CurrentCamera
     
-    -- Apply direct mouse-driven rotation
-    Yaw = Yaw - (deltaX * Sensitivity)
-    rootPart.CFrame = CFrame.new(rootPart.Position) * CFrame.Angles(0, math.rad(Yaw), 0)
+    if rootPart and camera then
+        -- Update rotations
+        Yaw = Yaw - (delta.X * Sensitivity)
+        Pitch = math.clamp(Pitch + (delta.Y * Sensitivity), -70, 70)
+        
+        -- Apply character rotation
+        rootPart.CFrame = CFrame.new(rootPart.Position) * CFrame.Angles(0, math.rad(Yaw), 0)
+        
+        -- Update camera position
+        camera.CFrame = CFrame.new(rootPart.Position + Vector3.new(0, 3, 0)) 
+            * CFrame.Angles(math.rad(-Pitch), math.rad(Yaw), 0)
+            * CFrame.new(0, 0, 8)
+    end
 end
 
 local function HandleInput(input, gameProcessed)
     if not IsActive or gameProcessed then return end
     
-    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
-        UpdateRotation(input.Delta.X)
+    if input.UserInputType == Enum.UserInputType.MouseMovement
+    or input.UserInputType == Enum.UserInputType.Touch then
+        UpdateRotation(input.Delta)
     end
 end
 
@@ -48,11 +60,13 @@ ToggleButton.MouseButton1Click:Connect(function()
     if IsActive then
         -- Initialize
         Player.Character.Humanoid.AutoRotate = false
+        workspace.CurrentCamera.CameraType = Enum.CameraType.Scriptable
         Yaw = Player.Character.HumanoidRootPart.Orientation.Y
         InputConnection = UserInputService.InputChanged:Connect(HandleInput)
     else
         -- Cleanup
         Player.Character.Humanoid.AutoRotate = true
+        workspace.CurrentCamera.CameraType = Enum.CameraType.Custom
         if InputConnection then
             InputConnection:Disconnect()
         end
