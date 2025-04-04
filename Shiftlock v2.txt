@@ -19,7 +19,8 @@ ToggleButton.Image = "rbxasset://textures/ui/mouseLock_off@2x.png"
 local IsActive = false
 local BaseCFrame = CFrame.new()
 local RenderConnection
-local SENSITIVITY = 0.35 -- Adjust for responsiveness
+local SENSITIVITY = 0.35
+local CAMERA_OFFSET = CFrame.new(0, 3, 10) -- Fixed camera distance
 
 local function UpdateRotation()
     if not IsActive then return end
@@ -29,22 +30,18 @@ local function UpdateRotation()
     local camera = workspace.CurrentCamera
     
     if rootPart and camera then
-        -- Get frame-perfect input
         local delta = UserInputService:GetMouseDelta()
         
-        -- Calculate rotations
+        -- Rotate character
         local yaw = -delta.X * SENSITIVITY
-        local pitch = -delta.Y * SENSITIVITY
-        
-        -- Update character rotation
-        rootPart.CFrame = CFrame.new(rootPart.Position)
+        rootPart.CFrame = CFrame.new(rootPart.Position) 
             * CFrame.Angles(0, math.rad(yaw), 0)
             * BaseCFrame.Rotation
         
-        -- Update camera orientation
-        camera.CFrame = camera.CFrame 
-            * CFrame.Angles(math.rad(pitch), 0, 0)
-            * CFrame.new(0, 0, 10) -- Camera distance
+        -- Update camera position (fixed offset)
+        camera.CFrame = rootPart.CFrame 
+            * CAMERA_OFFSET 
+            * CFrame.Angles(math.rad(-delta.Y * SENSITIVITY), 0, 0)
     end
 end
 
@@ -54,7 +51,6 @@ ToggleButton.MouseButton1Click:Connect(function()
         or "rbxasset://textures/ui/mouseLock_off@2x.png"
 
     if IsActive then
-        -- Initialize proper forward alignment
         local character = Player.Character
         local rootPart = character and character:FindFirstChild("HumanoidRootPart")
         if rootPart then
@@ -63,10 +59,8 @@ ToggleButton.MouseButton1Click:Connect(function()
             workspace.CurrentCamera.CameraType = Enum.CameraType.Scriptable
         end
         
-        -- Start frame-perfect updates
         RenderConnection = RunService.RenderStepped:Connect(UpdateRotation)
     else
-        -- Cleanup
         if Player.Character and Player.Character:FindFirstChild("Humanoid") then
             Player.Character.Humanoid.AutoRotate = true
             workspace.CurrentCamera.CameraType = Enum.CameraType.Custom
