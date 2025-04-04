@@ -18,40 +18,30 @@ ToggleButton.Image = "rbxasset://textures/ui/mouseLock_off@2x.png"
 -- System Variables
 local IsActive = false
 local InputConnection
-local LastInputPosition = Vector2.new()
-local Yaw = 0
-local Pitch = 0
+local LastMousePosition = Vector2.new()
 local Sensitivity = 0.5
 
-local function UpdateCharacterRotation()
+local function UpdateCharacterRotation(delta)
     local character = Player.Character
     local rootPart = character and character:FindFirstChild("HumanoidRootPart")
     if not rootPart then return end
     
-    -- Apply rotation to character
-    rootPart.CFrame = CFrame.new(rootPart.Position) * CFrame.Angles(0, math.rad(Yaw), 0)
-end
-
-local function UpdateCamera()
-    workspace.CurrentCamera.CFrame = CFrame.new(workspace.CurrentCamera.CFrame.Position)
-        * CFrame.Angles(math.rad(-Pitch), math.rad(Yaw), 0)
+    -- Convert mouse delta to rotation
+    local yaw = -delta.X * Sensitivity
+    rootPart.CFrame = rootPart.CFrame * CFrame.Angles(0, math.rad(yaw), 0)
 end
 
 local function HandleInput(input, gameProcessed)
     if not IsActive or gameProcessed then return end
-
+    
     if input.UserInputType == Enum.UserInputType.MouseMovement
     or input.UserInputType == Enum.UserInputType.Touch then
-        -- Calculate delta from screen center
-        local delta = input.Position - LastInputPosition
-        LastInputPosition = input.Position
-
-        -- Update rotations
-        Yaw = Yaw - (delta.X * Sensitivity)
-        Pitch = math.clamp(Pitch + (delta.Y * Sensitivity), -70, 70)
-
-        UpdateCharacterRotation()
-        UpdateCamera()
+        -- Get mouse delta from screen center
+        local currentPosition = input.Position
+        local delta = currentPosition - LastMousePosition
+        LastMousePosition = currentPosition
+        
+        UpdateCharacterRotation(delta)
     end
 end
 
@@ -63,7 +53,7 @@ ToggleButton.MouseButton1Click:Connect(function()
     if IsActive then
         -- Initialize
         Player.Character.Humanoid.AutoRotate = false
-        LastInputPosition = UserInputService:GetMouseLocation()
+        LastMousePosition = UserInputService:GetMouseLocation()
         InputConnection = UserInputService.InputChanged:Connect(HandleInput)
     else
         -- Cleanup
