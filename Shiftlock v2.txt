@@ -1,60 +1,35 @@
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
-local RunService = game:GetService("RunService")
 local Player = Players.LocalPlayer
 
 -- GUI Setup
-local ShiftLockUI = Instance.new("ScreenGui")
-ShiftLockUI.Parent = game:GetService("CoreGui")
-ShiftLockUI.ResetOnSpawn = false
-
 local ToggleButton = Instance.new("ImageButton")
-ToggleButton.Parent = ShiftLockUI
-ToggleButton.BackgroundTransparency = 1
-ToggleButton.Size = UDim2.new(0, 40, 0, 40)
-ToggleButton.Position = UDim2.new(1, -50, 0.5, -20)
 ToggleButton.Image = "rbxasset://textures/ui/mouseLock_off@2x.png"
+ToggleButton.Position = UDim2.new(1, -50, 0.5, -20)
+ToggleButton.Parent = Player.PlayerGui:WaitForChild("ShiftLockUI")
 
--- System Variables
-local IsActive = false
-local InputConnection
-local Yaw = 0
-local Sensitivity = 0.4 -- Lower = slower rotation
+-- Core Logic
+local isActive = false
+local yaw = 0
 
-local function UpdateRotation(deltaX)
-    local character = Player.Character
-    local rootPart = character and character:FindFirstChild("HumanoidRootPart")
-    if not rootPart then return end
-    
-    -- Apply horizontal rotation only
-    Yaw = Yaw - (deltaX * Sensitivity)
-    rootPart.CFrame = CFrame.new(rootPart.Position) * CFrame.Angles(0, math.rad(Yaw), 0)
-end
-
-local function HandleInput(input, gameProcessed)
-    if not IsActive or gameProcessed then return end
-    
-    if input.UserInputType == Enum.UserInputType.MouseMovement or 
-       input.UserInputType == Enum.UserInputType.Touch then
-        UpdateRotation(input.Delta.X)
+UserInputService.InputChanged:Connect(function(input)
+    if isActive and input.UserInputType == Enum.UserInputType.MouseMovement then
+        local rootPart = Player.Character:FindFirstChild("HumanoidRootPart")
+        if rootPart then
+            yaw -= input.Delta.X * 0.5 -- Rotation speed
+            rootPart.CFrame = CFrame.new(rootPart.Position) * CFrame.Angles(0, math.rad(yaw), 0)
+        end
     end
-end
+end)
 
 ToggleButton.MouseButton1Click:Connect(function()
-    IsActive = not IsActive
-    ToggleButton.Image = IsActive and "rbxasset://textures/ui/mouseLock_on@2x.png" 
+    isActive = not isActive
+    ToggleButton.Image = isActive 
+        and "rbxasset://textures/ui/mouseLock_on@2x.png" 
         or "rbxasset://textures/ui/mouseLock_off@2x.png"
-
-    if IsActive then
-        -- Initialize
-        Player.Character.Humanoid.AutoRotate = false
-        Yaw = Player.Character.HumanoidRootPart.Orientation.Y
-        InputConnection = UserInputService.InputChanged:Connect(HandleInput)
-    else
-        -- Cleanup
-        Player.Character.Humanoid.AutoRotate = true
-        if InputConnection then
-            InputConnection:Disconnect()
-        end
+    
+    Player.Character.Humanoid.AutoRotate = not isActive
+    if isActive then
+        yaw = Player.Character.HumanoidRootPart.Orientation.Y
     end
 end)
