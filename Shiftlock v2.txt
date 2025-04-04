@@ -1,4 +1,5 @@
 local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 local Player = Players.LocalPlayer
 
@@ -16,7 +17,10 @@ ToggleButton.Image = "rbxasset://textures/ui/mouseLock_off@2x.png"
 
 -- System Variables
 local IsActive = false
+local InputConnection
 local RenderConnection
+local Yaw = 0
+local Sensitivity = 0.4
 
 local function UpdateRotation()
     if not IsActive then return end
@@ -26,13 +30,21 @@ local function UpdateRotation()
     local camera = workspace.CurrentCamera
     
     if rootPart and camera then
-        -- Calculate target rotation from camera direction
+        -- Get horizontal camera direction
         local lookVector = camera.CFrame.LookVector
         local flatLook = Vector3.new(lookVector.X, 0, lookVector.Z).Unit
-        local targetCFrame = CFrame.new(rootPart.Position, rootPart.Position + flatLook)
         
-        -- Apply rotation
-        rootPart.CFrame = targetCFrame
+        -- Update character rotation
+        rootPart.CFrame = CFrame.new(rootPart.Position, rootPart.Position + flatLook)
+    end
+end
+
+local function HandleInput(input, gameProcessed)
+    if not IsActive or gameProcessed then return end
+    
+    -- Allow default camera rotation for mouse/touch
+    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+        UpdateRotation()
     end
 end
 
@@ -44,12 +56,12 @@ ToggleButton.MouseButton1Click:Connect(function()
     if IsActive then
         -- Initialize
         Player.Character.Humanoid.AutoRotate = false
+        InputConnection = UserInputService.InputChanged:Connect(HandleInput)
         RenderConnection = RunService.RenderStepped:Connect(UpdateRotation)
     else
         -- Cleanup
         Player.Character.Humanoid.AutoRotate = true
-        if RenderConnection then
-            RenderConnection:Disconnect()
-        end
+        if InputConnection then InputConnection:Disconnect() end
+        if RenderConnection then RenderConnection:Disconnect() end
     end
 end)
