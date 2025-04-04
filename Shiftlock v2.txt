@@ -18,10 +18,11 @@ ToggleButton.Image = "rbxasset://textures/ui/mouseLock_off@2x.png"
 -- System Variables
 local IsActive = false
 local RenderConnection
-local SENSITIVITY = 0.4
-local CAMERA_OFFSET = Vector3.new(0, 3, 8) -- Fixed distance (Y, Z)
+local Sensitivity = 0.4
+local InitialCameraCFrame = CFrame.new()
+local CameraOffset = Vector3.new()
 
-local function UpdateCamera()
+local function UpdateRotation()
     if not IsActive then return end
     
     local character = Player.Character
@@ -29,20 +30,18 @@ local function UpdateCamera()
     local camera = workspace.CurrentCamera
     
     if rootPart and camera then
-        -- Get input delta
+        -- Get mouse movement
         local delta = UserInputService:GetMouseDelta()
         
-        -- Rotate character horizontally
+        -- Rotate character based on mouse X
         rootPart.CFrame = CFrame.new(rootPart.Position) 
-            * CFrame.Angles(0, math.rad(-delta.X * SENSITIVITY), 0)
+            * CFrame.Angles(0, math.rad(-delta.X * Sensitivity), 0)
+            * InitialCameraCFrame.Rotation
         
-        -- Calculate camera position (fixed offset)
-        local basePosition = rootPart.Position + Vector3.new(0, CAMERA_OFFSET.Y, 0)
-        local cameraPosition = basePosition - (rootPart.CFrame.LookVector * CAMERA_OFFSET.Z)
-        
-        -- Update camera with fixed distance
-        camera.CFrame = CFrame.lookAt(cameraPosition, rootPart.Position)
-            * CFrame.Angles(math.rad(-delta.Y * SENSITIVITY * 0.5), 0, 0)
+        -- Update camera position relative to character
+        camera.CFrame = rootPart.CFrame 
+            * CFrame.new(CameraOffset) 
+            * CFrame.Angles(math.rad(-delta.Y * Sensitivity * 0.5), 0, 0)
     end
 end
 
@@ -52,18 +51,18 @@ ToggleButton.MouseButton1Click:Connect(function()
         or "rbxasset://textures/ui/mouseLock_off@2x.png"
 
     if IsActive then
-        -- Initialize
+        -- Capture current camera setup
+        local rootPart = Player.Character.HumanoidRootPart
+        InitialCameraCFrame = workspace.CurrentCamera.CFrame
+        CameraOffset = InitialCameraCFrame.Position - rootPart.Position
+        
+        -- Initialize system
         Player.Character.Humanoid.AutoRotate = false
         workspace.CurrentCamera.CameraType = Enum.CameraType.Scriptable
         
-        -- Force initial camera position
-        local rootPart = Player.Character.HumanoidRootPart
-        local initialPosition = rootPart.Position + Vector3.new(0, CAMERA_OFFSET.Y, 0)
-        workspace.CurrentCamera.CFrame = CFrame.lookAt(initialPosition - (rootPart.CFrame.LookVector * CAMERA_OFFSET.Z), rootPart.Position)
-        
-        RenderConnection = RunService.RenderStepped:Connect(UpdateCamera)
+        RenderConnection = RunService.RenderStepped:Connect(UpdateRotation)
     else
-        -- Cleanup
+        -- Restore defaults
         Player.Character.Humanoid.AutoRotate = true
         workspace.CurrentCamera.CameraType = Enum.CameraType.Custom
         if RenderConnection then
