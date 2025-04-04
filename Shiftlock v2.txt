@@ -19,9 +19,9 @@ ToggleButton.Image = "rbxasset://textures/ui/mouseLock_off@2x.png"
 local IsActive = false
 local RenderConnection
 local SENSITIVITY = 0.4
-local CAMERA_OFFSET = CFrame.new(0, 3, 8) -- Fixed camera position (Y, Z)
+local CAMERA_OFFSET = Vector3.new(0, 3, 8) -- Fixed distance (Y, Z)
 
-local function UpdateRotation()
+local function UpdateCamera()
     if not IsActive then return end
     
     local character = Player.Character
@@ -35,11 +35,13 @@ local function UpdateRotation()
         -- Rotate character horizontally
         rootPart.CFrame = CFrame.new(rootPart.Position) 
             * CFrame.Angles(0, math.rad(-delta.X * SENSITIVITY), 0)
-            * rootPart.CFrame.Rotation
         
-        -- Update camera pitch (vertical look)
-        camera.CFrame = rootPart.CFrame 
-            * CAMERA_OFFSET 
+        -- Calculate camera position (fixed offset)
+        local basePosition = rootPart.Position + Vector3.new(0, CAMERA_OFFSET.Y, 0)
+        local cameraPosition = basePosition - (rootPart.CFrame.LookVector * CAMERA_OFFSET.Z)
+        
+        -- Update camera with fixed distance
+        camera.CFrame = CFrame.lookAt(cameraPosition, rootPart.Position)
             * CFrame.Angles(math.rad(-delta.Y * SENSITIVITY * 0.5), 0, 0)
     end
 end
@@ -54,11 +56,12 @@ ToggleButton.MouseButton1Click:Connect(function()
         Player.Character.Humanoid.AutoRotate = false
         workspace.CurrentCamera.CameraType = Enum.CameraType.Scriptable
         
-        -- Force camera to initial offset
+        -- Force initial camera position
         local rootPart = Player.Character.HumanoidRootPart
-        workspace.CurrentCamera.CFrame = rootPart.CFrame * CAMERA_OFFSET
+        local initialPosition = rootPart.Position + Vector3.new(0, CAMERA_OFFSET.Y, 0)
+        workspace.CurrentCamera.CFrame = CFrame.lookAt(initialPosition - (rootPart.CFrame.LookVector * CAMERA_OFFSET.Z), rootPart.Position)
         
-        RenderConnection = RunService.RenderStepped:Connect(UpdateRotation)
+        RenderConnection = RunService.RenderStepped:Connect(UpdateCamera)
     else
         -- Cleanup
         Player.Character.Humanoid.AutoRotate = true
