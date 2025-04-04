@@ -1,4 +1,5 @@
 local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 local Player = Players.LocalPlayer
 
@@ -16,23 +17,39 @@ ToggleButton.Image = "rbxasset://textures/ui/mouseLock_off@2x.png"
 
 -- System Variables
 local IsActive = false
+local InputConnection
 local RenderConnection
+local Yaw = 0
+local TouchObject = nil
+local Sensitivity = 0.5
 
-local function UpdateRotation()
-    if not IsActive then return end
-    
+-- Configure these to match your preferred camera view
+local CAMERA_OFFSET = Vector3.new(0, 3, 8) -- (Y-axis height, Z-axis distance)
+
+local function UpdateCamera()
     local character = Player.Character
     local rootPart = character and character:FindFirstChild("HumanoidRootPart")
-    local camera = workspace.CurrentCamera
+    if not rootPart then return end
     
-    if rootPart and camera then
-        -- Calculate target rotation from camera direction
-        local lookVector = camera.CFrame.LookVector
-        local flatLook = Vector3.new(lookVector.X, 0, lookVector.Z).Unit
-        local targetCFrame = CFrame.new(rootPart.Position, rootPart.Position + flatLook)
-        
-        -- Apply rotation
-        rootPart.CFrame = targetCFrame
+    -- Update camera position
+    workspace.CurrentCamera.CFrame = CFrame.lookAt(
+        rootPart.Position + Vector3.new(0, CAMERA_OFFSET.Y, 0),
+        rootPart.Position
+    ) * CFrame.new(0, 0, CAMERA_OFFSET.Z) * CFrame.Angles(0, math.rad(Yaw), 0)
+end
+
+local function HandleInput(input, gameProcessed)
+    if not IsActive or gameProcessed then return end
+    
+    if input.UserInputType == Enum.UserInputType.Touch then
+        if input.UserInputState == Enum.UserInputState.Begin then
+            TouchObject = input
+        elseif input.UserInputState == Enum.UserInputState.Change then
+            -- Calculate rotation from touch delta
+            local delta = input.Delta
+            Yaw = Yaw - (delta.X * Sensitivity)
+            UpdateCamera()
+        end
     end
 end
 
@@ -44,12 +61,20 @@ ToggleButton.MouseButton1Click:Connect(function()
     if IsActive then
         -- Initialize
         Player.Character.Humanoid.AutoRotate = false
-        RenderConnection = RunService.RenderStepped:Connect(UpdateRotation)
+        workspace.CurrentCamera.CameraType = Enum.CameraType.Scriptable
+        
+        -- Set initial rotation
+        Yaw = Player.Character.HumanoidRootPart.Orientation.Y
+        UpdateCamera()
+        
+        -- Connect input
+        InputConnection = UserInputService.InputChanged:Connect(HandleInput)
+        RenderConnection = RunService.RenderStepped:Connect(UpdateCamera)
     else
         -- Cleanup
         Player.Character.Humanoid.AutoRotate = true
-        if RenderConnection then
-            RenderConnection:Disconnect()
-        end
+        workspace.CurrentCamera.CameraType = Enum.CameraType.Custom
+        if InputConnection then InputConnection:Disconnect() end
+        if RenderConnection then RenderConnection:Disconnect() end
     end
 end)
