@@ -1,60 +1,73 @@
-#NoEnv
-SendMode Input
-SetTitleMatchMode, 2
-CoordMode, Mouse, Screen
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local Player = Players.LocalPlayer
 
-; === CONFIGURATION ===
-targetWindow := "ahk_exe RobloxPlayerBeta.exe"  ; Roblox window identifier
-toggleKey := "F1"                               ; ShiftLock toggle key
-sensitivity := 0.6                              ; Lower = slower rotation
-centerX := A_ScreenWidth // 2                   ; Screen center X
-centerY := A_ScreenHeight // 2                  ; Screen center Y
-; =====================
+-- ===== UI SETUP =====
+local ShiftLockUI = Instance.new("ScreenGui")
+ShiftLockUI.Name = "ShiftLockSystem"
+ShiftLockUI.ResetOnSpawn = false
+ShiftLockUI.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+ShiftLockUI.Parent = game:GetService("CoreGui")
 
-isShiftLockActive := false
-originalMouseSpeed := A_MouseSpeed
+local ToggleButton = Instance.new("ImageButton")
+ToggleButton.Name = "ShiftLockToggle"
+ToggleButton.Image = "rbxassetid://13270449333" -- OFF state
+ToggleButton.Size = UDim2.new(0, 45, 0, 45)
+ToggleButton.Position = UDim2.new(1, -60, 0.5, -22.5)
+ToggleButton.AnchorPoint = Vector2.new(1, 0.5)
+ToggleButton.BackgroundTransparency = 1
+ToggleButton.Visible = true
+ToggleButton.Parent = ShiftLockUI
 
-; === MAIN TOGGLE ===
-Hotkey, %toggleKey%, ToggleShiftLock
-return
+-- ===== CORE FUNCTIONALITY =====
+local isActive = false
+local yaw = 0
+local pitch = 0
+local inputConnection = nil
 
-ToggleShiftLock:
-    if (!WinActive(targetWindow)) {
-        return
-    }
+local function UpdateCharacterRotation(deltaX)
+    local character = Player.Character
+    if not character then return end
     
-    isShiftLockActive := !isShiftLockActive
+    local humanoid = character:FindFirstChild("Humanoid")
+    local rootPart = character:FindFirstChild("HumanoidRootPart")
     
-    if (isShiftLockActive) {
-        ; Enter ShiftLock mode
-        BlockInput, MouseMove
-        MouseGetPos, originalX, originalY
-        DllCall("SetCursorPos", "int", centerX, "int", centerY)
-        Send {RButton down}
-        SetDefaultMouseSpeed, 0
-        MouseMove, centerX, centerY, 0
-        SoundBeep, 1000, 100
-    } else {
-        ; Exit ShiftLock mode
-        BlockInput, MouseMoveOff
-        Send {RButton up}
-        DllCall("SetCursorPos", "int", originalX, "int", originalY)
-        SoundBeep, 500, 100
-    }
-return
+    if humanoid and rootPart then
+        yaw = yaw - (deltaX * 0.4) -- Rotation speed multiplier
+        rootPart.CFrame = CFrame.new(rootPart.Position) * CFrame.Angles(0, math.rad(yaw), 0)
+    end
+end
 
-; === INPUT HANDLING ===
-#IfWinActive %targetWindow%
-~LButton::return  ; Disable accidental clicks
+local function HandleInput(input)
+    if isActive and (input.UserInputType == Enum.UserInputType.MouseMovement 
+       or input.UserInputType == Enum.UserInputType.Touch) then
+        UpdateCharacterRotation(input.Delta.X)
+    end
+end
 
-~MouseMove:
-    if (isShiftLockActive) {
-        MouseGetPos, currX, currY
-        deltaX := (currX - centerX) * sensitivity
-        deltaY := (currY - centerY) * sensitivity * 0.3  ; Reduce vertical sensitivity
+ToggleButton.MouseButton1Click:Connect(function()
+    isActive = not isActive
+    ToggleButton.Image = isActive and "rbxassetid://13270450007" or "rbxassetid://13270449333"
+    
+    if Player.Character then
+        local humanoid = Player.Character:FindFirstChild("Humanoid")
+        if humanoid then
+            humanoid.AutoRotate = not isActive
+        end
         
-        ; Send adjusted input
-        DllCall("mouse_event", "UInt", 0x0001, "Int", deltaX, "Int", deltaY)
-        DllCall("SetCursorPos", "int", centerX, "int", centerY)
-    }
-return
+        if isActive then
+            yaw = Player.Character:WaitForChild("HumanoidRootPart").Orientation.Y
+            inputConnection = UserInputService.InputChanged:Connect(HandleInput)
+        else
+            if inputConnection then
+                inputConnection:Disconnect()
+                inputConnection = nil
+            end
+        end
+    end
+end)
+
+-- ===== INITIALIZATION =====
+game:GetService("StarterGui"):SetCoreGuiEnabled(Enum.CoreGuiType.All, true)
+ShiftLockUI.Enabled = true
