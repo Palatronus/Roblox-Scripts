@@ -1,80 +1,60 @@
---[[
-    Official-style ShiftLock with GUI Toggle (FIXED)
-]]
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
-local CoreGui = game:GetService("CoreGui")
 local Player = Players.LocalPlayer
 
 -- GUI Setup
 local ShiftLockUI = Instance.new("ScreenGui")
 local ToggleButton = Instance.new("ImageButton")
-local LockCursor = Instance.new("ImageLabel")
-
-ShiftLockUI.Name = "ShiftLockSystem"
-ShiftLockUI.Parent = CoreGui
+ShiftLockUI.Parent = game:GetService("CoreGui")
 ShiftLockUI.ResetOnSpawn = false
 
-ToggleButton.Name = "ToggleButton"
 ToggleButton.Parent = ShiftLockUI
 ToggleButton.BackgroundTransparency = 1
 ToggleButton.Size = UDim2.new(0, 40, 0, 40)
 ToggleButton.Position = UDim2.new(1, -50, 0.5, -20)
 ToggleButton.Image = "rbxasset://textures/ui/mouseLock_off@2x.png"
 
-LockCursor.Name = "LockCursor"
-LockCursor.Parent = ShiftLockUI
-LockCursor.Image = "rbxasset://textures/MouseLockedCursor.png"
-LockCursor.Size = UDim2.new(0, 32, 0, 32)
-LockCursor.AnchorPoint = Vector2.new(0.5, 0.5)
-LockCursor.Position = UDim2.new(0.5, 0, 0.5, 0)
-LockCursor.BackgroundTransparency = 1
-LockCursor.Visible = false
-
 -- System Variables
 local IsActive = false
-local CameraOffset = CFrame.new(0, 2, 8) -- Standard offset
 local Yaw = 0
-local Pitch = 0
+local Connection
 
--- Core Rotation Logic
-local function UpdateCharacterRotation()
+local function RotateCharacter(deltaX)
     local Character = Player.Character
     if not Character then return end
     
     local HumanoidRootPart = Character:FindFirstChild("HumanoidRootPart")
-    local Humanoid = Character:FindFirstChild("Humanoid")
-    if not HumanoidRootPart or not Humanoid then return end
-
-    HumanoidRootPart.CFrame = CFrame.new(HumanoidRootPart.Position) * CFrame.Angles(0, math.rad(Yaw), 0)
-    workspace.CurrentCamera.CFrame = HumanoidRootPart.CFrame
-        * CFrame.Angles(math.rad(-Pitch), 0, 0)
-        * CameraOffset
+    if HumanoidRootPart then
+        Yaw = Yaw - (deltaX * 0.4) -- Adjust sensitivity here
+        HumanoidRootPart.CFrame = CFrame.new(HumanoidRootPart.Position) 
+            * CFrame.Angles(0, math.rad(Yaw), 0)
+    end
 end
 
--- Fixed Toggle Functionality
 ToggleButton.MouseButton1Click:Connect(function()
     IsActive = not IsActive
-    LockCursor.Visible = IsActive
-    ToggleButton.Image = IsActive and "rbxasset://textures/ui/mouseLock_on@2x.png" or "rbxasset://textures/ui/mouseLock_off@2x.png"
+    ToggleButton.Image = IsActive and "rbxasset://textures/ui/mouseLock_on@2x.png" 
+        or "rbxasset://textures/ui/mouseLock_off@2x.png"
 
     if IsActive then
-        Player.Character.Humanoid.AutoRotate = false
-        workspace.CurrentCamera.CameraType = Enum.CameraType.Scriptable
-        Yaw = Player.Character.HumanoidRootPart.Orientation.Y
-        Pitch = 0
+        -- Initialize rotation
+        local HumanoidRootPart = Player.Character:FindFirstChild("HumanoidRootPart")
+        if HumanoidRootPart then
+            Yaw = HumanoidRootPart.Orientation.Y
+            Player.Character.Humanoid.AutoRotate = false
+        end
 
-        -- Corrected RenderStep binding
-        RunService:BindToRenderStep("ShiftLockRotation", Enum.RenderPriority.Camera.Value, function()
-            local MouseDelta = UserInputService:GetMouseDelta()
-            Yaw = Yaw - (MouseDelta.X * 0.4)
-            Pitch = math.clamp(Pitch + (MouseDelta.Y * 0.4), -70, 70) -- Fixed math.clamp syntax
-            UpdateCharacterRotation()
+        -- Mouse movement handler
+        Connection = UserInputService.InputChanged:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseMovement then
+                RotateCharacter(input.Delta.X)
+            end
         end)
     else
         Player.Character.Humanoid.AutoRotate = true
-        workspace.CurrentCamera.CameraType = Enum.CameraType.Custom
-        RunService:UnbindFromRenderStep("ShiftLockRotation")
+        if Connection then
+            Connection:Disconnect()
+        end
     end
 end)
