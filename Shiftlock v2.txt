@@ -18,9 +18,8 @@ ToggleButton.Image = "rbxasset://textures/ui/mouseLock_off@2x.png"
 -- System Variables
 local IsActive = false
 local RenderConnection
-local LastCameraCFrame = CFrame.new()
 
-local function UpdateCharacterToView()
+local function UpdateCharacterRotation()
     if not IsActive then return end
     
     local character = Player.Character
@@ -28,14 +27,12 @@ local function UpdateCharacterToView()
     local camera = workspace.CurrentCamera
     
     if rootPart and camera then
-        -- Get camera look direction (horizontal only)
-        local flatLookVector = Vector3.new(camera.CFrame.LookVector.X, 0, camera.CFrame.LookVector.Z).Unit
+        -- Get horizontal camera direction
+        local lookVector = camera.CFrame.LookVector
+        local flatLook = Vector3.new(lookVector.X, 0, lookVector.Z).Unit
         
-        -- Calculate target rotation
-        local targetCFrame = CFrame.new(rootPart.Position, rootPart.Position + flatLookVector)
-        
-        -- Apply smooth rotation (5% lerp for stability)
-        rootPart.CFrame = rootPart.CFrame:Lerp(targetCFrame, 0.05)
+        -- Rotate character to match camera direction
+        rootPart.CFrame = CFrame.new(rootPart.Position, rootPart.Position + flatLook)
     end
 end
 
@@ -45,16 +42,11 @@ ToggleButton.MouseButton1Click:Connect(function()
         or "rbxasset://textures/ui/mouseLock_off@2x.png"
 
     if IsActive then
-        -- Initialize
+        -- Enable shiftlock
         Player.Character.Humanoid.AutoRotate = false
-        LastCameraCFrame = workspace.CurrentCamera.CFrame
-        
-        -- Use RenderStepped for smooth updates
-        RenderConnection = RunService.RenderStepped:Connect(function()
-            UpdateCharacterToView()
-        end)
+        RenderConnection = RunService.RenderStepped:Connect(UpdateCharacterRotation)
     else
-        -- Cleanup
+        -- Disable shiftlock
         Player.Character.Humanoid.AutoRotate = true
         if RenderConnection then
             RenderConnection:Disconnect()
