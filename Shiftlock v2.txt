@@ -4,45 +4,21 @@ local Player = Players.LocalPlayer
 
 -- GUI Setup
 local ShiftLockUI = Instance.new("ScreenGui")
-ShiftLockUI.Parent = game:GetService("CoreGui")
-ShiftLockUI.ResetOnSpawn = false  -- Prevent UI reset on respawn
+ShiftLockUI.Name = "ShiftLockSystem"
+ShiftLockUI.ResetOnSpawn = false
+ShiftLockUI.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+ShiftLockUI.Parent = game:GetService("CoreGui") -- Use CoreGui for universal visibility
 
 local ToggleButton = Instance.new("ImageButton")
-ToggleButton.Name = "ShiftLockButton"
-ToggleButton.Image = "rbxasset://textures/ui/mouseLock_off@2x.png"
+ToggleButton.Name = "ShiftLockToggle"
+ToggleButton.Image = "rbxassetid://13270449333" -- Official Roblox shiftlock texture ID
 ToggleButton.BackgroundTransparency = 1
-ToggleButton.Size = UDim2.new(0, 40, 0, 40)
-ToggleButton.Position = UDim2.new(1, -50, 0.5, -20)  -- Top-right position
+ToggleButton.Size = UDim2.new(0, 45, 0, 45) -- Standard Roblox size
+ToggleButton.Position = UDim2.new(1, -60, 0.5, -22.5) -- Exact default position
+ToggleButton.AnchorPoint = Vector2.new(1, 0.5)
 ToggleButton.Parent = ShiftLockUI
 
--- Core Logic
-local isActive = false
-local yaw = 0
-
-UserInputService.InputChanged:Connect(function(input)
-    if isActive and input.UserInputType == Enum.UserInputType.MouseMovement then
-        local character = Player.Character
-        if character then
-            local rootPart = character:FindFirstChild("HumanoidRootPart")
-            if rootPart then
-                yaw -= input.Delta.X * 0.5  -- Rotation speed
-                rootPart.CFrame = CFrame.new(rootPart.Position) * CFrame.Angles(0, math.rad(yaw), 0)
-            end
-        end
-    end
-end)
-
-ToggleButton.MouseButton1Click:Connect(function()
-    isActive = not isActive
-    ToggleButton.Image = isActive and 
-        "rbxasset://textures/ui/mouseLock_on@2x.png" or 
-        "rbxasset://textures/ui/mouseLock_off@2x.png"
-    
-    if Player.Character and Player.Character:FindFirstChild("Humanoid") then
-        Player.Character.Humanoid.AutoRotate = not isActive
-    end
-    
-    if isActive then
-        yaw = Player.Character.HumanoidRootPart.Orientation.Y
-    end
-end)
+-- Force icon visibility
+if not game:IsLoaded() then game.Loaded:Wait() end
+task.wait(1) -- Allow GUI to initialize
+ShiftLockUI.Enabled = true
