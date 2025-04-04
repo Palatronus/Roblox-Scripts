@@ -1,41 +1,82 @@
-ShiftLockButton.MouseButton1Click:Connect(
-    function()
-        if not Active then
-            Player.Character.Humanoid.AutoRotate = false
-            ShiftLockButton.Image = States.On
-            ShiftlockCursor.Visible = true
-            workspace.CurrentCamera.CameraType = Enum.CameraType.Scriptable
-            
-            local yaw = 0
-            local pitch = 0
-            local sensitivity = 0.3
-            
-            Active = UserInputService.InputChanged:Connect(function(input)
-                if input.UserInputType == Enum.UserInputType.MouseMovement then
-                    local delta = input.Delta
-                    local humanoidRootPart = Player.Character.HumanoidRootPart
-                    if humanoidRootPart then
-                        -- Update character rotation (yaw)
-                        yaw = yaw - delta.X * sensitivity
-                        humanoidRootPart.CFrame = CFrame.new(humanoidRootPart.Position) * CFrame.Angles(0, math.rad(yaw), 0)
-                        
-                        -- Update camera pitch
-                        pitch = math.clamp(pitch + delta.Y * sensitivity, -70, 70)
-                        local cameraOffset = CFrame.new(0, 3, 10)
-                        local cameraCFrame = humanoidRootPart.CFrame 
-                            * CFrame.Angles(math.rad(-pitch), 0, 0) 
-                            * cameraOffset
-                        workspace.CurrentCamera.CFrame = cameraCFrame
-                    end
-                end
-            end)
-        else
-            Player.Character.Humanoid.AutoRotate = true
-            ShiftLockButton.Image = States.Off
-            ShiftlockCursor.Visible = false
-            workspace.CurrentCamera.CameraType = Enum.CameraType.Custom
-            Active:Disconnect()
-            Active = nil
-        end
+--[[
+    WARNING: Heads up! This script has not been verified by ScriptBlox. Use at your own risk!
+]]
+local ShiftLockScreenGui = Instance.new("ScreenGui")
+local ShiftLockButton = Instance.new("ImageButton")
+local ShiftlockCursor = Instance.new("ImageLabel")
+local CoreGui = game:GetService("CoreGui")
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local ContextActionService = game:GetService("ContextActionService")
+local UserInputService = game:GetService("UserInputService")
+local Player = Players.LocalPlayer
+local Active
+
+-- States table and other constants remain unchanged
+local States = {
+    Off = "rbxasset://textures/ui/mouseLock_off@2x.png",
+    On = "rbxasset://textures/ui/mouseLock_on@2x.png",
+    Lock = "rbxasset://textures/MouseLockedCursor.png",
+    Lock2 = "rbxasset://SystemCursors/Cross"
+}
+
+-- Initialize GUI elements
+ShiftLockScreenGui.Name = "Shiftlock (CoreGui)"
+ShiftLockScreenGui.Parent = CoreGui
+ShiftLockScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+ShiftLockScreenGui.ResetOnSpawn = false
+
+ShiftLockButton.Parent = ShiftLockScreenGui
+ShiftLockButton.BackgroundTransparency = 1
+ShiftLockButton.Position = UDim2.new(0.858, 0, 0.498, 0)
+ShiftLockButton.Size = UDim2.new(0.063, 0, 0.066, 0)
+ShiftLockButton.SizeConstraint = Enum.SizeConstraint.RelativeXX
+ShiftLockButton.Image = States.Off
+
+ShiftlockCursor.Name = "ShiftlockCursor"
+ShiftlockCursor.Parent = ShiftLockScreenGui
+ShiftlockCursor.Image = States.Lock
+ShiftlockCursor.Size = UDim2.new(0.03, 0, 0.03, 0)
+ShiftlockCursor.Position = UDim2.new(0.5, 0, 0.5, 0)
+ShiftlockCursor.AnchorPoint = Vector2.new(0.5, 0.5)
+ShiftlockCursor.BackgroundTransparency = 1
+ShiftlockCursor.Visible = false
+
+-- Event handler (revised)
+ShiftLockButton.MouseButton1Click:Connect(function()
+    if not Active then
+        Player.Character.Humanoid.AutoRotate = false
+        ShiftLockButton.Image = States.On
+        ShiftlockCursor.Visible = true
+        workspace.CurrentCamera.CameraType = Enum.CameraType.Scriptable
+        
+        local yaw = 0
+        local pitch = 0
+        local sensitivity = 0.3
+        
+        Active = UserInputService.InputChanged:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseMovement then
+                local delta = input.Delta
+                local humanoidRootPart = Player.Character:WaitForChild("HumanoidRootPart")
+                
+                -- Rotate character
+                yaw = yaw - delta.X * sensitivity
+                humanoidRootPart.CFrame = CFrame.new(humanoidRootPart.Position) * CFrame.Angles(0, math.rad(yaw), 0)
+                
+                -- Adjust camera pitch
+                pitch = math.clamp(pitch + delta.Y * sensitivity, -70, 70)
+                local cameraCFrame = humanoidRootPart.CFrame 
+                    * CFrame.Angles(math.rad(-pitch), 0, 0) 
+                    * CFrame.new(0, 3, 10) -- Camera offset
+                workspace.CurrentCamera.CFrame = cameraCFrame
+            end
+        end)
+    else
+        Player.Character.Humanoid.AutoRotate = true
+        ShiftLockButton.Image = States.Off
+        ShiftlockCursor.Visible = false
+        workspace.CurrentCamera.CameraType = Enum.CameraType.Custom
+        Active:Disconnect()
+        Active = nil
     end
-)
+end)
