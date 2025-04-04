@@ -1,5 +1,6 @@
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
 local Player = Players.LocalPlayer
 
 -- GUI Setup
@@ -16,24 +17,39 @@ ToggleButton.Image = "rbxasset://textures/ui/mouseLock_off@2x.png"
 
 -- System Variables
 local IsActive = false
-local InputConnection
-local Sensitivity = 0.5 -- Adjust rotation speed here
+local RenderConnection
+local Yaw = 0
+local Pitch = 0
+local Sensitivity = 0.5
+local CenterPosition = Vector2.new(0.5, 0.5) -- Screen center for virtual cursor
 
-local function RotateCharacter(deltaX)
+local function ForceCameraUpdate()
     local character = Player.Character
     local rootPart = character and character:FindFirstChild("HumanoidRootPart")
-    if not rootPart then return end
+    local camera = workspace.CurrentCamera
     
-    -- Convert mouse delta to rotation
-    rootPart.CFrame = rootPart.CFrame * CFrame.Angles(0, math.rad(-deltaX * Sensitivity), 0)
+    if not (rootPart and camera) then return end
+    
+    -- Update character rotation
+    rootPart.CFrame = CFrame.new(rootPart.Position) * CFrame.Angles(0, math.rad(Yaw), 0)
+    
+    -- Update camera orientation
+    camera.CFrame = CFrame.new(rootPart.Position)
+        * CFrame.Angles(math.rad(-Pitch), math.rad(Yaw), 0)
+        * CFrame.new(0, 3, 8) -- 3rd person offset
 end
 
-local function HandleInput(input, gameProcessed)
-    if not IsActive or gameProcessed then return end
+local function VirtualRMBAction()
+    local mouseDelta = UserInputService:GetMouseDelta()
     
-    if input.UserInputType == Enum.UserInputType.MouseMovement then
-        RotateCharacter(input.Delta.X)
-    end
+    -- Simulate centered cursor by resetting delta
+    UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
+    
+    -- Update rotations
+    Yaw = Yaw - (mouseDelta.X * Sensitivity)
+    Pitch = math.clamp(Pitch + (mouseDelta.Y * Sensitivity), -70, 70)
+    
+    ForceCameraUpdate()
 end
 
 ToggleButton.MouseButton1Click:Connect(function()
@@ -42,14 +58,23 @@ ToggleButton.MouseButton1Click:Connect(function()
         or "rbxasset://textures/ui/mouseLock_off@2x.png"
 
     if IsActive then
-        -- Initialize
+        -- Initialize virtual RMB mode
         Player.Character.Humanoid.AutoRotate = false
-        InputConnection = UserInputService.InputChanged:Connect(HandleInput)
+        workspace.CurrentCamera.CameraType = Enum.CameraType.Scriptable
+        UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
+        
+        -- Reset rotations
+        Yaw = Player.Character.HumanoidRootPart.Orientation.Y
+        Pitch = 0
+        
+        RenderConnection = RunService.RenderStepped:Connect(VirtualRMBAction)
     else
         -- Cleanup
         Player.Character.Humanoid.AutoRotate = true
-        if InputConnection then
-            InputConnection:Disconnect()
+        workspace.CurrentCamera.CameraType = Enum.CameraType.Custom
+        UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+        if RenderConnection then
+            RenderConnection:Disconnect()
         end
     end
 end)
