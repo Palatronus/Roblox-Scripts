@@ -1,79 +1,116 @@
--- Explicit service initialization with nil checks
-local function getService(serviceName)
-    local service = game:GetService(serviceName)
-    if not service then
-        error("Service not found: "..serviceName)
-    end
-    return service
+-- Strict nil-protected service initialization
+local function safeGetService(serviceName)
+    local success, service = pcall(function()
+        return game:GetService(serviceName)
+    end)
+    return success and service or error("Failed to get service: "..serviceName)
 end
 
-local UserInputService = getService("UserInputService")
-local Players = getService("Players")
-local RunService = getService("RunService")
+-- Initialize critical services with fallbacks
+local UserInputService = safeGetService("UserInputService")
+local Players = safeGetService("Players")
+local RunService = safeGetService("RunService")
 
--- Player validation
-local LocalPlayer = Players.LocalPlayer
-if not LocalPlayer then
-    Players:GetPropertyChangedSignal("LocalPlayer"):Wait()
+-- Player initialization with timeout
+local LocalPlayer
+local startTime = os.clock()
+repeat
     LocalPlayer = Players.LocalPlayer
+    task.wait(0.1)
+until LocalPlayer or os.clock() - startTime > 5
+
+if not LocalPlayer then
+    error("Failed to initialize LocalPlayer")
 end
 
--- Mouse initialization
+-- Mouse initialization with validation
 local Mouse
 repeat
     Mouse = LocalPlayer:GetMouse()
     task.wait()
+    if not Mouse then
+        warn("Waiting for mouse instance...")
+    end
 until Mouse
 
--- Core configuration
-local shiftlockEnabled = false
+-- Core state management
+local shiftlockActive = false
 local currentMouseBehavior = Enum.MouseBehavior.Default
 
--- UI container creation with parent validation
-local ShiftlockGUI = Instance.new("ScreenGui")
-ShiftlockGUI.Name = "ShiftlockSystem"
-ShiftlockGUI.ResetOnSpawn = false
+-- UI initialization sequence
+local ShiftlockUI = Instance.new("ScreenGui")
+ShiftlockUI.Name = "ShiftlockSystem_UI"
+ShiftlockUI.ResetOnSpawn = false
 
-local PlayerGui
-repeat
-    PlayerGui = LocalPlayer:FindFirstChild("PlayerGui")
-    task.wait()
-until PlayerGui
-ShiftlockGUI.Parent = PlayerGui
+local function safeParentGUI()
+    local PlayerGui = LocalPlayer:FindFirstChild("PlayerGui") or LocalPlayer:WaitForChild("PlayerGui", 5)
+    if PlayerGui then
+        ShiftlockUI.Parent = PlayerGui
+    else
+        warn("Failed to parent Shiftlock UI")
+    end
+end
+safeParentGUI()
 
--- Mouse target frame
-local TargetFrame = Instance.new("Frame")
-TargetFrame.Size = UDim2.new(0, 0, 0, 0)
-TargetFrame.Visible = false
-TargetFrame.Parent = ShiftlockGUI
+local ControlFrame = Instance.new("Frame")
+ControlFrame.Name = "ControlFrame"
+ControlFrame.Size = UDim2.new(0, 0, 0, 0)
+ControlFrame.BackgroundTransparency = 1
+ControlFrame.Visible = false
+ControlFrame.Parent = ShiftlockUI
 
--- Safe mouse behavior update
-local function UpdateMouseBehavior()
-    pcall(function()
+-- State management functions
+local function updateMouseState()
+    if not UserInputService or not Mouse then return end
+    
+    local success = pcall(function()
         UserInputService.MouseBehavior = currentMouseBehavior
-        Mouse.TargetFilter = shiftlockEnabled and TargetFrame or nil
+        Mouse.TargetFilter = shiftlockActive and ControlFrame or nil
+        ControlFrame.Visible = shiftlockActive
     end)
+    
+    if not success then
+        warn("Failed to update mouse state")
+    end
 end
 
--- Input handling with explicit checks
+-- Input handling with debounce
+local debounce = false
 UserInputService.InputBegan:Connect(function(input)
+    if debounce then return end
+    debounce = true
+    
     if input.KeyCode == Enum.KeyCode.LeftShift then
-        shiftlockEnabled = not shiftlockEnabled
+        shiftlockActive = not shiftlockActive
         
-        currentMouseBehavior = shiftlockEnabled and (
+        currentMouseBehavior = shiftlockActive and (
             UserInputService.TouchEnabled 
             and Enum.MouseBehavior.LockCurrentPosition 
             or Enum.MouseBehavior.LockCenter
         ) or Enum.MouseBehavior.Default
         
-        TargetFrame.Visible = shiftlockEnabled
-        UpdateMouseBehavior()
+        updateMouseState()
+    end
+    
+    debounce = false
+end)
+
+-- Continuous state enforcement
+RunService.Heartbeat:Connect(function()
+    if shiftlockActive then
+        pcall(updateMouseState)
     end
 end)
 
--- Behavior enforcement with error suppression
-RunService.Heartbeat:Connect(function()
-    pcall(UpdateMouseBehavior)
-end)
+-- Touch device adaptation
+if UserInputService.TouchEnabled then
+    UserInputService.TouchTap:Connect(function()
+        if shiftlockActive then
+            currentMouseBehavior = Enum.MouseBehavior.LockCurrentPosition
+            updateMouseState()
+        end
+    end)
+end
 
-print("Shiftlock system initialized successfully")
+print("Shiftlock system successfully initialized")
+warn("Press Left Shift to toggle camera lock")
