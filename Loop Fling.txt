@@ -72,7 +72,7 @@ toggleBtn.Parent = mainFrame
 local flingActive = false
 local targetPlayer = nil
 local TARGET_USERNAME = ""
-local FLING_POWER = 500
+local FLING_POWER = 10000000
 local PREDICTION_FACTOR = 0.2
 local DIRECTIONAL_OFFSET = 0.8
 
