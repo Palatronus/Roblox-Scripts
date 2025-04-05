@@ -1,93 +1,94 @@
-local UserInputService = game:GetService("UserInputService")
-local RunService = game:GetService("RunService")
-local Players = game:GetService("Players")
-local LocalPlayer = Players.LocalPlayer
-local Camera = workspace.CurrentCamera
+local uis = game:GetService("UserInputService")
+local plrs = game:GetService("Players")
+local rus = game:GetService("RunService")
+local lp = plrs.LocalPlayer
+local mouse = lp:GetMouse()
+local e = Enum
 
--- Configuration
-local SHIFT_LOCK_ACTIVE = false
-local MOUSE_SENSITIVITY = Vector2.new(0.25, 0.25)
-local BASE_OFFSET = Vector3.new(0, 3, 10)
+-- Original code constants
+local enumMLCP = e.MouseBehavior.LockCurrentPosition
+local enumMLC = (uis.TouchEnabled and enumMLCP) or e.MouseBehavior.LockCenter
+local enumMD = e.MouseBehavior.Default
 
--- State management
-local character, humanoidRootPart
-local cameraAngle = Vector2.new()
-local lastInputTime = 0
+-- Create required UI elements FIRST
+local i10 = Instance.new("ScreenGui")
+i10.Name = "ShiftLockGUI"
+i10.ZIndexBehavior = e.ZIndexBehavior.Sibling
+i10.ResetOnSpawn = false
+i10.Parent = lp:WaitForChild("PlayerGui")
 
--- Initialize character reference
-local function InitializeCharacter()
-    character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
-    humanoidRootPart = character:WaitForChild("HumanoidRootPart")
-end
+local i1 = Instance.new("Frame")
+i1.Name = "MainFrame"
+i1.AnchorPoint = Vector2.new(0.5, 0.5)
+i1.Position = UDim2.new(0.5, 0, 0.5, 0)
+i1.Size = UDim2.new(0, 0, 0, 0)
+i1.Visible = false
+i1.Parent = i10
 
--- Immediate shiftlock toggle
-local function ToggleShiftlock()
-    SHIFT_LOCK_ACTIVE = not SHIFT_LOCK_ACTIVE
-    
-    -- Set mouse behavior
-    UserInputService.MouseBehavior = SHIFT_LOCK_ACTIVE and 
-        (UserInputService.TouchEnabled 
-            and Enum.MouseBehavior.LockCurrentPosition 
-            or Enum.MouseBehavior.LockCenter) 
-        or Enum.MouseBehavior.Default
-    
-    -- Configure camera
-    Camera.CameraType = SHIFT_LOCK_ACTIVE and Enum.CameraType.Scriptable or Enum.CameraType.Custom
-    
-    -- Reset camera angles when activating
-    if SHIFT_LOCK_ACTIVE then
-        cameraAngle = Vector2.new(math.rad(-15), 0)
-    end
-end
+-- ShiftLock state management
+local shiftlock = false
+local mouseBehavior = enumMD
+local lastMouseBehavior = uis.MouseBehavior
 
--- Camera update logic
-local function UpdateCamera()
-    if not SHIFT_LOCK_ACTIVE or not humanoidRootPart then return end
-    
-    -- Get mouse delta
-    local mouseDelta = UserInputService:GetMouseDelta()
-    cameraAngle += Vector2.new(
-        -mouseDelta.Y * MOUSE_SENSITIVITY.Y,
-        mouseDelta.X * MOUSE_SENSITIVITY.X
-    )
-    
-    -- Clamp vertical angle
-    cameraAngle = Vector2.new(
-        math.clamp(cameraAngle.X, math.rad(-60), math.rad(60)),
-        cameraAngle.Y
-    )
-    
-    -- Calculate camera position
-    local rootPosition = humanoidRootPart.Position
-    local cameraRot = CFrame.Angles(cameraAngle.X, cameraAngle.Y, 0)
-    local cameraOffset = cameraRot * BASE_OFFSET
-    
-    -- Apply camera transform
-    Camera.CFrame = CFrame.new(rootPosition + cameraOffset, rootPosition)
-end
-
--- Input handling
-UserInputService.InputBegan:Connect(function(input)
-    if input.KeyCode == Enum.KeyCode.LeftShift then
-        lastInputTime = os.clock()
-        ToggleShiftlock()
+-- Original mouse behavior enforcement
+uis:GetPropertyChangedSignal("MouseBehavior"):Connect(function()
+    if shiftlock and uis.MouseBehavior ~= mouseBehavior then
+        uis.MouseBehavior = mouseBehavior
     end
 end)
 
-UserInputService.InputEnded:Connect(function(input)
-    if input.KeyCode == Enum.KeyCode.LeftShift then
-        -- Only toggle if key was pressed briefly
-        if os.clock() - lastInputTime < 0.2 then
-            ToggleShiftlock()
+-- Your original toggle logic with instant response
+uis.InputBegan:Connect(function(input)
+    if input.KeyCode == e.KeyCode.LeftShift then
+        shiftlock = not shiftlock
+        mouseBehavior = shiftlock and enumMLC or enumMD
+        i1.Visible = shiftlock
+        uis.MouseBehavior = mouseBehavior
+        
+        -- Proper camera control from original script
+        if shiftlock then
+            mouse.TargetFilter = i1
+            workspace.CurrentCamera.CameraType = e.CameraType.Scriptable
+        else
+            mouse.TargetFilter = nil
+            workspace.CurrentCamera.CameraType = e.CameraType.Custom
         end
     end
 end)
 
--- Character tracking
-LocalPlayer.CharacterAdded:Connect(InitializeCharacter)
-InitializeCharacter()
+-- Your original draggable implementation
+local function Draggable(window)
+    local MB1 = e.UserInputType.MouseButton1
+    local dragStartPos, mouseStartPos
+    
+    window.InputBegan:Connect(function(input)
+        if input.UserInputType == MB1 then
+            dragStartPos = window.Position
+            mouseStartPos = uis:GetMouseLocation()
+        end
+    end)
+    
+    uis.InputChanged:Connect(function(input)
+        if input.UserInputType == MB1 and dragStartPos then
+            local delta = uis:GetMouseLocation() - mouseStartPos
+            window.Position = UDim2.new(
+                dragStartPos.X.Scale, 
+                dragStartPos.X.Offset + delta.X,
+                dragStartPos.Y.Scale, 
+                dragStartPos.Y.Offset + delta.Y
+            )
+        end
+    end)
+    
+    uis.InputEnded:Connect(function(input)
+        if input.UserInputType == MB1 then
+            dragStartPos = nil
+        end
+    end)
+end
 
--- Smooth camera updates
-RunService.RenderStepped:Connect(UpdateCamera)
+-- Initialize draggable frame as per original code
+Draggable(i1)
 
-print("ShiftLock System Ready - Single Press Toggle")
+print("ShiftLock Initialized - Press LeftShift to toggle")
+warn("Camera will now follow standard Roblox shiftlock behavior")
