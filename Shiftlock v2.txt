@@ -1,94 +1,92 @@
-local uis = game:GetService("UserInputService")
-local plrs = game:GetService("Players")
-local rus = game:GetService("RunService")
-local lp = plrs.LocalPlayer
-local mouse = lp:GetMouse()
-local e = Enum
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
 
--- Original code constants
-local enumMLCP = e.MouseBehavior.LockCurrentPosition
-local enumMLC = (uis.TouchEnabled and enumMLCP) or e.MouseBehavior.LockCenter
-local enumMD = e.MouseBehavior.Default
+-- Configuration
+local SHIFT_LOCK_ENABLED = false
+local MOUSE_SENSITIVITY = Vector2.new(0.25, 0.25)
+local BASE_OFFSET = Vector3.new(0, 3, 10)
 
--- Create required UI elements FIRST
-local i10 = Instance.new("ScreenGui")
-i10.Name = "ShiftLockGUI"
-i10.ZIndexBehavior = e.ZIndexBehavior.Sibling
-i10.ResetOnSpawn = false
-i10.Parent = lp:WaitForChild("PlayerGui")
+-- State management
+local character, humanoid, rootPart
+local cameraAngle = Vector2.new()
+local lastCameraCFrame = CFrame.new()
 
-local i1 = Instance.new("Frame")
-i1.Name = "MainFrame"
-i1.AnchorPoint = Vector2.new(0.5, 0.5)
-i1.Position = UDim2.new(0.5, 0, 0.5, 0)
-i1.Size = UDim2.new(0, 0, 0, 0)
-i1.Visible = false
-i1.Parent = i10
-
--- ShiftLock state management
-local shiftlock = false
-local mouseBehavior = enumMD
-local lastMouseBehavior = uis.MouseBehavior
-
--- Original mouse behavior enforcement
-uis:GetPropertyChangedSignal("MouseBehavior"):Connect(function()
-    if shiftlock and uis.MouseBehavior ~= mouseBehavior then
-        uis.MouseBehavior = mouseBehavior
-    end
-end)
-
--- Your original toggle logic with instant response
-uis.InputBegan:Connect(function(input)
-    if input.KeyCode == e.KeyCode.LeftShift then
-        shiftlock = not shiftlock
-        mouseBehavior = shiftlock and enumMLC or enumMD
-        i1.Visible = shiftlock
-        uis.MouseBehavior = mouseBehavior
-        
-        -- Proper camera control from original script
-        if shiftlock then
-            mouse.TargetFilter = i1
-            workspace.CurrentCamera.CameraType = e.CameraType.Scriptable
-        else
-            mouse.TargetFilter = nil
-            workspace.CurrentCamera.CameraType = e.CameraType.Custom
-        end
-    end
-end)
-
--- Your original draggable implementation
-local function Draggable(window)
-    local MB1 = e.UserInputType.MouseButton1
-    local dragStartPos, mouseStartPos
-    
-    window.InputBegan:Connect(function(input)
-        if input.UserInputType == MB1 then
-            dragStartPos = window.Position
-            mouseStartPos = uis:GetMouseLocation()
-        end
-    end)
-    
-    uis.InputChanged:Connect(function(input)
-        if input.UserInputType == MB1 and dragStartPos then
-            local delta = uis:GetMouseLocation() - mouseStartPos
-            window.Position = UDim2.new(
-                dragStartPos.X.Scale, 
-                dragStartPos.X.Offset + delta.X,
-                dragStartPos.Y.Scale, 
-                dragStartPos.Y.Offset + delta.Y
-            )
-        end
-    end)
-    
-    uis.InputEnded:Connect(function(input)
-        if input.UserInputType == MB1 then
-            dragStartPos = nil
-        end
-    end)
+-- Initialize character references
+local function InitializeCharacter()
+    character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+    humanoid = character:WaitForChild("Humanoid")
+    rootPart = character:WaitForChild("HumanoidRootPart")
 end
 
--- Initialize draggable frame as per original code
-Draggable(i1)
+-- Full shiftlock toggle system
+local function ToggleShiftlock()
+    SHIFT_LOCK_ENABLED = not SHIFT_LOCK_ENABLED
+    
+    -- Set mouse behavior
+    UserInputService.MouseBehavior = SHIFT_LOCK_ENABLED and 
+        (UserInputService.TouchEnabled 
+            and Enum.MouseBehavior.LockCurrentPosition 
+            or Enum.MouseBehavior.LockCenter) 
+        or Enum.MouseBehavior.Default
+    
+    -- Configure camera control
+    Camera.CameraType = SHIFT_LOCK_ENABLED and Enum.CameraType.Scriptable or Enum.CameraType.Custom
+    
+    if SHIFT_LOCK_ENABLED then
+        -- Initialize camera position
+        cameraAngle = Vector2.new(math.rad(-15), 0)
+        lastCameraCFrame = rootPart.CFrame * CFrame.new(BASE_OFFSET)
+    end
+end
 
-print("ShiftLock Initialized - Press LeftShift to toggle")
-warn("Camera will now follow standard Roblox shiftlock behavior")
+-- Camera rotation logic
+local function UpdateCamera()
+    if not SHIFT_LOCK_ENABLED or not rootPart then return end
+    
+    -- Get mouse delta
+    local mouseDelta = UserInputService:GetMouseDelta()
+    cameraAngle += Vector2.new(
+        -mouseDelta.Y * MOUSE_SENSITIVITY.Y,
+        mouseDelta.X * MOUSE_SENSITIVITY.X
+    )
+    
+    -- Clamp vertical angle
+    cameraAngle = Vector2.new(
+        math.clamp(cameraAngle.X, math.rad(-60), math.rad(60)),
+        cameraAngle.Y
+    )
+    
+    -- Calculate camera transform
+    local rootPosition = rootPart.Position
+    local cameraRot = CFrame.Angles(cameraAngle.X, cameraAngle.Y, 0)
+    local cameraOffset = cameraRot * BASE_OFFSET
+    
+    -- Apply smooth camera movement
+    local targetCFrame = CFrame.new(rootPosition + cameraOffset, rootPosition)
+    lastCameraCFrame = lastCameraCFrame:Lerp(targetCFrame, 0.3)
+    Camera.CFrame = lastCameraCFrame
+    
+    -- Rotate character with camera
+    if humanoid.MoveDirection.Magnitude > 0 then
+        rootPart.CFrame = CFrame.new(rootPart.Position, rootPart.Position + lastCameraCFrame.LookVector * Vector3.new(1,0,1))
+    end
+end
+
+-- Input handling
+UserInputService.InputBegan:Connect(function(input)
+    if input.KeyCode == Enum.KeyCode.LeftShift then
+        ToggleShiftlock()
+    end
+end)
+
+-- Character tracking
+LocalPlayer.CharacterAdded:Connect(InitializeCharacter)
+InitializeCharacter()
+
+-- Camera update loop
+RunService.RenderStepped:Connect(UpdateCamera)
+
+print("Native-style ShiftLock Active - Press Shift to Toggle")
