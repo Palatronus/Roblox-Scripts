@@ -1,48 +1,69 @@
 local uis = game:GetService("UserInputService")
-local plr = game:GetService("Players").LocalPlayer
-local mouse = plr:GetMouse()
+local runservice = game:GetService("RunService")
+local plrs = game:GetService("Players")
+local lp = plrs.LocalPlayer
+local mouse = lp:GetMouse()
 local e = Enum
 
--- Mouse behavior enums
+-- Proper enum initialization
 local enumMLCP = e.MouseBehavior.LockCurrentPosition
-local enumMLC = (uis.TouchEnabled and enumMLCP) or e.MouseBehavior.LockCenter
+local enumMLC = uis.TouchEnabled and enumMLCP or e.MouseBehavior.LockCenter
 local enumMD = e.MouseBehavior.Default
 
--- Ensure GUI elements exist
-local gui = Instance.new("ScreenGui")
-gui.Name = "ShiftlockGUI"
-gui.Parent = plr.PlayerGui
-
-local frame = Instance.new("Frame")
-frame.Size = UDim2.new(0, 0, 0, 0)
-frame.Visible = false
-frame.Parent = gui
-
--- Shiftlock state
+-- Core shiftlock system
 local shiftlock = false
+local mouseBehavior = enumMD
 local lastMouseBehavior = uis.MouseBehavior
 
--- Proper mouse handler
-uis.InputBegan:Connect(function(input)
-    if input.KeyCode == Enum.KeyCode.LeftShift then
-        shiftlock = not shiftlock
-        lastMouseBehavior = shiftlock and enumMLC or enumMD
-        uis.MouseBehavior = lastMouseBehavior
-        
-        -- Proper mouse lock implementation
-        if shiftlock then
-            mouse.TargetFilter = frame
-        else
-            mouse.TargetFilter = nil
-        end
-    end
-end)
+-- Create essential UI elements
+local gui = Instance.new("ScreenGui")
+gui.Name = "PatchmaShiftlock"
+gui.ZIndexBehavior = e.ZIndexBehavior.Sibling
+gui.ResetOnSpawn = false
+gui.Parent = lp:WaitForChild("PlayerGui")
+
+local mainFrame = Instance.new("Frame")
+mainFrame.Name = "MainFrame"
+mainFrame.AnchorPoint = Vector2.new(0.5, 0)
+mainFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
+mainFrame.Size = UDim2.new(0, 0, 0, 0) -- Zero size but exists for targeting
+mainFrame.Visible = false
+mainFrame.Parent = gui
 
 -- Mouse behavior enforcement
 uis:GetPropertyChangedSignal("MouseBehavior"):Connect(function()
-    if shiftlock and uis.MouseBehavior ~= lastMouseBehavior then
-        uis.MouseBehavior = lastMouseBehavior
+    if uis.MouseBehavior ~= mouseBehavior then
+        uis.MouseBehavior = mouseBehavior
     end
 end)
 
-print("Shiftlock system initialized - Press Left Shift to toggle")
+-- Shiftlock toggle
+uis.InputBegan:Connect(function(input)
+    if input.KeyCode == e.KeyCode.LeftShift then
+        shiftlock = not shiftlock
+        mouseBehavior = shiftlock and enumMLC or enumMD
+        mainFrame.Visible = shiftlock
+        
+        -- Proper mouse target filtering
+        mouse.TargetFilter = shiftlock and mainFrame or nil
+    end
+end)
+
+-- Touch compatibility
+if uis.TouchEnabled then
+    uis.TouchTap:Connect(function(touchPos)
+        if shiftlock then
+            mouseBehavior = enumMLCP
+        end
+    end
+end
+
+-- Initialize properly
+runservice.Heartbeat:Connect(function()
+    if shiftlock then
+        -- Maintain lock position
+        uis.MouseBehavior = mouseBehavior
+    end
+end)
+
+print("Shiftlock system initialized successfully! Press Left Shift to toggle")
