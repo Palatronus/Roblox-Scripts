@@ -1,66 +1,38 @@
--- ShiftLock System v3.0 (Standalone, No Dependencies)
-local Players = game:GetService("Players")
-local UserInputService = game:GetService("UserInputService")
-local Player = Players.LocalPlayer
+local uis = game:GetService("UserInputService")
+local e = Enum
 
--- GUI Setup (CoreGui for universal visibility)
-local ShiftLockUI = Instance.new("ScreenGui")
-ShiftLockUI.Name = "ShiftLockSystem"
-ShiftLockUI.ResetOnSpawn = false
-ShiftLockUI.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-ShiftLockUI.Parent = game:GetService("CoreGui")
+-- Mouse behavior enums
+local enumMLCP = e.MouseBehavior.LockCurrentPosition
+local enumMLC = (uis.TouchEnabled and enumMLCP) or e.MouseBehavior.LockCenter
+local enumMD = e.MouseBehavior.Default
 
-local ToggleButton = Instance.new("ImageButton")
-ToggleButton.Name = "ShiftLockToggle"
-ToggleButton.Image = "rbxassetid://13270449333" -- OFF state
-ToggleButton.Active = true
-ToggleButton.Selectable = true
-ToggleButton.Size = UDim2.new(0, 45, 0, 45)
-ToggleButton.Position = UDim2.new(1, -60, 0.5, -22.5)
-ToggleButton.AnchorPoint = Vector2.new(1, 0.5)
-ToggleButton.BackgroundTransparency = 1
-ToggleButton.Visible = true
-ToggleButton.Parent = ShiftLockUI
+-- Shiftlock state
+local shiftlock = false
+local lastMouseBehavior = uis.MouseBehavior
 
--- Core System
-local isActive = false
-local yaw = 0
-local inputConnection = nil
-local function waitFor(promise) repeat task.wait() until promise ~= nil return promise end
-
-local function UpdateRotation(deltaX)
-    local character = waitFor(Player.Character)
-    local rootPart = waitFor(character:WaitForChild("HumanoidRootPart"))
-    yaw = yaw - (deltaX * 0.4) -- Rotation speed
-    rootPart.CFrame = CFrame.new(rootPart.Position) * CFrame.Angles(0, math.rad(yaw), 0)
-end
-
-local function HandleInput(input)
-    if isActive and (input.UserInputType == Enum.UserInputType.MouseMovement or 
-       input.UserInputType == Enum.UserInputType.Touch) then
-        UpdateRotation(input.Delta.X)
-    end
-end
-
--- Toggle Logic
-ToggleButton.MouseButton1Click:Connect(function()
-    isActive = not isActive
-    ToggleButton.Image = isActive and "rbxassetid://13270450007" or "rbxassetid://13270449333"
-    
-    local character = waitFor(Player.Character)
-    local humanoid = waitFor(character:WaitForChild("Humanoid"))
-    humanoid.AutoRotate = not isActive
-    
-    if isActive then
-        yaw = character.HumanoidRootPart.Orientation.Y
-        inputConnection = UserInputService.InputChanged:Connect(HandleInput)
-    else
-        if inputConnection then inputConnection:Disconnect() end
+-- Mouse behavior enforcement
+uis:GetPropertyChangedSignal("MouseBehavior"):Connect(function()
+    if shiftlock and uis.MouseBehavior ~= lastMouseBehavior then
+        uis.MouseBehavior = lastMouseBehavior
     end
 end)
 
--- Force UI Visibility
-task.defer(function()
-    repeat task.wait() until game:IsLoaded()
-    ShiftLockUI.Enabled = true
+-- Shift key toggle
+uis.InputBegan:Connect(function(input)
+    if input.KeyCode == Enum.KeyCode.LeftShift then
+        shiftlock = not shiftlock
+        lastMouseBehavior = shiftlock and enumMLC or enumMD
+        uis.MouseBehavior = lastMouseBehavior
+    end
 end)
+
+-- Touch device adaptation
+if uis.TouchEnabled then
+    uis.TouchTap:Connect(function(touchPos)
+        if shiftlock then
+            uis.MouseBehavior = enumMLCP
+        end
+    end)
+end
+
+print("Shiftlock system loaded - Press Left Shift to toggle")
