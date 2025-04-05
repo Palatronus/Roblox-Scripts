@@ -6,29 +6,28 @@ local Mouse = LocalPlayer:GetMouse()
 local Camera = workspace.CurrentCamera
 
 -- Configuration
-local SHIFT_LOCK_ENABLED = false
-local MOUSE_SENSITIVITY = 0.5
-local FOV = 70
-
--- Initialize camera state
-Camera.CameraType = Enum.CameraType.Custom
-Camera.FieldOfView = FOV
-
--- Shiftlock UI container
-local ShiftlockUI = Instance.new("ScreenGui")
-ShiftlockUI.Name = "ShiftlockSystem"
-ShiftlockUI.ResetOnSpawn = false
-ShiftlockUI.Parent = LocalPlayer:WaitForChild("PlayerGui")
-
--- Mouse control frame
-local ControlFrame = Instance.new("Frame")
-ControlFrame.Size = UDim2.new(0, 0, 0, 0)
-ControlFrame.Visible = false
-ControlFrame.Parent = ShiftlockUI
+local SHIFT_LOCK_ACTIVE = false
+local MOUSE_SENSITIVITY = Vector2.new(0.5, 0.5)
+local BASE_CAMERA_OFFSET = Vector3.new(0, 2.5, 10)
 
 -- State management
-local function UpdateShiftlockState(enabled)
-    SHIFT_LOCK_ENABLED = enabled
+local character
+local humanoidRootPart
+local cameraAngle = Vector2.new()
+local lastCameraCFrame = CFrame.new()
+
+-- Initialize connections
+local connections = {}
+
+-- Function to update character reference
+local function UpdateCharacter()
+    character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+    humanoidRootPart = character:WaitForChild("HumanoidRootPart")
+end
+
+-- Proper shiftlock activation
+local function SetShiftlockState(enabled)
+    SHIFT_LOCK_ACTIVE = enabled
     
     -- Set mouse behavior
     UserInputService.MouseBehavior = enabled and 
@@ -38,49 +37,75 @@ local function UpdateShiftlockState(enabled)
         or Enum.MouseBehavior.Default
     
     -- Set camera state
-    Camera.CameraType = enabled and Enum.CameraType.Scriptable or Enum.CameraType.Custom
-    ControlFrame.Visible = enabled
-    Mouse.TargetFilter = enabled and ControlFrame or nil
-    
-    -- Reset mouse on disable
-    if not enabled then
-        Mouse.Icon = ""
+    if enabled then
+        Camera.CameraType = Enum.CameraType.Scriptable
+        lastCameraCFrame = humanoidRootPart.CFrame * CFrame.new(BASE_CAMERA_OFFSET)
+        cameraAngle = Vector2.new(0, math.rad(-15))
+    else
+        Camera.CameraType = Enum.CameraType.Custom
     end
+    
+    Mouse.TargetFilter = enabled and humanoidRootPart or nil
 end
 
--- Immediate input handling
-UserInputService.InputBegan:Connect(function(input)
-    if input.KeyCode == Enum.KeyCode.LeftShift then
-        UpdateShiftlockState(not SHIFT_LOCK_ENABLED)
-    end
-end)
-
--- Camera rotation logic
+-- Camera update logic
 local function UpdateCamera()
-    if not SHIFT_LOCK_ENABLED then return end
+    if not SHIFT_LOCK_ACTIVE or not humanoidRootPart then return end
     
+    -- Get mouse delta
     local mouseDelta = UserInputService:GetMouseDelta()
-    local currentCFrame = Camera.CFrame
-    
-    -- Apply rotation
-    local newCFrame = currentCFrame * CFrame.Angles(
-        0,
-        -math.rad(mouseDelta.X * MOUSE_SENSITIVITY),
-        0
+    cameraAngle += Vector2.new(
+        -mouseDelta.Y * MOUSE_SENSITIVITY.Y,
+        -mouseDelta.X * MOUSE_SENSITIVITY.X
     )
     
-    -- Maintain camera distance
-    Camera.CFrame = newCFrame
+    -- Clamp vertical angle
+    cameraAngle = Vector2.new(
+        math.clamp(cameraAngle.X, math.rad(-60), math.rad(60)),
+        cameraAngle.Y
+    )
+    
+    -- Calculate camera position
+    local rootCFrame = humanoidRootPart.CFrame
+    local cameraRot = CFrame.Angles(cameraAngle.X, cameraAngle.Y, 0)
+    local cameraOffset = cameraRot * BASE_CAMERA_OFFSET
+    
+    -- Smooth camera transition
+    lastCameraCFrame = lastCameraCFrame:Lerp(
+        rootCFrame * CFrame.new(cameraOffset),
+        0.3
+    )
+    
+    -- Apply camera transform
+    Camera.CFrame = lastCameraCFrame
+    Camera.Focus = rootCFrame
 end
 
--- Smooth camera updates
-RunService.RenderStepped:Connect(UpdateCamera)
-
--- Cleanup on shift release
-UserInputService.InputEnded:Connect(function(input)
+-- Input handling
+table.insert(connections, UserInputService.InputBegan:Connect(function(input)
     if input.KeyCode == Enum.KeyCode.LeftShift then
-        UpdateShiftlockState(false)
+        SetShiftlockState(not SHIFT_LOCK_ACTIVE)
     end
-end)
+end))
 
-print("Instant ShiftLock System Active - Press Shift to Toggle")
+table.insert(connections, UserInputService.InputEnded:Connect(function(input)
+    if input.KeyCode == Enum.KeyCode.LeftShift then
+        SetShiftlockState(false)
+    end
+end))
+
+-- Character tracking
+table.insert(connections, LocalPlayer.CharacterAdded:Connect(UpdateCharacter))
+UpdateCharacter()
+
+-- Camera update loop
+table.insert(connections, RunService.RenderStepped:Connect(UpdateCamera))
+
+-- Cleanup
+LocalPlayer.CharacterRemoving:Connect(function()
+    for _, connection in pairs(connections) do
+        connection:Disconnect()
+    end
+end))
+
+print("ShiftLock System Ready - Press Shift to Toggle")
