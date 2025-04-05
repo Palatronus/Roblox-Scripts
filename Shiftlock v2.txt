@@ -1,76 +1,79 @@
--- Proper service initialization
-local UserInputService = game:GetService("UserInputService")
-local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
+-- Explicit service initialization with nil checks
+local function getService(serviceName)
+    local service = game:GetService(serviceName)
+    if not service then
+        error("Service not found: "..serviceName)
+    end
+    return service
+end
 
--- Core components
+local UserInputService = getService("UserInputService")
+local Players = getService("Players")
+local RunService = getService("RunService")
+
+-- Player validation
 local LocalPlayer = Players.LocalPlayer
-local Mouse = LocalPlayer:GetMouse()
-local Enum = Enum
+if not LocalPlayer then
+    Players:GetPropertyChangedSignal("LocalPlayer"):Wait()
+    LocalPlayer = Players.LocalPlayer
+end
 
--- Mouse behavior enums
-local MOUSE_BEHAVIOR = {
-    LockCurrentPosition = Enum.MouseBehavior.LockCurrentPosition,
-    LockCenter = Enum.MouseBehavior.LockCenter,
-    Default = Enum.MouseBehavior.Default
-}
+-- Mouse initialization
+local Mouse
+repeat
+    Mouse = LocalPlayer:GetMouse()
+    task.wait()
+until Mouse
 
--- Configuration
+-- Core configuration
 local shiftlockEnabled = false
-local currentMouseBehavior = MOUSE_BEHAVIOR.Default
-local touchEnabled = UserInputService.TouchEnabled
+local currentMouseBehavior = Enum.MouseBehavior.Default
 
--- Create necessary UI container
+-- UI container creation with parent validation
 local ShiftlockGUI = Instance.new("ScreenGui")
 ShiftlockGUI.Name = "ShiftlockSystem"
 ShiftlockGUI.ResetOnSpawn = false
-ShiftlockGUI.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-ShiftlockGUI.Parent = LocalPlayer:WaitForChild("PlayerGui")
+
+local PlayerGui
+repeat
+    PlayerGui = LocalPlayer:FindFirstChild("PlayerGui")
+    task.wait()
+until PlayerGui
+ShiftlockGUI.Parent = PlayerGui
 
 -- Mouse target frame
 local TargetFrame = Instance.new("Frame")
-TargetFrame.Name = "MouseTarget"
 TargetFrame.Size = UDim2.new(0, 0, 0, 0)
 TargetFrame.Visible = false
 TargetFrame.Parent = ShiftlockGUI
 
--- Mouse behavior management
+-- Safe mouse behavior update
 local function UpdateMouseBehavior()
-    UserInputService.MouseBehavior = currentMouseBehavior
-    Mouse.TargetFilter = shiftlockEnabled and TargetFrame or nil
-end
-
--- Shift toggle handler
-UserInputService.InputBegan:Connect(function(input)
-    if input.KeyCode == Enum.KeyCode.LeftShift then
-        shiftlockEnabled = not shiftlockEnabled
-        currentMouseBehavior = shiftlockEnabled and 
-            (touchEnabled and MOUSE_BEHAVIOR.LockCurrentPosition or MOUSE_BEHAVIOR.LockCenter) 
-            or MOUSE_BEHAVIOR.Default
-        
-        UpdateMouseBehavior()
-        TargetFrame.Visible = shiftlockEnabled
-    end
-end)
-
--- Behavior enforcement
-UserInputService:GetPropertyChangedSignal("MouseBehavior"):Connect(function()
-    if UserInputService.MouseBehavior ~= currentMouseBehavior then
+    pcall(function()
         UserInputService.MouseBehavior = currentMouseBehavior
-    end
-end)
-
--- Touch device support
-if touchEnabled then
-    UserInputService.TouchTap:Connect(function()
-        if shiftlockEnabled then
-            currentMouseBehavior = MOUSE_BEHAVIOR.LockCurrentPosition
-            UpdateMouseBehavior()
-        end
+        Mouse.TargetFilter = shiftlockEnabled and TargetFrame or nil
     end)
 end
 
--- Continuous behavior maintenance
-RunService.Heartbeat:Connect(UpdateMouseBehavior)
+-- Input handling with explicit checks
+UserInputService.InputBegan:Connect(function(input)
+    if input.KeyCode == Enum.KeyCode.LeftShift then
+        shiftlockEnabled = not shiftlockEnabled
+        
+        currentMouseBehavior = shiftlockEnabled and (
+            UserInputService.TouchEnabled 
+            and Enum.MouseBehavior.LockCurrentPosition 
+            or Enum.MouseBehavior.LockCenter
+        ) or Enum.MouseBehavior.Default
+        
+        TargetFrame.Visible = shiftlockEnabled
+        UpdateMouseBehavior()
+    end
+end)
 
-print("Shiftlock system operational. Press Left Shift to toggle lock state")
+-- Behavior enforcement with error suppression
+RunService.Heartbeat:Connect(function()
+    pcall(UpdateMouseBehavior)
+end)
+
+print("Shiftlock system initialized successfully")
