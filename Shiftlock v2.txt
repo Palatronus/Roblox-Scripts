@@ -2,50 +2,42 @@ local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
-local Mouse = LocalPlayer:GetMouse()
 local Camera = workspace.CurrentCamera
 
 -- Configuration
 local SHIFT_LOCK_ACTIVE = false
-local MOUSE_SENSITIVITY = Vector2.new(0.5, 0.5)
-local BASE_CAMERA_OFFSET = Vector3.new(0, 2.5, 10)
+local MOUSE_SENSITIVITY = Vector2.new(0.25, 0.25)
+local BASE_OFFSET = Vector3.new(0, 3, 10)
 
 -- State management
-local character
-local humanoidRootPart
+local character, humanoidRootPart
 local cameraAngle = Vector2.new()
-local lastCameraCFrame = CFrame.new()
+local lastInputTime = 0
 
--- Initialize connections
-local connections = {}
-
--- Function to update character reference
-local function UpdateCharacter()
+-- Initialize character reference
+local function InitializeCharacter()
     character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
     humanoidRootPart = character:WaitForChild("HumanoidRootPart")
 end
 
--- Proper shiftlock activation
-local function SetShiftlockState(enabled)
-    SHIFT_LOCK_ACTIVE = enabled
+-- Immediate shiftlock toggle
+local function ToggleShiftlock()
+    SHIFT_LOCK_ACTIVE = not SHIFT_LOCK_ACTIVE
     
     -- Set mouse behavior
-    UserInputService.MouseBehavior = enabled and 
+    UserInputService.MouseBehavior = SHIFT_LOCK_ACTIVE and 
         (UserInputService.TouchEnabled 
             and Enum.MouseBehavior.LockCurrentPosition 
             or Enum.MouseBehavior.LockCenter) 
         or Enum.MouseBehavior.Default
     
-    -- Set camera state
-    if enabled then
-        Camera.CameraType = Enum.CameraType.Scriptable
-        lastCameraCFrame = humanoidRootPart.CFrame * CFrame.new(BASE_CAMERA_OFFSET)
-        cameraAngle = Vector2.new(0, math.rad(-15))
-    else
-        Camera.CameraType = Enum.CameraType.Custom
-    end
+    -- Configure camera
+    Camera.CameraType = SHIFT_LOCK_ACTIVE and Enum.CameraType.Scriptable or Enum.CameraType.Custom
     
-    Mouse.TargetFilter = enabled and humanoidRootPart or nil
+    -- Reset camera angles when activating
+    if SHIFT_LOCK_ACTIVE then
+        cameraAngle = Vector2.new(math.rad(-15), 0)
+    end
 end
 
 -- Camera update logic
@@ -56,7 +48,7 @@ local function UpdateCamera()
     local mouseDelta = UserInputService:GetMouseDelta()
     cameraAngle += Vector2.new(
         -mouseDelta.Y * MOUSE_SENSITIVITY.Y,
-        -mouseDelta.X * MOUSE_SENSITIVITY.X
+        mouseDelta.X * MOUSE_SENSITIVITY.X
     )
     
     -- Clamp vertical angle
@@ -66,46 +58,36 @@ local function UpdateCamera()
     )
     
     -- Calculate camera position
-    local rootCFrame = humanoidRootPart.CFrame
+    local rootPosition = humanoidRootPart.Position
     local cameraRot = CFrame.Angles(cameraAngle.X, cameraAngle.Y, 0)
-    local cameraOffset = cameraRot * BASE_CAMERA_OFFSET
-    
-    -- Smooth camera transition
-    lastCameraCFrame = lastCameraCFrame:Lerp(
-        rootCFrame * CFrame.new(cameraOffset),
-        0.3
-    )
+    local cameraOffset = cameraRot * BASE_OFFSET
     
     -- Apply camera transform
-    Camera.CFrame = lastCameraCFrame
-    Camera.Focus = rootCFrame
+    Camera.CFrame = CFrame.new(rootPosition + cameraOffset, rootPosition)
 end
 
 -- Input handling
-table.insert(connections, UserInputService.InputBegan:Connect(function(input)
+UserInputService.InputBegan:Connect(function(input)
     if input.KeyCode == Enum.KeyCode.LeftShift then
-        SetShiftlockState(not SHIFT_LOCK_ACTIVE)
+        lastInputTime = os.clock()
+        ToggleShiftlock()
     end
-end))
+end)
 
-table.insert(connections, UserInputService.InputEnded:Connect(function(input)
+UserInputService.InputEnded:Connect(function(input)
     if input.KeyCode == Enum.KeyCode.LeftShift then
-        SetShiftlockState(false)
+        -- Only toggle if key was pressed briefly
+        if os.clock() - lastInputTime < 0.2 then
+            ToggleShiftlock()
+        end
     end
-end))
+end)
 
 -- Character tracking
-table.insert(connections, LocalPlayer.CharacterAdded:Connect(UpdateCharacter))
-UpdateCharacter()
+LocalPlayer.CharacterAdded:Connect(InitializeCharacter)
+InitializeCharacter()
 
--- Camera update loop
-table.insert(connections, RunService.RenderStepped:Connect(UpdateCamera))
+-- Smooth camera updates
+RunService.RenderStepped:Connect(UpdateCamera)
 
--- Cleanup
-LocalPlayer.CharacterRemoving:Connect(function()
-    for _, connection in pairs(connections) do
-        connection:Disconnect()
-    end
-end))
-
-print("ShiftLock System Ready - Press Shift to Toggle")
+print("ShiftLock System Ready - Single Press Toggle")
