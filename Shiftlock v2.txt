@@ -1,69 +1,76 @@
-local uis = game:GetService("UserInputService")
-local runservice = game:GetService("RunService")
-local plrs = game:GetService("Players")
-local lp = plrs.LocalPlayer
-local mouse = lp:GetMouse()
-local e = Enum
+-- Proper service initialization
+local UserInputService = game:GetService("UserInputService")
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
 
--- Proper enum initialization
-local enumMLCP = e.MouseBehavior.LockCurrentPosition
-local enumMLC = uis.TouchEnabled and enumMLCP or e.MouseBehavior.LockCenter
-local enumMD = e.MouseBehavior.Default
+-- Core components
+local LocalPlayer = Players.LocalPlayer
+local Mouse = LocalPlayer:GetMouse()
+local Enum = Enum
 
--- Core shiftlock system
-local shiftlock = false
-local mouseBehavior = enumMD
-local lastMouseBehavior = uis.MouseBehavior
+-- Mouse behavior enums
+local MOUSE_BEHAVIOR = {
+    LockCurrentPosition = Enum.MouseBehavior.LockCurrentPosition,
+    LockCenter = Enum.MouseBehavior.LockCenter,
+    Default = Enum.MouseBehavior.Default
+}
 
--- Create essential UI elements
-local gui = Instance.new("ScreenGui")
-gui.Name = "PatchmaShiftlock"
-gui.ZIndexBehavior = e.ZIndexBehavior.Sibling
-gui.ResetOnSpawn = false
-gui.Parent = lp:WaitForChild("PlayerGui")
+-- Configuration
+local shiftlockEnabled = false
+local currentMouseBehavior = MOUSE_BEHAVIOR.Default
+local touchEnabled = UserInputService.TouchEnabled
 
-local mainFrame = Instance.new("Frame")
-mainFrame.Name = "MainFrame"
-mainFrame.AnchorPoint = Vector2.new(0.5, 0)
-mainFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
-mainFrame.Size = UDim2.new(0, 0, 0, 0) -- Zero size but exists for targeting
-mainFrame.Visible = false
-mainFrame.Parent = gui
+-- Create necessary UI container
+local ShiftlockGUI = Instance.new("ScreenGui")
+ShiftlockGUI.Name = "ShiftlockSystem"
+ShiftlockGUI.ResetOnSpawn = false
+ShiftlockGUI.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+ShiftlockGUI.Parent = LocalPlayer:WaitForChild("PlayerGui")
 
--- Mouse behavior enforcement
-uis:GetPropertyChangedSignal("MouseBehavior"):Connect(function()
-    if uis.MouseBehavior ~= mouseBehavior then
-        uis.MouseBehavior = mouseBehavior
-    end
-end)
+-- Mouse target frame
+local TargetFrame = Instance.new("Frame")
+TargetFrame.Name = "MouseTarget"
+TargetFrame.Size = UDim2.new(0, 0, 0, 0)
+TargetFrame.Visible = false
+TargetFrame.Parent = ShiftlockGUI
 
--- Shiftlock toggle
-uis.InputBegan:Connect(function(input)
-    if input.KeyCode == e.KeyCode.LeftShift then
-        shiftlock = not shiftlock
-        mouseBehavior = shiftlock and enumMLC or enumMD
-        mainFrame.Visible = shiftlock
-        
-        -- Proper mouse target filtering
-        mouse.TargetFilter = shiftlock and mainFrame or nil
-    end
-end)
-
--- Touch compatibility
-if uis.TouchEnabled then
-    uis.TouchTap:Connect(function(touchPos)
-        if shiftlock then
-            mouseBehavior = enumMLCP
-        end
-    end
+-- Mouse behavior management
+local function UpdateMouseBehavior()
+    UserInputService.MouseBehavior = currentMouseBehavior
+    Mouse.TargetFilter = shiftlockEnabled and TargetFrame or nil
 end
 
--- Initialize properly
-runservice.Heartbeat:Connect(function()
-    if shiftlock then
-        -- Maintain lock position
-        uis.MouseBehavior = mouseBehavior
+-- Shift toggle handler
+UserInputService.InputBegan:Connect(function(input)
+    if input.KeyCode == Enum.KeyCode.LeftShift then
+        shiftlockEnabled = not shiftlockEnabled
+        currentMouseBehavior = shiftlockEnabled and 
+            (touchEnabled and MOUSE_BEHAVIOR.LockCurrentPosition or MOUSE_BEHAVIOR.LockCenter) 
+            or MOUSE_BEHAVIOR.Default
+        
+        UpdateMouseBehavior()
+        TargetFrame.Visible = shiftlockEnabled
     end
 end)
 
-print("Shiftlock system initialized successfully! Press Left Shift to toggle")
+-- Behavior enforcement
+UserInputService:GetPropertyChangedSignal("MouseBehavior"):Connect(function()
+    if UserInputService.MouseBehavior ~= currentMouseBehavior then
+        UserInputService.MouseBehavior = currentMouseBehavior
+    end
+end)
+
+-- Touch device support
+if touchEnabled then
+    UserInputService.TouchTap:Connect(function()
+        if shiftlockEnabled then
+            currentMouseBehavior = MOUSE_BEHAVIOR.LockCurrentPosition
+            UpdateMouseBehavior()
+        end
+    end)
+end
+
+-- Continuous behavior maintenance
+RunService.Heartbeat:Connect(UpdateMouseBehavior)
+
+print("Shiftlock system operational. Press Left Shift to toggle lock state")
