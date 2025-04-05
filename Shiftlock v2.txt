@@ -1,92 +1,95 @@
-local UserInputService = game:GetService("UserInputService")
-local RunService = game:GetService("RunService")
-local Players = game:GetService("Players")
-local LocalPlayer = Players.LocalPlayer
-local Camera = workspace.CurrentCamera
+local uis = game:GetService("UserInputService")
+local plrs = game:GetService("Players")
+local rus = game:GetService("RunService")
+local ws = game:GetService("Workspace")
+local lp = plrs.LocalPlayer
+local mouse = lp:GetMouse()
+local cam = ws.CurrentCamera
+local e = Enum
 
--- Configuration
-local SHIFT_LOCK_ENABLED = false
-local MOUSE_SENSITIVITY = Vector2.new(0.25, 0.25)
-local BASE_OFFSET = Vector3.new(0, 3, 10)
+-- Your original UI setup
+local i10 = Instance.new("ScreenGui")
+i10.Name = "patchma_hub"
+i10.ZIndexBehavior = e.ZIndexBehavior.Sibling
+i10.ResetOnSpawn = false
+i10.Parent = lp:WaitForChild("PlayerGui")
 
--- State management
-local character, humanoid, rootPart
-local cameraAngle = Vector2.new()
-local lastCameraCFrame = CFrame.new()
+local i1 = Instance.new("Frame")
+i1.Name = "MainFrame"
+i1.AnchorPoint = Vector2.new(0.5, 0.5)
+i1.Position = UDim2.new(0.5, 0, 0.5, 0)
+i1.Size = UDim2.new(0, 0, 0, 0)
+i1.Visible = false
+i1.Parent = i10
 
--- Initialize character references
-local function InitializeCharacter()
-    character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
-    humanoid = character:WaitForChild("Humanoid")
-    rootPart = character:WaitForChild("HumanoidRootPart")
-end
+-- Your original enum setup
+local enumMLCP = e.MouseBehavior.LockCurrentPosition
+local enumMLC = (uis.TouchEnabled and enumMLCP) or e.MouseBehavior.LockCenter
+local enumMD = e.MouseBehavior.Default
 
--- Full shiftlock toggle system
-local function ToggleShiftlock()
-    SHIFT_LOCK_ENABLED = not SHIFT_LOCK_ENABLED
-    
-    -- Set mouse behavior
-    UserInputService.MouseBehavior = SHIFT_LOCK_ENABLED and 
-        (UserInputService.TouchEnabled 
-            and Enum.MouseBehavior.LockCurrentPosition 
-            or Enum.MouseBehavior.LockCenter) 
-        or Enum.MouseBehavior.Default
-    
-    -- Configure camera control
-    Camera.CameraType = SHIFT_LOCK_ENABLED and Enum.CameraType.Scriptable or Enum.CameraType.Custom
-    
-    if SHIFT_LOCK_ENABLED then
-        -- Initialize camera position
-        cameraAngle = Vector2.new(math.rad(-15), 0)
-        lastCameraCFrame = rootPart.CFrame * CFrame.new(BASE_OFFSET)
+-- New state management
+local shiftlock = false
+local character, rootPart
+local cameraOffset = Vector3.new(0, 3, 10)
+local cameraAngle = Vector2.new(0, math.rad(-15))
+
+-- Your original mouse behavior enforcement
+uis:GetPropertyChangedSignal("MouseBehavior"):Connect(function()
+    if shiftlock and uis.MouseBehavior ~= enumMLC then
+        uis.MouseBehavior = enumMLC
     end
-end
+end)
 
--- Camera rotation logic
-local function UpdateCamera()
-    if not SHIFT_LOCK_ENABLED or not rootPart then return end
+-- Proper camera rotation logic
+local function updateCamera()
+    if not shiftlock or not rootPart then return end
     
-    -- Get mouse delta
-    local mouseDelta = UserInputService:GetMouseDelta()
+    local mouseDelta = uis:GetMouseDelta()
     cameraAngle += Vector2.new(
-        -mouseDelta.Y * MOUSE_SENSITIVITY.Y,
-        mouseDelta.X * MOUSE_SENSITIVITY.X
+        -mouseDelta.Y * 0.004,
+        -mouseDelta.X * 0.004
     )
     
-    -- Clamp vertical angle
     cameraAngle = Vector2.new(
         math.clamp(cameraAngle.X, math.rad(-60), math.rad(60)),
         cameraAngle.Y
     )
     
-    -- Calculate camera transform
-    local rootPosition = rootPart.Position
-    local cameraRot = CFrame.Angles(cameraAngle.X, cameraAngle.Y, 0)
-    local cameraOffset = cameraRot * BASE_OFFSET
+    local rotCFrame = CFrame.Angles(cameraAngle.X, cameraAngle.Y, 0)
+    local finalOffset = rotCFrame * cameraOffset
+    cam.CFrame = CFrame.new(rootPart.Position + finalOffset, rootPart.Position)
+end
+
+-- Character facing logic
+local function updateCharacterFacing()
+    if not shiftlock or not rootPart then return end
     
-    -- Apply smooth camera movement
-    local targetCFrame = CFrame.new(rootPosition + cameraOffset, rootPosition)
-    lastCameraCFrame = lastCameraCFrame:Lerp(targetCFrame, 0.3)
-    Camera.CFrame = lastCameraCFrame
-    
-    -- Rotate character with camera
-    if humanoid.MoveDirection.Magnitude > 0 then
-        rootPart.CFrame = CFrame.new(rootPart.Position, rootPart.Position + lastCameraCFrame.LookVector * Vector3.new(1,0,1))
+    if uis:GetLastInputType() == Enum.UserInputType.MouseMovement then
+        local lookVector = cam.CFrame.LookVector * Vector3.new(1, 0, 1)
+        rootPart.CFrame = CFrame.new(rootPart.Position, rootPart.Position + lookVector)
     end
 end
 
--- Input handling
-UserInputService.InputBegan:Connect(function(input)
-    if input.KeyCode == Enum.KeyCode.LeftShift then
-        ToggleShiftlock()
+-- Your original toggle logic (enhanced)
+uis.InputBegan:Connect(function(input)
+    if input.KeyCode == e.KeyCode.LeftShift then
+        shiftlock = not shiftlock
+        i1.Visible = shiftlock
+        uis.MouseBehavior = shiftlock and enumMLC or enumMD
+        cam.CameraType = shiftlock and e.CameraType.Scriptable or e.CameraType.Custom
+        
+        if shiftlock then
+            mouse.TargetFilter = i1
+            character = lp.Character or lp.CharacterAdded:Wait()
+            rootPart = character:WaitForChild("HumanoidRootPart")
+        else
+            mouse.TargetFilter = nil
+        end
     end
 end)
 
--- Character tracking
-LocalPlayer.CharacterAdded:Connect(InitializeCharacter)
-InitializeCharacter()
+-- Runtime connections
+rus.RenderStepped:Connect(updateCamera)
+rus.Heartbeat:Connect(updateCharacterFacing)
 
--- Camera update loop
-RunService.RenderStepped:Connect(UpdateCamera)
-
-print("Native-style ShiftLock Active - Press Shift to Toggle")
+print("ShiftLock System Ready - Native Behavior Activated")
