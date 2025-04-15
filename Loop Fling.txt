@@ -1,4 +1,4 @@
--- FE Ultimate LoopFling System (Verified Working)
+-- FE Orbital LoopFling System (Final)
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UIS = game:GetService("UserInputService")
@@ -74,6 +74,9 @@ local Flinging = false
 local Target = nil
 local FORCE = 35000
 local NOCLIP_CONNECTION = nil
+local ORBIT_ANGLE = 0
+local ORBIT_RADIUS = 4
+local ANGULAR_SPEED = 8
 
 local function GetTarget()
     local targetPlayer = Players:FindFirstChild(TargetBox.Text)
@@ -95,26 +98,32 @@ local function EnableNoclip()
 end
 
 local function ViolentFling()
-    local BodyVelocity, BodyPosition
-    
     RunService.Heartbeat:Connect(function()
         if Flinging and LP.Character and Target and Target.Parent then
             local HRP = LP.Character:FindFirstChild("HumanoidRootPart")
             if not HRP then return end
 
-            -- Direct position locking
+            -- Orbital prediction calculations
             local targetPos = Target.Position
-            local prediction = Target.Velocity * 0.15
-            local finalPos = targetPos + prediction + Vector3.new(0, 1.5, 0)
+            local targetVel = Target.Velocity
+            ORBIT_ANGLE += ANGULAR_SPEED * (0.5 + targetVel.Magnitude/50)
             
-            -- Instant teleportation
+            -- Calculate orbital position
+            local orbitOffset = Vector3.new(
+                math.cos(math.rad(ORBIT_ANGLE)) * ORBIT_RADIUS,
+                1.5,
+                math.sin(math.rad(ORBIT_ANGLE)) * ORBIT_RADIUS
+            )
+            
+            -- Apply predictive orbital position
+            local finalPos = targetPos + (targetVel * 0.25) + orbitOffset
+            
+            -- Update position and velocity
             HRP.CFrame = CFrame.new(finalPos)
-            
-            -- Violent velocity application
-            HRP.Velocity = (Target.Velocity * 2) + Vector3.new(
-                math.random(-FORCE, FORCE),
-                math.random(-FORCE/2, FORCE),
-                math.random(-FORCE, FORCE)
+            HRP.Velocity = (targetVel * 1.5) + Vector3.new(
+                math.cos(math.rad(ORBIT_ANGLE + 90)) * FORCE/2,
+                math.random(-FORCE/4, FORCE/2),
+                math.sin(math.rad(ORBIT_ANGLE + 90)) * FORCE/2
             )
             
             -- Aggressive rotation
