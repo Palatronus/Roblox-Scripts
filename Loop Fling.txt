@@ -1,4 +1,4 @@
--- FE Ultimate Fling System (Final Version)
+-- FE Ultimate Close-Range Fling System
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UIS = game:GetService("UserInputService")
@@ -71,8 +71,7 @@ end)
 -- Fling System
 local Flinging = false
 local Target = nil
-local PREDICTION = 1.35
-local FORCE = 12500
+local FORCE = 25000
 local NOCLIP_CONNECTION = nil
 
 local function GetTarget()
@@ -87,7 +86,6 @@ local function EnableNoclip()
             for _, part in pairs(LP.Character:GetDescendants()) do
                 if part:IsA("BasePart") then
                     part.CanCollide = false
-                    part.Velocity = Vector3.new()
                 end
             end
         end
@@ -95,7 +93,7 @@ local function EnableNoclip()
 end
 
 local function ViolentFling()
-    local BodyVelocity, BodyPosition
+    local BodyVelocity, AlignPos
     
     while Flinging do
         if not LP.Character or not Target or not Target.Parent then
@@ -111,47 +109,50 @@ local function ViolentFling()
             continue
         end
 
-        -- Initialize physics controllers
+        -- Initialize physics
         if not BodyVelocity then
             BodyVelocity = Instance.new("BodyVelocity")
             BodyVelocity.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
-            BodyVelocity.P = 125000
+            BodyVelocity.P = 200000
             BodyVelocity.Parent = HRP
             
-            BodyPosition = Instance.new("BodyPosition")
-            BodyPosition.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
-            BodyPosition.P = 15000
-            BodyPosition.Parent = HRP
+            AlignPos = Instance.new("AlignPosition")
+            AlignPos.MaxForce = 900000
+            AlignPos.Responsiveness = 200
+            AlignPos.Parent = HRP
         end
 
-        -- Smooth prediction calculations
+        -- Direct position locking
         local targetPos = Target.Position
-        local targetVel = Target.Velocity
-        local distance = (HRP.Position - targetPos).Magnitude
-        local prediction = targetVel * (PREDICTION + (distance/50))
-        local predictedPos = targetPos + prediction
+        local offset = Vector3.new(math.random(-2,2), math.random(-1,3), math.random(-2,2))
         
-        -- Apply smooth forces
-        BodyVelocity.Velocity = (predictedPos - HRP.Position).Unit * FORCE
-        BodyPosition.Position = predictedPos + Vector3.new(0, 2.5, 0)
+        -- Aggressive teleportation
+        HRP.CFrame = CFrame.new(targetPos + offset)
+        AlignPos.Position = targetPos + offset
         
-        -- Aggressive rotation
-        HRP.RotVelocity = Vector3.new(
-            math.random(-FORCE/75, FORCE/75),
-            math.random(-FORCE/75, FORCE/75),
-            math.random(-FORCE/75, FORCE/75)
+        -- Violent velocity forces
+        BodyVelocity.Velocity = (Target.Velocity * 1.5) + Vector3.new(
+            math.random(-FORCE, FORCE),
+            math.random(-FORCE/2, FORCE),
+            math.random(-FORCE, FORCE)
         )
         
-        task.wait()
+        -- Extreme rotation
+        HRP.RotVelocity = Vector3.new(
+            math.random(-FORCE/50, FORCE/50),
+            math.random(-FORCE/50, FORCE/50),
+            math.random(-FORCE/50, FORCE/50)
+        )
+
+        task.wait(0.05)
     end
 
     -- Cleanup
     if BodyVelocity then BodyVelocity:Destroy() end
-    if BodyPosition then BodyPosition:Destroy() end
-    if NOCLIP_CONNECTION then NOCLIP_CONNECTION:Disconnect() end
+    if AlignPos then AlignPos:Destroy() end
 end
 
--- Permanent fling system
+-- Permanent activation system
 local function MaintainFling()
     while task.wait() do
         if Flinging then
