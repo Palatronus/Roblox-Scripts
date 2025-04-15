@@ -1,4 +1,4 @@
--- FE Dynamic Orbital Fling System (Final)
+-- FE Adaptive Prediction Fling System (Final)
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UIS = game:GetService("UserInputService")
@@ -72,12 +72,10 @@ end)
 -- Fling System
 local Flinging = false
 local Target = nil
-local FORCE = 48000
+local FORCE = 45000
 local NOCLIP_CONNECTION = nil
-local ORBIT_ANGLE = 0
-local ORBIT_RADIUS = 3.5
-local ANGULAR_SPEED = 22
-local MOVEMENT_THRESHOLD = 3.0
+local PREDICTION_FACTOR = 1.35
+local VELOCITY_THRESHOLD = 12
 
 local function GetTarget()
     local targetPlayer = Players:FindFirstChild(TargetBox.Text)
@@ -91,7 +89,6 @@ local function EnableNoclip()
             for _, part in pairs(LP.Character:GetDescendants()) do
                 if part:IsA("BasePart") then
                     part.CanCollide = false
-                    part.AssemblyLinearVelocity = Vector3.new()
                 end
             end
         end
@@ -99,6 +96,8 @@ local function EnableNoclip()
 end
 
 local function ViolentFling()
+    local BodyVelocity = Instance.new("BodyVelocity")
+    
     RunService.Heartbeat:Connect(function()
         if Flinging and LP.Character and Target and Target.Parent then
             local HRP = LP.Character:FindFirstChild("HumanoidRootPart")
@@ -106,40 +105,32 @@ local function ViolentFling()
 
             local targetPos = Target.Position
             local targetVel = Target.Velocity
-            local isMoving = targetVel.Magnitude > MOVEMENT_THRESHOLD
-            
+            local isMoving = targetVel.Magnitude > VELOCITY_THRESHOLD
+
+            if not BodyVelocity.Parent then
+                BodyVelocity.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+                BodyVelocity.P = 100000
+                BodyVelocity.Parent = HRP
+            end
+
             if isMoving then
-                ORBIT_ANGLE += ANGULAR_SPEED * (0.9 + targetVel.Magnitude/35)
-                local orbitOffset = Vector3.new(
-                    math.cos(math.rad(ORBIT_ANGLE)) * ORBIT_RADIUS,
-                    1.8,
-                    math.sin(math.rad(ORBIT_ANGLE)) * ORBIT_RADIUS
-                )
-                
-                local prediction = targetVel * 0.4
-                HRP.CFrame = CFrame.new(targetPos + prediction + orbitOffset)
-                HRP.Velocity = (targetVel * 2.5) + Vector3.new(
-                    math.cos(math.rad(ORBIT_ANGLE + 90)) * FORCE/1.5,
-                    math.random(-FORCE/2.5, FORCE),
-                    math.sin(math.rad(ORBIT_ANGLE + 90)) * FORCE/1.5
-                )
+                -- Prediction-based orbital fling
+                local predictedPos = targetPos + (targetVel * PREDICTION_FACTOR)
+                BodyVelocity.Velocity = (predictedPos - HRP.Position).Unit * FORCE
+                HRP.CFrame = CFrame.lookAt(HRP.Position, predictedPos)
             else
-                HRP.CFrame = CFrame.new(targetPos + Vector3.new(
-                    math.random(-3, 3),
-                    3.2,
-                    math.random(-3, 3)
-                ))
-                HRP.Velocity = Vector3.new(
+                -- Static violent fling
+                BodyVelocity.Velocity = Vector3.new(
                     math.random(-FORCE, FORCE),
-                    math.random(-FORCE/1.8, FORCE),
+                    math.random(-FORCE/2, FORCE),
                     math.random(-FORCE, FORCE)
                 )
             end
-            
+
             HRP.RotVelocity = Vector3.new(
-                math.random(-FORCE/15, FORCE/15),
-                math.random(-FORCE/15, FORCE/15),
-                math.random(-FORCE/15, FORCE/15)
+                math.random(-FORCE/20, FORCE/20),
+                math.random(-FORCE/20, FORCE/20),
+                math.random(-FORCE/20, FORCE/20)
             )
         end
     end)
