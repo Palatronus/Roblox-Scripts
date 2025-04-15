@@ -1,22 +1,21 @@
--- FE Ultimate Adaptive Fling System (Fixed)
+-- FE Stable Orbital Fling System (Final Optimized)
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UIS = game:GetService("UserInputService")
 local LP = Players.LocalPlayer
 
--- GUI Setup (Same as Before)
+-- GUI Setup (Same as Previous Versions)
 -- [Insert Identical GUI Code Here]
 
 -- Fling System
 local Flinging = false
 local Target = nil
-local FORCE = 32000
+local FORCE = 35000
 local NOCLIP_CONNECTION = nil
 local ORBIT_ANGLE = 0
-local ORBIT_RADIUS = 1.8
-local VELOCITY_THRESHOLD = 5 -- Lowered threshold
-local PREDICTION_FACTOR = 0.15
-local TARGET_REFRESH_INTERVAL = 0.5
+local ORBIT_RADIUS = 4.5
+local VELOCITY_THRESHOLD = 16 -- Adjusted for 16 studs/s
+local PREDICTION_FACTOR = 0.25
 
 local function GetTarget()
     local targetPlayer = Players:FindFirstChild(TargetBox.Text)
@@ -40,60 +39,74 @@ local function EnableNoclip()
     end)
 end
 
+local function MaintainOrbit(targetPos, targetVel, HRP)
+    ORBIT_ANGLE += 20 * (1 + math.clamp(targetVel.Magnitude/20, 0, 2))
+    local orbitOffset = Vector3.new(
+        math.cos(math.rad(ORBIT_ANGLE)) * ORBIT_RADIUS,
+        1.5,
+        math.sin(math.rad(ORBIT_ANGLE)) * ORBIT_RADIUS
+    )
+    
+    -- Velocity-stabilized prediction
+    local predictedPos = targetPos + (targetVel * PREDICTION_FACTOR) + orbitOffset
+    local forceDirection = (predictedPos - HRP.Position).Unit
+    
+    HRP.Velocity = forceDirection * FORCE * math.clamp(targetVel.Magnitude/20, 0.8, 1.5)
+    HRP.RotVelocity = Vector3.new(
+        math.random(-FORCE/30, FORCE/30),
+        math.random(-FORCE/30, FORCE/30),
+        math.random(-FORCE/30, FORCE/30)
+    )
+end
+
 local function ViolentFling()
     local BodyVelocity = Instance.new("BodyVelocity")
     BodyVelocity.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
-    BodyVelocity.P = 95000
+    BodyVelocity.P = 100000
 
     while Flinging do
         if LP.Character and LP.Character.Parent then
             local HRP = LP.Character:FindFirstChild("HumanoidRootPart")
             if HRP then
-                -- Auto-refresh target every 0.5 seconds
-                Target = GetTarget()
-                
+                -- Auto-reconnect system
+                if not Target or not Target.Parent then
+                    Target = GetTarget()
+                    if not Target then
+                        local targetPlayer = Players:FindFirstChild(TargetBox.Text)
+                        if targetPlayer then
+                            targetPlayer.CharacterAdded:Wait()
+                            Target = GetTarget()
+                        end
+                    end
+                end
+
                 if Target and Target.Parent then
-                    local targetPos = Target.Position + Vector3.new(0, 1.2, 0)
+                    local targetPos = Target.Position + Vector3.new(0, 1.5, 0)
                     local targetVel = Target.Velocity
                     
-                    -- Force proximity lock
-                    if (HRP.Position - targetPos).Magnitude > 3 then
+                    -- Proximity stabilization
+                    if (HRP.Position - targetPos).Magnitude > 6 then
                         HRP.CFrame = CFrame.new(targetPos)
                     end
 
-                    -- Velocity-based orbit activation
                     if targetVel.Magnitude > VELOCITY_THRESHOLD then
-                        ORBIT_ANGLE += 30 * (1 + targetVel.Magnitude/35)
-                        local orbitPos = targetPos + Vector3.new(
-                            math.cos(math.rad(ORBIT_ANGLE)) * ORBIT_RADIUS,
-                            0,
-                            math.sin(math.rad(ORBIT_ANGLE)) * ORBIT_RADIUS
-                        ) + (targetVel * PREDICTION_FACTOR)
-                        
-                        BodyVelocity.Velocity = (orbitPos - HRP.Position).Unit * FORCE * 0.75
+                        MaintainOrbit(targetPos, targetVel, HRP)
                     else
-                        -- Static fling
-                        BodyVelocity.Velocity = Vector3.new(
+                        -- Controlled static fling
+                        HRP.Velocity = Vector3.new(
                             math.random(-FORCE, FORCE),
-                            math.random(-FORCE/2.5, FORCE),
+                            math.random(-FORCE/3, FORCE),
                             math.random(-FORCE, FORCE)
                         )
                     end
 
-                    -- Rotation
-                    HRP.RotVelocity = Vector3.new(
-                        math.random(-FORCE/18, FORCE/18),
-                        math.random(-FORCE/18, FORCE/18),
-                        math.random(-FORCE/18, FORCE/18)
-                    )
-                    
                     if not BodyVelocity.Parent then
                         BodyVelocity.Parent = HRP
                     end
                 end
             end
         end
-        task.wait(TARGET_REFRESH_INTERVAL) -- Reduced refresh interval
+        task.wait()
     end
     BodyVelocity:Destroy()
 end
@@ -103,45 +116,35 @@ local function MaintainFling()
     ViolentFling()
 end
 
-ToggleBtn.MouseButton1Click:Connect(function()
-    Flinging = not Flinging
-    ToggleBtn.Text = Flinging and "STOP FLINGING" or "START FLINGING"
-    ToggleBtn.BackgroundColor3 = Flinging and Color3.fromRGB(200, 0, 0) or Color3.fromRGB(0, 120, 215)
-    
-    if Flinging then
-        Target = GetTarget()
-        if Target then
-            if LP.Character and LP.Character:FindFirstChild("HumanoidRootPart") then
-                LP.Character.HumanoidRootPart.CFrame = Target.CFrame
-            end
-            coroutine.wrap(MaintainFling)()
-        end
-    else
-        if NOCLIP_CONNECTION then
-            NOCLIP_CONNECTION:Disconnect()
-        end
-    end
-end)
+-- Toggle System (Same as Before)
+-- [Insert Identical Toggle Code Here]
 
--- Improved death handling
+-- Death/Respawn Handling
 LP.CharacterAdded:Connect(function()
     if Flinging then
         coroutine.wrap(MaintainFling)()
     end
 end)
 
-local function PersistentTargetRefresh()
+local function TrackTargetRespawns()
     while task.wait(1) do
-        if Flinging and (not Target or not Target.Parent) then
-            Target = GetTarget()
-            -- Wait for target respawn
-            local attempts = 0
-            while not Target and attempts < 10 do
-                task.wait(1)
-                Target = GetTarget()
-                attempts += 1
+        if Flinging then
+            local targetPlayer = Players:FindFirstChild(TargetBox.Text)
+            if targetPlayer then
+                targetPlayer.CharacterAdded:Connect(function()
+                    Target = GetTarget()
+                end)
             end
         end
     end
 end
-coroutine.wrap(PersistentTargetRefresh)()
+coroutine.wrap(TrackTargetRespawns)()
+
+-- Auto-refresh
+RunService.Heartbeat:Connect(function()
+    if Flinging then
+        if not Target or not Target.Parent then
+            Target = GetTarget()
+        end
+    end
+end)
