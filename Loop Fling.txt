@@ -1,49 +1,29 @@
--- FE Stable Fling V5.1 (Proximity Fix)
-local UIS = game:GetService("UserInputService")
-local RS = game:GetService("RunService")
-local Players = game:GetService("Players")
-local LP = Players.LocalPlayer
+-- FE Advanced Fling V5.2 (Distance Fix)
+-- [Keep all GUI code the same until the fling mechanics section]
 
--- GUI Setup (From Working Version)
-local FlingGui = Instance.new("ScreenGui")
-local Frame = Instance.new("Frame")
-local TargetBox = Instance.new("TextBox")
-local ToggleBtn = Instance.new("TextButton")
-
-FlingGui.Name = "FlingControl"
-FlingGui.Parent = game.CoreGui
-FlingGui.ResetOnSpawn = false
-
--- [Insert Previous Draggable GUI Implementation Here]
-
--- Restored Working Parameters
+-- Optimized Fling Mechanics (Updated Section)
 local Flinging = false
 local Target = nil
-local DESIRED_RANGE = 5 -- Studs
-local BASE_FORCE = 4200
-local PREDICTION_THRESHOLD = 8 -- Velocity magnitude required for prediction
+local PredictionFactor = 1.2  -- Reduced from 1.4
+local BaseForce = 4200         -- Adjusted from 4500
+local ForceMultiplier = 2.8    -- Reduced from 3.5
+local DESIRED_DISTANCE = 8     -- Added optimal distance
+local MAX_FORCE = 10000        -- Added safety cap
 
 local function GetTarget()
     local targetPlayer = Players:FindFirstChild(TargetBox.Text)
     return targetPlayer and targetPlayer.Character and targetPlayer.Character:FindFirstChild("HumanoidRootPart")
 end
 
-local function ApplyCollision(state)
-    if LP.Character then
-        for _, part in pairs(LP.Character:GetDescendants()) do
-            if part:IsA("BasePart") then
-                part.CanCollide = state
-            end
-        end
-    end
-end
+-- [Keep ApplyCollision function the same]
 
-local function StableFling()
+local function PrecisionFling()
     ApplyCollision(false)
     local HRP = LP.Character and LP.Character:WaitForChild("HumanoidRootPart")
     if not HRP or not Target then return end
 
     local BodyVelocity = Instance.new("BodyVelocity")
+    BodyVelocity.Velocity = Vector3.new()
     BodyVelocity.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
     BodyVelocity.P = 100000
     BodyVelocity.Parent = HRP
@@ -51,60 +31,38 @@ local function StableFling()
     while Flinging and task.wait() do
         if not Target.Parent or not HRP.Parent then
             Target = GetTarget()
-            HRP = LP.Character and LP.Character:WaitForChild("HumanoidRootPart")
-            if not Target or not HRP then break end
+            if not Target then break end
+            HRP = LP.Character:WaitForChild("HumanoidRootPart")
         end
 
-        -- Proximity-controlled force calculation
-        local rawTargetPos = Target.Position
-        local currentDistance = (HRP.Position - rawTargetPos).Magnitude
-        local forceMultiplier = math.clamp(currentDistance/DESIRED_RANGE, 0.8, 3)
-        
-        -- Conditional prediction
+        -- Improved Distance Calculation
+        local targetPos = Target.Position
         local targetVel = Target.Velocity
-        local usePrediction = targetVel.Magnitude > PREDICTION_THRESHOLD
-        local finalPosition = usePrediction and (rawTargetPos + (targetVel * 0.8)) or rawTargetPos
+        local currentDist = (HRP.Position - targetPos).Magnitude
         
-        -- Direction calculation
-        local toTarget = (finalPosition - HRP.Position).Unit
-        local verticalComp = math.clamp((rawTargetPos.Y - HRP.Position.Y) * 0.5, -2, 2)
+        -- Dynamic Prediction Control
+        local prediction = targetVel * PredictionFactor * math.clamp(targetVel.Magnitude/20, 0, 1)
+        local predictedPos = targetPos + prediction
         
-        BodyVelocity.Velocity = (toTarget + Vector3.new(0, verticalComp, 0)) * (BASE_FORCE * forceMultiplier)
+        -- Smart Force Adjustment
+        local distanceRatio = math.clamp(currentDist/DESIRED_DISTANCE, 0.5, 2)
+        local force = BaseForce * (distanceRatio > 1 and ForceMultiplier or 1) * math.log(distanceRatio + 1)
+        force = math.clamp(force, 1000, MAX_FORCE)
+        
+        -- Directional Control
+        local direction = (predictedPos - HRP.Position).Unit
+        local verticalComp = math.clamp((targetPos.Y - HRP.Position.Y) * 0.4, -2, 2)  -- Reduced vertical boost
+        
+        BodyVelocity.Velocity = (direction + Vector3.new(0, verticalComp, 0)) * force
+        
+        -- Proximity Dampening
+        if currentDist < DESIRED_DISTANCE then
+            BodyVelocity.Velocity = BodyVelocity.Velocity * 0.7  -- Reduce force when close
+        end
     end
 
     BodyVelocity:Destroy()
     ApplyCollision(true)
 end
 
--- Death Handling (From Working Version)
-LP.CharacterAdded:Connect(function()
-    if Flinging then
-        StableFling()
-    end
-end)
-
--- Toggle System (Restored)
-ToggleBtn.MouseButton1Click:Connect(function()
-    Flinging = not Flinging
-    ToggleBtn.BackgroundColor3 = Flinging and Color3.new(1, 0, 0) or Color3.new(0.3, 0.3, 0.3)
-    
-    if Flinging then
-        Target = GetTarget()
-        if Target then
-            coroutine.wrap(StableFling)()
-        end
-    else
-        Target = nil
-    end
-end)
-
--- Auto-Target Refresh
-RS.Heartbeat:Connect(function()
-    if Flinging and (not Target or not Target.Parent) then
-        Target = GetTarget()
-        if not Target then
-            Flinging = false
-            ToggleBtn.BackgroundColor3 = Color3.new(0.3, 0.3, 0.3)
-        end
-    end
-end)
+-- [Keep the rest of the code the same]
