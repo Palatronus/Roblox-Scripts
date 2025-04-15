@@ -1,44 +1,44 @@
--- FE Ultimate Orbital Fling System (Stable)
+-- FE Working Fling System with GUI
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UIS = game:GetService("UserInputService")
 local LP = Players.LocalPlayer
 
--- GUI Setup
+-- GUI Initialization
 local FlingGui = Instance.new("ScreenGui")
-local Frame = Instance.new("Frame")
-local TargetBox = Instance.new("TextBox")
-local ToggleBtn = Instance.new("TextButton")
-
-FlingGui.Name = "FlingControl"
-FlingGui.Parent = game.CoreGui
+FlingGui.Name = "FlingControl_V2"
 FlingGui.ResetOnSpawn = false
+FlingGui.Enabled = true
+FlingGui.DisplayOrder = 999
+FlingGui.Parent = LP:WaitForChild("PlayerGui")
 
-Frame.Parent = FlingGui
+local Frame = Instance.new("Frame")
 Frame.Size = UDim2.new(0, 250, 0, 150)
 Frame.Position = UDim2.new(0.5, -125, 0.5, -75)
 Frame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
-Frame.BackgroundTransparency = 0
 Frame.Active = true
 Frame.Draggable = true
+Frame.Parent = FlingGui
 
-TargetBox.Parent = Frame
+local TargetBox = Instance.new("TextBox")
 TargetBox.Size = UDim2.new(0.9, 0, 0.3, 0)
 TargetBox.Position = UDim2.new(0.05, 0, 0.1, 0)
+TargetBox.PlaceholderText = "Enter Username"
 TargetBox.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
 TargetBox.TextColor3 = Color3.new(1, 1, 1)
-TargetBox.PlaceholderText = "Enter Username"
 TargetBox.Font = Enum.Font.Gotham
 TargetBox.TextSize = 14
+TargetBox.Parent = Frame
 
-ToggleBtn.Parent = Frame
+local ToggleBtn = Instance.new("TextButton")
 ToggleBtn.Size = UDim2.new(0.9, 0, 0.3, 0)
 ToggleBtn.Position = UDim2.new(0.05, 0, 0.55, 0)
+ToggleBtn.Text = "START FLINGING"
 ToggleBtn.BackgroundColor3 = Color3.fromRGB(0, 120, 215)
 ToggleBtn.TextColor3 = Color3.new(1, 1, 1)
 ToggleBtn.Font = Enum.Font.GothamBold
-ToggleBtn.Text = "START FLINGING"
 ToggleBtn.TextSize = 14
+ToggleBtn.Parent = Frame
 
 -- Drag System
 local dragging, dragInput, dragStart, startPos
@@ -72,146 +72,54 @@ end)
 -- Fling System
 local Flinging = false
 local Target = nil
-local FORCE = 36000
-local NOCLIP_CONNECTION = nil
-local ORBIT_ANGLE = 0
-local ORBIT_RADIUS = 3.8
-local VELOCITY_THRESHOLD = 16
-local PREDICTION_FACTOR = 0.2
+local FORCE = 35000
 
 local function GetTarget()
-    local targetPlayer = Players:FindFirstChild(TargetBox.Text)
-    if targetPlayer and targetPlayer.Character then
-        local hrp = targetPlayer.Character:FindFirstChild("HumanoidRootPart")
-        if hrp and hrp.Parent then return hrp end
-    end
-    return nil
+    local targetName = TargetBox.Text
+    local targetPlayer = Players:FindFirstChild(targetName)
+    return targetPlayer and targetPlayer.Character and targetPlayer.Character:FindFirstChild("HumanoidRootPart")
 end
 
 local function EnableNoclip()
-    if NOCLIP_CONNECTION then NOCLIP_CONNECTION:Disconnect() end
-    NOCLIP_CONNECTION = RunService.Stepped:Connect(function()
-        if LP.Character then
-            for _, part in pairs(LP.Character:GetDescendants()) do
-                if part:IsA("BasePart") then
-                    part.CanCollide = false
-                end
+    if LP.Character then
+        for _, part in pairs(LP.Character:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.CanCollide = false
             end
         end
-    end)
-end
-
-local function MaintainOrbit(targetPos, targetVel, HRP)
-    ORBIT_ANGLE += 22 * (1 + math.clamp(targetVel.Magnitude/VELOCITY_THRESHOLD, 0.5, 1.5))
-    local orbitOffset = Vector3.new(
-        math.cos(math.rad(ORBIT_ANGLE)) * ORBIT_RADIUS,
-        1.2,
-        math.sin(math.rad(ORBIT_ANGLE)) * ORBIT_RADIUS
-    )
-    
-    local predictedPos = targetPos + (targetVel * PREDICTION_FACTOR) + orbitOffset
-    HRP.CFrame = CFrame.new(predictedPos)
-    HRP.Velocity = (predictedPos - HRP.Position).Unit * FORCE * 0.8
-end
-
-local function ViolentFling()
-    local BodyVelocity = Instance.new("BodyVelocity")
-    BodyVelocity.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
-    BodyVelocity.P = 100000
-
-    while Flinging do
-        if LP.Character and LP.Character.Parent then
-            local HRP = LP.Character:FindFirstChild("HumanoidRootPart")
-            if HRP then
-                -- Auto-reconnect system
-                if not Target or not Target.Parent then
-                    Target = GetTarget()
-                end
-
-                if Target and Target.Parent then
-                    local targetPos = Target.Position + Vector3.new(0, 1.5, 0)
-                    local targetVel = Target.Velocity
-                    
-                    -- Proximity lock
-                    if (HRP.Position - targetPos).Magnitude > 5 then
-                        HRP.CFrame = CFrame.new(targetPos)
-                    end
-
-                    if targetVel.Magnitude > VELOCITY_THRESHOLD then
-                        MaintainOrbit(targetPos, targetVel, HRP)
-                    else
-                        HRP.Velocity = Vector3.new(
-                            math.random(-FORCE, FORCE),
-                            math.random(-FORCE/2.5, FORCE),
-                            math.random(-FORCE, FORCE)
-                        )
-                    end
-
-                    HRP.RotVelocity = Vector3.new(
-                        math.random(-FORCE/25, FORCE/25),
-                        math.random(-FORCE/25, FORCE/25),
-                        math.random(-FORCE/25, FORCE/25)
-                    )
-                    
-                    if not BodyVelocity.Parent then
-                        BodyVelocity.Parent = HRP
-                    end
-                end
-            end
-        end
-        task.wait()
     end
-    BodyVelocity:Destroy()
 end
 
-local function MaintainFling()
-    EnableNoclip()
-    ViolentFling()
+local function FlingLoop()
+    while Flinging and task.wait() do
+        EnableNoclip()
+        local HRP = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
+        Target = GetTarget()
+        
+        if HRP and Target and Target.Parent then
+            local targetPos = Target.Position
+            HRP.Velocity = (targetPos - HRP.Position).Unit * FORCE
+            HRP.RotVelocity = Vector3.new(math.random(-50,50), math.random(-50,50), math.random(-50,50))
+        end
+    end
 end
 
+-- Toggle System
 ToggleBtn.MouseButton1Click:Connect(function()
     Flinging = not Flinging
     ToggleBtn.Text = Flinging and "STOP FLINGING" or "START FLINGING"
     ToggleBtn.BackgroundColor3 = Flinging and Color3.fromRGB(200, 0, 0) or Color3.fromRGB(0, 120, 215)
     
     if Flinging then
-        Target = GetTarget()
-        if Target then
-            if LP.Character and LP.Character:FindFirstChild("HumanoidRootPart") then
-                LP.Character.HumanoidRootPart.CFrame = Target.CFrame
-            end
-            coroutine.wrap(MaintainFling)()
-        end
-    else
-        if NOCLIP_CONNECTION then
-            NOCLIP_CONNECTION:Disconnect()
-        end
+        coroutine.wrap(FlingLoop)()
     end
 end)
 
--- Death/Respawn Handling
-local function TrackTarget()
-    while task.wait(1) do
-        if Flinging then
-            local targetPlayer = Players:FindFirstChild(TargetBox.Text)
-            if targetPlayer then
-                targetPlayer.CharacterAdded:Connect(function()
-                    Target = GetTarget()
-                end)
-            end
-        end
-    end
-end
-coroutine.wrap(TrackTarget)()
-
+-- Auto-Revive System
 LP.CharacterAdded:Connect(function()
     if Flinging then
-        coroutine.wrap(MaintainFling)()
+        coroutine.wrap(FlingLoop)()
     end
 end)
 
-RunService.Heartbeat:Connect(function()
-    if Flinging and (not Target or not Target.Parent) then
-        Target = GetTarget()
-    end
-end)
+print("Script loaded successfully! GUI visible at PlayerGui.FlingControl_V2")
