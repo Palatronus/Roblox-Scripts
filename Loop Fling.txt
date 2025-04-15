@@ -1,21 +1,83 @@
--- FE Stable Orbital Fling System (Final Optimized)
+-- FE Ultimate Orbital Fling System (Stable)
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UIS = game:GetService("UserInputService")
 local LP = Players.LocalPlayer
 
--- GUI Setup (Same as Previous Versions)
--- [Insert Identical GUI Code Here]
+-- GUI Setup
+local FlingGui = Instance.new("ScreenGui")
+local Frame = Instance.new("Frame")
+local TargetBox = Instance.new("TextBox")
+local ToggleBtn = Instance.new("TextButton")
+
+FlingGui.Name = "FlingControl"
+FlingGui.Parent = game.CoreGui
+FlingGui.ResetOnSpawn = false
+
+Frame.Parent = FlingGui
+Frame.Size = UDim2.new(0, 250, 0, 150)
+Frame.Position = UDim2.new(0.5, -125, 0.5, -75)
+Frame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+Frame.BackgroundTransparency = 0
+Frame.Active = true
+Frame.Draggable = true
+
+TargetBox.Parent = Frame
+TargetBox.Size = UDim2.new(0.9, 0, 0.3, 0)
+TargetBox.Position = UDim2.new(0.05, 0, 0.1, 0)
+TargetBox.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+TargetBox.TextColor3 = Color3.new(1, 1, 1)
+TargetBox.PlaceholderText = "Enter Username"
+TargetBox.Font = Enum.Font.Gotham
+TargetBox.TextSize = 14
+
+ToggleBtn.Parent = Frame
+ToggleBtn.Size = UDim2.new(0.9, 0, 0.3, 0)
+ToggleBtn.Position = UDim2.new(0.05, 0, 0.55, 0)
+ToggleBtn.BackgroundColor3 = Color3.fromRGB(0, 120, 215)
+ToggleBtn.TextColor3 = Color3.new(1, 1, 1)
+ToggleBtn.Font = Enum.Font.GothamBold
+ToggleBtn.Text = "START FLINGING"
+ToggleBtn.TextSize = 14
+
+-- Drag System
+local dragging, dragInput, dragStart, startPos
+Frame.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = true
+        dragStart = input.Position
+        startPos = Frame.Position
+        
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                dragging = false
+            end
+        end)
+    end
+end)
+
+Frame.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement then
+        dragInput = input
+    end
+end)
+
+UIS.InputChanged:Connect(function(input)
+    if input == dragInput and dragging then
+        local delta = input.Position - dragStart
+        Frame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+    end
+end)
 
 -- Fling System
 local Flinging = false
 local Target = nil
-local FORCE = 35000
+local FORCE = 36000
 local NOCLIP_CONNECTION = nil
 local ORBIT_ANGLE = 0
-local ORBIT_RADIUS = 4.5
-local VELOCITY_THRESHOLD = 16 -- Adjusted for 16 studs/s
-local PREDICTION_FACTOR = 0.25
+local ORBIT_RADIUS = 3.8
+local VELOCITY_THRESHOLD = 16
+local PREDICTION_FACTOR = 0.2
 
 local function GetTarget()
     local targetPlayer = Players:FindFirstChild(TargetBox.Text)
@@ -40,23 +102,16 @@ local function EnableNoclip()
 end
 
 local function MaintainOrbit(targetPos, targetVel, HRP)
-    ORBIT_ANGLE += 20 * (1 + math.clamp(targetVel.Magnitude/20, 0, 2))
+    ORBIT_ANGLE += 22 * (1 + math.clamp(targetVel.Magnitude/VELOCITY_THRESHOLD, 0.5, 1.5))
     local orbitOffset = Vector3.new(
         math.cos(math.rad(ORBIT_ANGLE)) * ORBIT_RADIUS,
-        1.5,
+        1.2,
         math.sin(math.rad(ORBIT_ANGLE)) * ORBIT_RADIUS
     )
     
-    -- Velocity-stabilized prediction
     local predictedPos = targetPos + (targetVel * PREDICTION_FACTOR) + orbitOffset
-    local forceDirection = (predictedPos - HRP.Position).Unit
-    
-    HRP.Velocity = forceDirection * FORCE * math.clamp(targetVel.Magnitude/20, 0.8, 1.5)
-    HRP.RotVelocity = Vector3.new(
-        math.random(-FORCE/30, FORCE/30),
-        math.random(-FORCE/30, FORCE/30),
-        math.random(-FORCE/30, FORCE/30)
-    )
+    HRP.CFrame = CFrame.new(predictedPos)
+    HRP.Velocity = (predictedPos - HRP.Position).Unit * FORCE * 0.8
 end
 
 local function ViolentFling()
@@ -71,35 +126,33 @@ local function ViolentFling()
                 -- Auto-reconnect system
                 if not Target or not Target.Parent then
                     Target = GetTarget()
-                    if not Target then
-                        local targetPlayer = Players:FindFirstChild(TargetBox.Text)
-                        if targetPlayer then
-                            targetPlayer.CharacterAdded:Wait()
-                            Target = GetTarget()
-                        end
-                    end
                 end
 
                 if Target and Target.Parent then
                     local targetPos = Target.Position + Vector3.new(0, 1.5, 0)
                     local targetVel = Target.Velocity
                     
-                    -- Proximity stabilization
-                    if (HRP.Position - targetPos).Magnitude > 6 then
+                    -- Proximity lock
+                    if (HRP.Position - targetPos).Magnitude > 5 then
                         HRP.CFrame = CFrame.new(targetPos)
                     end
 
                     if targetVel.Magnitude > VELOCITY_THRESHOLD then
                         MaintainOrbit(targetPos, targetVel, HRP)
                     else
-                        -- Controlled static fling
                         HRP.Velocity = Vector3.new(
                             math.random(-FORCE, FORCE),
-                            math.random(-FORCE/3, FORCE),
+                            math.random(-FORCE/2.5, FORCE),
                             math.random(-FORCE, FORCE)
                         )
                     end
 
+                    HRP.RotVelocity = Vector3.new(
+                        math.random(-FORCE/25, FORCE/25),
+                        math.random(-FORCE/25, FORCE/25),
+                        math.random(-FORCE/25, FORCE/25)
+                    )
+                    
                     if not BodyVelocity.Parent then
                         BodyVelocity.Parent = HRP
                     end
@@ -116,17 +169,28 @@ local function MaintainFling()
     ViolentFling()
 end
 
--- Toggle System (Same as Before)
--- [Insert Identical Toggle Code Here]
-
--- Death/Respawn Handling
-LP.CharacterAdded:Connect(function()
+ToggleBtn.MouseButton1Click:Connect(function()
+    Flinging = not Flinging
+    ToggleBtn.Text = Flinging and "STOP FLINGING" or "START FLINGING"
+    ToggleBtn.BackgroundColor3 = Flinging and Color3.fromRGB(200, 0, 0) or Color3.fromRGB(0, 120, 215)
+    
     if Flinging then
-        coroutine.wrap(MaintainFling)()
+        Target = GetTarget()
+        if Target then
+            if LP.Character and LP.Character:FindFirstChild("HumanoidRootPart") then
+                LP.Character.HumanoidRootPart.CFrame = Target.CFrame
+            end
+            coroutine.wrap(MaintainFling)()
+        end
+    else
+        if NOCLIP_CONNECTION then
+            NOCLIP_CONNECTION:Disconnect()
+        end
     end
 end)
 
-local function TrackTargetRespawns()
+-- Death/Respawn Handling
+local function TrackTarget()
     while task.wait(1) do
         if Flinging then
             local targetPlayer = Players:FindFirstChild(TargetBox.Text)
@@ -138,13 +202,16 @@ local function TrackTargetRespawns()
         end
     end
 end
-coroutine.wrap(TrackTargetRespawns)()
+coroutine.wrap(TrackTarget)()
 
--- Auto-refresh
-RunService.Heartbeat:Connect(function()
+LP.CharacterAdded:Connect(function()
     if Flinging then
-        if not Target or not Target.Parent then
-            Target = GetTarget()
-        end
+        coroutine.wrap(MaintainFling)()
+    end
+end)
+
+RunService.Heartbeat:Connect(function()
+    if Flinging and (not Target or not Target.Parent) then
+        Target = GetTarget()
     end
 end)
