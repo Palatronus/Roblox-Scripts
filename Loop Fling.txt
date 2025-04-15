@@ -1,7 +1,7 @@
--- FE Ultimate Fling Tool v2 (GUI + Prediction + Loop)
+-- FE Ultimate Fling GUI v3 (No Tools)
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
-local LocalPlayer = Players.LocalPlayer
+local UIS = game:GetService("UserInputService")
 local LP = Players.LocalPlayer
 
 -- GUI Setup
@@ -12,108 +12,167 @@ local ToggleBtn = Instance.new("TextButton")
 
 FlingGui.Name = "FlingControl"
 FlingGui.Parent = game.CoreGui
-FlingGui.ResetOnSpawn = false
+
+-- Main Frame
+Frame.Parent = FlingGui
+Frame.Size = UDim2.new(0, 250, 0, 150)
+Frame.Position = UDim2.new(0.5, -125, 0.5, -75)
+Frame.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+Frame.BackgroundTransparency = 0.25
+Frame.Active = true
+Frame.Selectable = true
+Frame.Draggable = true
 
 -- Draggable GUI Implementation
-Frame.Parent = FlingGui
-Frame.Size = UDim2.new(0, 220, 0, 120)
-Frame.Position = UDim2.new(0.5, -110, 0.5, -60)
-Frame.BackgroundTransparency = 0.5
-Frame.Active = true
+local dragging, dragInput, dragStart, startPos
+local function UpdateInput(input)
+    local delta = input.Position - dragStart
+    Frame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+end
 
--- [Insert Previous Drag Code Here]
+Frame.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = true
+        dragStart = input.Position
+        startPos = Frame.Position
+        
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                dragging = false
+            end
+        end)
+    end
+end)
 
--- Fling Parameters
+Frame.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement then
+        dragInput = input
+    end
+end)
+
+UIS.InputChanged:Connect(function(input)
+    if input == dragInput and dragging then
+        UpdateInput(input)
+    end
+end)
+
+-- Target Input Box
+TargetBox.Parent = Frame
+TargetBox.Size = UDim2.new(0.9, 0, 0.3, 0)
+TargetBox.Position = UDim2.new(0.05, 0, 0.1, 0)
+TargetBox.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+TargetBox.TextColor3 = Color3.new(1, 1, 1)
+TargetBox.PlaceholderText = "Enter Username"
+TargetBox.Font = Enum.Font.Gotham
+TargetBox.TextSize = 14
+
+-- Toggle Button
+ToggleBtn.Parent = Frame
+ToggleBtn.Size = UDim2.new(0.9, 0, 0.3, 0)
+ToggleBtn.Position = UDim2.new(0.05, 0, 0.55, 0)
+ToggleBtn.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+ToggleBtn.TextColor3 = Color3.new(1, 1, 1)
+ToggleBtn.Font = Enum.Font.GothamBold
+ToggleBtn.Text = "TOGGLE FLING"
+ToggleBtn.TextSize = 14
+
+-- Fling System
 local Flinging = false
 local Target = nil
-local PREDICTION_FACTOR = 1.25
-local FLING_FORCE = 9500
-local SPIN_VELOCITY = Vector3.new(9000, 9000, 9000)
+local PREDICTION_FACTOR = 1.3
+local FLING_FORCE = 9800
+local VERTICAL_BOOST = 1.4
 
 local function GetTarget()
     local targetPlayer = Players:FindFirstChild(TargetBox.Text)
     return targetPlayer and targetPlayer.Character and targetPlayer.Character:FindFirstChild("HumanoidRootPart")
 end
 
-local function ViolentFling()
-    local character = LP.Character
-    if not character then return end
-    local hrp = character:FindFirstChild("HumanoidRootPart")
-    if not hrp then return end
-
-    -- Collision disable
-    for _, part in ipairs(character:GetDescendants()) do
-        if part:IsA("BasePart") then
-            part.CanCollide = false
-        end
-    end
-
-    -- Fling loop
-    while Flinging and task.wait() do
-        if not Target or not Target.Parent then
-            Target = GetTarget()
-            if not Target then break end
-        end
-
-        -- Prediction calculation
-        local targetVel = Target.Velocity
-        local predictedPos = Target.Position + (targetVel * PREDICTION_FACTOR)
-        
-        -- CFrame manipulation
-        hrp.CFrame = CFrame.lookAt(predictedPos, Target.Position) 
-                     * CFrame.Angles(math.rad(90), 0, 0)
-        
-        -- Velocity forces
-        hrp.Velocity = (predictedPos - hrp.Position).Unit * FLING_FORCE
-        hrp.RotVelocity = SPIN_VELOCITY
-        
-        -- Secondary parts control
-        for _, part in ipairs(character:GetDescendants()) do
-            if part:IsA("BasePart") and part ~= hrp then
-                part.Velocity = Vector3.new(0, -100, 0)
-                part.RotVelocity = SPIN_VELOCITY
+local function ApplyCollision(state)
+    if LP.Character then
+        for _, part in pairs(LP.Character:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.CanCollide = state
             end
         end
     end
+end
+
+local function PredictionFling()
+    ApplyCollision(false)
+    local HRP = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
+    if not HRP or not Target then return end
+
+    local BodyVelocity = Instance.new("BodyVelocity")
+    BodyVelocity.Velocity = Vector3.new()
+    BodyVelocity.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+    BodyVelocity.Parent = HRP
+
+    while Flinging and task.wait() do
+        if not Target.Parent or not HRP.Parent then
+            Target = GetTarget()
+            HRP = LP.Character:FindFirstChild("HumanoidRootPart")
+            if not Target or not HRP then break end
+        end
+
+        -- Prediction calculations
+        local targetVel = Target.Velocity
+        local predictedPos = Target.Position + (targetVel * PREDICTION_FACTOR)
+        local forceDirection = (predictedPos - HRP.Position).Unit
+        
+        -- Vertical adjustment
+        local verticalForce = (Target.Position.Y - HRP.Position.Y) * VERTICAL_BOOST
+        verticalForce = math.clamp(verticalForce, -FLING_FORCE/2, FLING_FORCE/2)
+        
+        -- Apply forces
+        BodyVelocity.Velocity = forceDirection * FLING_FORCE + Vector3.new(0, verticalForce, 0)
+        
+        -- Rotation effect
+        HRP.RotVelocity = Vector3.new(
+            math.random(-FLING_FORCE/100, FLING_FORCE/100),
+            math.random(-FLING_FORCE/100, FLING_FORCE/100),
+            math.random(-FLING_FORCE/100, FLING_FORCE/100)
+        )
+    end
 
     -- Cleanup
-    hrp.RotVelocity = Vector3.new()
-    for _, part in ipairs(character:GetDescendants()) do
-        if part:IsA("BasePart") then
-            part.CanCollide = true
-        end
+    BodyVelocity:Destroy()
+    ApplyCollision(true)
+    if HRP then
+        HRP.RotVelocity = Vector3.new()
     end
 end
 
 -- Toggle Handler
 ToggleBtn.MouseButton1Click:Connect(function()
     Flinging = not Flinging
+    ToggleBtn.BackgroundColor3 = Flinging and Color3.fromRGB(200, 50, 50) or Color3.fromRGB(80, 80, 80)
+    
     if Flinging then
         Target = GetTarget()
         if Target then
-            coroutine.wrap(ViolentFling)()
+            coroutine.wrap(PredictionFling)()
+        else
+            Flinging = false
+            ToggleBtn.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
         end
     end
 end)
 
--- Tool Integration
-local function createFlingTool()
-    if not LP:FindFirstChild("Backpack") then return end
-    
-    local tool = Instance.new("Tool")
-    tool.Name = "FlingController"
-    tool.RequiresHandle = false
-    tool.Parent = LP.Backpack
+-- Auto-Refresh System
+RunService.Heartbeat:Connect(function()
+    if Flinging and (not Target or not Target.Parent) then
+        Target = GetTarget()
+        if not Target then
+            Flinging = false
+            ToggleBtn.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+        end
+    end
+end)
 
-    tool.Equipped:Connect(function()
-        FlingGui.Enabled = true
-    end)
-
-    tool.Unequipped:Connect(function()
-        FlingGui.Enabled = false
-    end)
-end
-
--- Initialization
-createFlingTool()
-LP.CharacterAdded:Connect(createFlingTool)
+-- Death Handling
+LP.CharacterAdded:Connect(function()
+    if Flinging then
+        coroutine.wrap(PredictionFling)()
+    end
+end)
