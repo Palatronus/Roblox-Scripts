@@ -1,41 +1,44 @@
--- FE Prediction Fling V4 (Fixed Direction + Draggable GUI)
+-- FE Advanced Fling V5 (Stable)
 local UIS = game:GetService("UserInputService")
 local RS = game:GetService("RunService")
 local Players = game:GetService("Players")
 local LP = Players.LocalPlayer
 local Mouse = LP:GetMouse()
 
--- Draggable GUI Setup
+-- Enhanced GUI with Prediction
 local FlingGui = Instance.new("ScreenGui")
 local Frame = Instance.new("Frame")
 local TargetBox = Instance.new("TextBox")
 local ToggleBtn = Instance.new("TextButton")
+local Suggestions = Instance.new("ScrollingFrame")
 
+-- Improved Draggable GUI
 FlingGui.Name = "FlingControl"
 FlingGui.Parent = game.CoreGui
+FlingGui.ResetOnSpawn = false
 
 Frame.Parent = FlingGui
-Frame.Size = UDim2.new(0, 200, 0, 100)
-Frame.Position = UDim2.new(0.5, -100, 0.5, -50)
-Frame.Active = true
-Frame.Selectable = true
-Frame.Draggable = true
+Frame.Size = UDim2.new(0, 220, 0, 120)
+Frame.Position = UDim2.new(0.5, -110, 0.5, -60)
 Frame.BackgroundTransparency = 0.5
+Frame.Active = true
 
--- GUI Drag Implementation
-local dragInput, dragStart, startPos
-local function updateInput(input)
+-- Proper Drag Implementation
+local dragging, dragInput, dragStart, startPos
+local function UpdateInput(input)
     local delta = input.Position - dragStart
     Frame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
 end
 
 Frame.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = true
         dragStart = input.Position
         startPos = Frame.Position
+        
         input.Changed:Connect(function()
             if input.UserInputState == Enum.UserInputState.End then
-                dragInput = nil
+                dragging = false
             end
         end)
     end
@@ -48,28 +51,75 @@ Frame.InputChanged:Connect(function(input)
 end)
 
 UIS.InputChanged:Connect(function(input)
-    if input == dragInput then
-        updateInput(input)
+    if input == dragInput and dragging then
+        UpdateInput(input)
     end
 end)
 
+-- Username Prediction System
+Suggestions.Name = "Suggestions"
+Suggestions.Parent = Frame
+Suggestions.Size = UDim2.new(0.9, 0, 0, 80)
+Suggestions.Position = UDim2.new(0.05, 0, 1.1, 0)
+Suggestions.BackgroundTransparency = 0.7
+Suggestions.ScrollBarThickness = 3
+Suggestions.Visible = false
+
+local function ShowSuggestions(text)
+    Suggestions:ClearAllChildren()
+    local count = 0
+    
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LP and player.Name:lower():find(text:lower()) == 1 then
+            local btn = Instance.new("TextButton")
+            btn.Size = UDim2.new(1, 0, 0, 20)
+            btn.Position = UDim2.new(0, 0, 0, count * 22)
+            btn.Text = player.Name
+            btn.TextColor3 = Color3.new(1, 1, 1)
+            btn.BackgroundTransparency = 0.8
+            
+            btn.MouseButton1Click:Connect(function()
+                TargetBox.Text = player.Name
+                Suggestions.Visible = false
+            end)
+            
+            btn.Parent = Suggestions
+            count += 1
+        end
+    end
+    
+    Suggestions.Visible = count > 0
+    Suggestions.CanvasSize = UDim2.new(0, 0, 0, count * 22)
+end
+
 TargetBox.Parent = Frame
-TargetBox.Size = UDim2.new(0.9, 0, 0.4, 0)
+TargetBox.Size = UDim2.new(0.9, 0, 0.3, 0)
 TargetBox.Position = UDim2.new(0.05, 0, 0.1, 0)
 TargetBox.PlaceholderText = "Enter Username"
+TargetBox:GetPropertyChangedSignal("Text"):Connect(function()
+    ShowSuggestions(TargetBox.Text)
+end)
+
+TargetBox.Focused:Connect(function()
+    ShowSuggestions(TargetBox.Text)
+end)
+
+TargetBox.FocusLost:Connect(function()
+    Suggestions.Visible = false
+end)
 
 ToggleBtn.Parent = Frame
-ToggleBtn.Size = UDim2.new(0.9, 0, 0.4, 0)
+ToggleBtn.Size = UDim2.new(0.9, 0, 0.3, 0)
 ToggleBtn.Position = UDim2.new(0.05, 0, 0.55, 0)
 ToggleBtn.Text = "Toggle Fling"
 ToggleBtn.BackgroundColor3 = Color3.new(0.3, 0.3, 0.3)
 
--- Improved Fling Mechanics
+-- Optimized Fling Mechanics
 local Flinging = false
 local Target = nil
-local PredictionFactor = 1.35
-local FlingForce = 4800
-local DirectionChangeInterval = 0.08
+local PredictionFactor = 1.4
+local BaseForce = 4500
+local ForceMultiplier = 3.5
 
 local function GetTarget()
     local targetPlayer = Players:FindFirstChild(TargetBox.Text)
@@ -86,9 +136,9 @@ local function ApplyCollision(state)
     end
 end
 
-local function SmartFling()
+local function PrecisionFling()
     ApplyCollision(false)
-    local HRP = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
+    local HRP = LP.Character and LP.Character:WaitForChild("HumanoidRootPart")
     if not HRP or not Target then return end
 
     local BodyVelocity = Instance.new("BodyVelocity")
@@ -97,45 +147,38 @@ local function SmartFling()
     BodyVelocity.P = 100000
     BodyVelocity.Parent = HRP
 
-    local lastDirChange = tick()
-    local randomOffset = Vector3.new()
-
     while Flinging and task.wait() do
-        if not Target.Parent then
+        if not Target.Parent or not HRP.Parent then
             Target = GetTarget()
             if not Target then break end
+            HRP = LP.Character:WaitForChild("HumanoidRootPart")
         end
 
-        -- Improved prediction calculation
+        -- Smart Positioning System
         local targetVel = Target.Velocity
         local predictedPos = Target.Position + (targetVel * PredictionFactor)
-        
-        -- Dynamic direction with proper axis balancing
-        local baseDirection = (predictedPos - HRP.Position).Unit
-        local distanceFactor = math.clamp((HRP.Position - Target.Position).Magnitude/10, 1, 4)
-        
-        -- Add controlled random offset
-        if tick() - lastDirChange > DirectionChangeInterval then
-            randomOffset = Vector3.new(
-                math.random(-100, 100)/200,
-                math.random(-50, 150)/200,
-                math.random(-100, 100)/200
-            )
-            lastDirChange = tick()
-        end
+        local distance = (HRP.Position - Target.Position).Magnitude
+        local force = BaseForce * (distance > 10 and ForceMultiplier or 1)
 
-        -- Final velocity calculation
-        BodyVelocity.Velocity = (baseDirection + randomOffset) * (FlingForce * distanceFactor)
-
-        -- Enhanced jump detection
-        if Target.Velocity.Y > 10 then
-            BodyVelocity.Velocity += Vector3.new(0, FlingForce/3 * (Target.Velocity.Y/20), 0)
+        -- Dynamic Force Application
+        BodyVelocity.Velocity = (predictedPos - HRP.Position).Unit * force
+        
+        -- Vertical Control System
+        if Target.Position.Y > HRP.Position.Y + 2 then
+            BodyVelocity.Velocity += Vector3.new(0, force/4, 0)
         end
     end
 
     BodyVelocity:Destroy()
     ApplyCollision(true)
 end
+
+-- Death Handling System
+LP.CharacterAdded:Connect(function()
+    if Flinging then
+        PrecisionFling()
+    end
+end)
 
 ToggleBtn.MouseButton1Click:Connect(function()
     Flinging = not Flinging
@@ -144,15 +187,15 @@ ToggleBtn.MouseButton1Click:Connect(function()
     if Flinging then
         Target = GetTarget()
         if Target then
-            coroutine.wrap(SmartFling)()
+            coroutine.wrap(PrecisionFling)()
         end
     else
         Target = nil
     end
 end)
 
--- Improved target tracking
-local function HeartbeatUpdate()
+-- Auto-Target Refresh
+RS.Heartbeat:Connect(function()
     if Flinging and (not Target or not Target.Parent) then
         Target = GetTarget()
         if not Target then
@@ -160,6 +203,4 @@ local function HeartbeatUpdate()
             ToggleBtn.BackgroundColor3 = Color3.new(0.3, 0.3, 0.3)
         end
     end
-end
-
-RS.Heartbeat:Connect(HeartbeatUpdate)
+end)
