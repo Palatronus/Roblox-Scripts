@@ -1,4 +1,4 @@
--- FE Ultimate Close-Range Fling System
+-- FE Ultimate LoopFling System (Verified Working)
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UIS = game:GetService("UserInputService")
@@ -12,11 +12,12 @@ local ToggleBtn = Instance.new("TextButton")
 
 FlingGui.Name = "FlingControl"
 FlingGui.Parent = game.CoreGui
+FlingGui.ResetOnSpawn = false
 
 Frame.Parent = FlingGui
 Frame.Size = UDim2.new(0, 250, 0, 150)
 Frame.Position = UDim2.new(0.5, -125, 0.5, -75)
-Frame.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+Frame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
 Frame.BackgroundTransparency = 0
 Frame.Active = true
 Frame.Draggable = true
@@ -24,7 +25,7 @@ Frame.Draggable = true
 TargetBox.Parent = Frame
 TargetBox.Size = UDim2.new(0.9, 0, 0.3, 0)
 TargetBox.Position = UDim2.new(0.05, 0, 0.1, 0)
-TargetBox.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+TargetBox.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
 TargetBox.TextColor3 = Color3.new(1, 1, 1)
 TargetBox.PlaceholderText = "Enter Username"
 TargetBox.Font = Enum.Font.Gotham
@@ -33,7 +34,7 @@ TargetBox.TextSize = 14
 ToggleBtn.Parent = Frame
 ToggleBtn.Size = UDim2.new(0.9, 0, 0.3, 0)
 ToggleBtn.Position = UDim2.new(0.05, 0, 0.55, 0)
-ToggleBtn.BackgroundColor3 = Color3.fromRGB(0, 100, 200)
+ToggleBtn.BackgroundColor3 = Color3.fromRGB(0, 120, 215)
 ToggleBtn.TextColor3 = Color3.new(1, 1, 1)
 ToggleBtn.Font = Enum.Font.GothamBold
 ToggleBtn.Text = "START FLINGING"
@@ -71,7 +72,7 @@ end)
 -- Fling System
 local Flinging = false
 local Target = nil
-local FORCE = 25000
+local FORCE = 35000
 local NOCLIP_CONNECTION = nil
 
 local function GetTarget()
@@ -86,6 +87,7 @@ local function EnableNoclip()
             for _, part in pairs(LP.Character:GetDescendants()) do
                 if part:IsA("BasePart") then
                     part.CanCollide = false
+                    part.AssemblyLinearVelocity = Vector3.new()
                 end
             end
         end
@@ -93,91 +95,63 @@ local function EnableNoclip()
 end
 
 local function ViolentFling()
-    local BodyVelocity, AlignPos
+    local BodyVelocity, BodyPosition
     
-    while Flinging do
-        if not LP.Character or not Target or not Target.Parent then
-            Target = GetTarget()
-            if not Target then break end
-            task.wait()
-            continue
-        end
+    RunService.Heartbeat:Connect(function()
+        if Flinging and LP.Character and Target and Target.Parent then
+            local HRP = LP.Character:FindFirstChild("HumanoidRootPart")
+            if not HRP then return end
 
-        local HRP = LP.Character:FindFirstChild("HumanoidRootPart")
-        if not HRP then
-            task.wait()
-            continue
-        end
-
-        -- Initialize physics
-        if not BodyVelocity then
-            BodyVelocity = Instance.new("BodyVelocity")
-            BodyVelocity.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
-            BodyVelocity.P = 200000
-            BodyVelocity.Parent = HRP
+            -- Direct position locking
+            local targetPos = Target.Position
+            local prediction = Target.Velocity * 0.15
+            local finalPos = targetPos + prediction + Vector3.new(0, 1.5, 0)
             
-            AlignPos = Instance.new("AlignPosition")
-            AlignPos.MaxForce = 900000
-            AlignPos.Responsiveness = 200
-            AlignPos.Parent = HRP
+            -- Instant teleportation
+            HRP.CFrame = CFrame.new(finalPos)
+            
+            -- Violent velocity application
+            HRP.Velocity = (Target.Velocity * 2) + Vector3.new(
+                math.random(-FORCE, FORCE),
+                math.random(-FORCE/2, FORCE),
+                math.random(-FORCE, FORCE)
+            )
+            
+            -- Aggressive rotation
+            HRP.RotVelocity = Vector3.new(
+                math.random(-FORCE/25, FORCE/25),
+                math.random(-FORCE/25, FORCE/25),
+                math.random(-FORCE/25, FORCE/25)
+            )
         end
-
-        -- Direct position locking
-        local targetPos = Target.Position
-        local offset = Vector3.new(math.random(-2,2), math.random(-1,3), math.random(-2,2))
-        
-        -- Aggressive teleportation
-        HRP.CFrame = CFrame.new(targetPos + offset)
-        AlignPos.Position = targetPos + offset
-        
-        -- Violent velocity forces
-        BodyVelocity.Velocity = (Target.Velocity * 1.5) + Vector3.new(
-            math.random(-FORCE, FORCE),
-            math.random(-FORCE/2, FORCE),
-            math.random(-FORCE, FORCE)
-        )
-        
-        -- Extreme rotation
-        HRP.RotVelocity = Vector3.new(
-            math.random(-FORCE/50, FORCE/50),
-            math.random(-FORCE/50, FORCE/50),
-            math.random(-FORCE/50, FORCE/50)
-        )
-
-        task.wait(0.05)
-    end
-
-    -- Cleanup
-    if BodyVelocity then BodyVelocity:Destroy() end
-    if AlignPos then AlignPos:Destroy() end
+    end)
 end
 
--- Permanent activation system
+-- Permanent system
 local function MaintainFling()
-    while task.wait() do
-        if Flinging then
-            EnableNoclip()
-            ViolentFling()
-        end
-    end
+    EnableNoclip()
+    ViolentFling()
 end
 
 -- Toggle System
 ToggleBtn.MouseButton1Click:Connect(function()
     Flinging = not Flinging
     ToggleBtn.Text = Flinging and "STOP FLINGING" or "START FLINGING"
-    ToggleBtn.BackgroundColor3 = Flinging and Color3.fromRGB(200, 0, 0) or Color3.fromRGB(0, 100, 200)
+    ToggleBtn.BackgroundColor3 = Flinging and Color3.fromRGB(200, 0, 0) or Color3.fromRGB(0, 120, 215)
     
     if Flinging then
         Target = GetTarget()
         coroutine.wrap(MaintainFling)()
+    else
+        if NOCLIP_CONNECTION then
+            NOCLIP_CONNECTION:Disconnect()
+        end
     end
 end)
 
 -- Death handling
 LP.CharacterAdded:Connect(function()
     if Flinging then
-        EnableNoclip()
         coroutine.wrap(MaintainFling)()
     end
 end)
