@@ -1,21 +1,57 @@
--- FE LoopFling V3 (Prediction-Based)
+-- FE Prediction Fling V4 (Fixed Direction + Draggable GUI)
 local UIS = game:GetService("UserInputService")
 local RS = game:GetService("RunService")
 local Players = game:GetService("Players")
 local LP = Players.LocalPlayer
 local Mouse = LP:GetMouse()
 
+-- Draggable GUI Setup
 local FlingGui = Instance.new("ScreenGui")
 local Frame = Instance.new("Frame")
 local TargetBox = Instance.new("TextBox")
 local ToggleBtn = Instance.new("TextButton")
 
--- GUI Setup
-FlingGui.Parent = game.CoreGui
 FlingGui.Name = "FlingControl"
+FlingGui.Parent = game.CoreGui
+
 Frame.Parent = FlingGui
 Frame.Size = UDim2.new(0, 200, 0, 100)
 Frame.Position = UDim2.new(0.5, -100, 0.5, -50)
+Frame.Active = true
+Frame.Selectable = true
+Frame.Draggable = true
+Frame.BackgroundTransparency = 0.5
+
+-- GUI Drag Implementation
+local dragInput, dragStart, startPos
+local function updateInput(input)
+    local delta = input.Position - dragStart
+    Frame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+end
+
+Frame.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragStart = input.Position
+        startPos = Frame.Position
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                dragInput = nil
+            end
+        end)
+    end
+end)
+
+Frame.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement then
+        dragInput = input
+    end
+end)
+
+UIS.InputChanged:Connect(function(input)
+    if input == dragInput then
+        updateInput(input)
+    end
+end)
 
 TargetBox.Parent = Frame
 TargetBox.Size = UDim2.new(0.9, 0, 0.4, 0)
@@ -28,13 +64,12 @@ ToggleBtn.Position = UDim2.new(0.05, 0, 0.55, 0)
 ToggleBtn.Text = "Toggle Fling"
 ToggleBtn.BackgroundColor3 = Color3.new(0.3, 0.3, 0.3)
 
--- Fling Configuration
+-- Improved Fling Mechanics
 local Flinging = false
 local Target = nil
-local LoopActive = false
-local PredictionFactor = 1.25 -- Adjust prediction strength
-local FlingForce = 5000 -- Base force (adjust carefully)
-local DirectionChangeInterval = 0.1 -- Seconds between direction changes
+local PredictionFactor = 1.35
+local FlingForce = 4800
+local DirectionChangeInterval = 0.08
 
 local function GetTarget()
     local targetPlayer = Players:FindFirstChild(TargetBox.Text)
@@ -51,7 +86,7 @@ local function ApplyCollision(state)
     end
 end
 
-local function PredictionFling()
+local function SmartFling()
     ApplyCollision(false)
     local HRP = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
     if not HRP or not Target then return end
@@ -62,41 +97,39 @@ local function PredictionFling()
     BodyVelocity.P = 100000
     BodyVelocity.Parent = HRP
 
-    local lastDirectionChange = tick()
-    local currentDirection = Vector3.new()
+    local lastDirChange = tick()
+    local randomOffset = Vector3.new()
 
-    while Flinging and wait() do
+    while Flinging and task.wait() do
         if not Target.Parent then
             Target = GetTarget()
             if not Target then break end
         end
 
-        -- Calculate predicted position
-        local targetVelocity = Target.Velocity
-        local predictedPosition = Target.Position + (targetVelocity * PredictionFactor)
-
-        -- Dynamic direction calculation with vertical component
-        local baseDirection = (predictedPosition - HRP.Position).Unit
-        local verticalComponent = Vector3.new(0, (Target.Position.Y - HRP.Position.Y > 3) and 2 or 1.5, 0)
-        currentDirection = baseDirection + verticalComponent
-
-        -- Apply random directional variation
-        if tick() - lastDirectionChange > DirectionChangeInterval then
-            currentDirection = currentDirection * Vector3.new(
-                math.random(80, 120)/100,
-                math.random(80, 120)/100,
-                math.random(80, 120)/100
+        -- Improved prediction calculation
+        local targetVel = Target.Velocity
+        local predictedPos = Target.Position + (targetVel * PredictionFactor)
+        
+        -- Dynamic direction with proper axis balancing
+        local baseDirection = (predictedPos - HRP.Position).Unit
+        local distanceFactor = math.clamp((HRP.Position - Target.Position).Magnitude/10, 1, 4)
+        
+        -- Add controlled random offset
+        if tick() - lastDirChange > DirectionChangeInterval then
+            randomOffset = Vector3.new(
+                math.random(-100, 100)/200,
+                math.random(-50, 150)/200,
+                math.random(-100, 100)/200
             )
-            lastDirectionChange = tick()
+            lastDirChange = tick()
         end
 
-        -- Velocity adjustment based on distance
-        local distanceFactor = math.clamp((HRP.Position - Target.Position).Magnitude / 10, 1, 5)
-        BodyVelocity.Velocity = currentDirection * (FlingForce * distanceFactor)
+        -- Final velocity calculation
+        BodyVelocity.Velocity = (baseDirection + randomOffset) * (FlingForce * distanceFactor)
 
-        -- Anti-Jump/Spin compensation
-        if Target.Velocity.Y > 5 then -- Detect jumping
-            BodyVelocity.Velocity = BodyVelocity.Velocity + Vector3.new(0, FlingForce/2, 0)
+        -- Enhanced jump detection
+        if Target.Velocity.Y > 10 then
+            BodyVelocity.Velocity += Vector3.new(0, FlingForce/3 * (Target.Velocity.Y/20), 0)
         end
     end
 
@@ -111,15 +144,15 @@ ToggleBtn.MouseButton1Click:Connect(function()
     if Flinging then
         Target = GetTarget()
         if Target then
-            coroutine.wrap(PredictionFling)()
+            coroutine.wrap(SmartFling)()
         end
     else
         Target = nil
     end
 end)
 
--- Auto-reconnect system
-RS.Heartbeat:Connect(function()
+-- Improved target tracking
+local function HeartbeatUpdate()
     if Flinging and (not Target or not Target.Parent) then
         Target = GetTarget()
         if not Target then
@@ -127,4 +160,6 @@ RS.Heartbeat:Connect(function()
             ToggleBtn.BackgroundColor3 = Color3.new(0.3, 0.3, 0.3)
         end
     end
-end)
+end
+
+RS.Heartbeat:Connect(HeartbeatUpdate)
