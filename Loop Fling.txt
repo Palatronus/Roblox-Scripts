@@ -1,178 +1,130 @@
-local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
+-- FE LoopFling V3 (Prediction-Based)
 local UIS = game:GetService("UserInputService")
-local lp = Players.LocalPlayer
+local RS = game:GetService("RunService")
+local Players = game:GetService("Players")
+local LP = Players.LocalPlayer
+local Mouse = LP:GetMouse()
+
+local FlingGui = Instance.new("ScreenGui")
+local Frame = Instance.new("Frame")
+local TargetBox = Instance.new("TextBox")
+local ToggleBtn = Instance.new("TextButton")
 
 -- GUI Setup
-local gui = Instance.new("ScreenGui", game.CoreGui)
-gui.Name = "FlingSystem"
+FlingGui.Parent = game.CoreGui
+FlingGui.Name = "FlingControl"
+Frame.Parent = FlingGui
+Frame.Size = UDim2.new(0, 200, 0, 100)
+Frame.Position = UDim2.new(0.5, -100, 0.5, -50)
 
-local mainFrame = Instance.new("Frame")
-mainFrame.Size = UDim2.new(0, 250, 0, 150)
-mainFrame.Position = UDim2.new(0.5, -125, 0.5, -75)
-mainFrame.BackgroundColor3 = Color3.fromRGB(28, 28, 28)
-mainFrame.Active = true
-mainFrame.Parent = gui
+TargetBox.Parent = Frame
+TargetBox.Size = UDim2.new(0.9, 0, 0.4, 0)
+TargetBox.Position = UDim2.new(0.05, 0, 0.1, 0)
+TargetBox.PlaceholderText = "Enter Username"
 
-local dragHandle = Instance.new("TextLabel")
-dragHandle.Size = UDim2.new(1, 0, 0, 25)
-dragHandle.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-dragHandle.Text = "Fling Controller"
-dragHandle.TextColor3 = Color3.new(1, 1, 1)
-dragHandle.Parent = mainFrame
+ToggleBtn.Parent = Frame
+ToggleBtn.Size = UDim2.new(0.9, 0, 0.4, 0)
+ToggleBtn.Position = UDim2.new(0.05, 0, 0.55, 0)
+ToggleBtn.Text = "Toggle Fling"
+ToggleBtn.BackgroundColor3 = Color3.new(0.3, 0.3, 0.3)
 
--- Fixed dragging system
-local dragging = false
-local dragStartPos
-local frameStartPos
+-- Fling Configuration
+local Flinging = false
+local Target = nil
+local LoopActive = false
+local PredictionFactor = 1.25 -- Adjust prediction strength
+local FlingForce = 5000 -- Base force (adjust carefully)
+local DirectionChangeInterval = 0.1 -- Seconds between direction changes
 
-dragHandle.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 then
-        dragging = true
-        dragStartPos = Vector2.new(input.Position.X, input.Position.Y)
-        frameStartPos = mainFrame.Position
-    end
-end)
+local function GetTarget()
+    local targetPlayer = Players:FindFirstChild(TargetBox.Text)
+    return targetPlayer and targetPlayer.Character and targetPlayer.Character:FindFirstChild("HumanoidRootPart")
+end
 
-UIS.InputChanged:Connect(function(input)
-    if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
-        local dragDelta = Vector2.new(input.Position.X, input.Position.Y) - dragStartPos
-        mainFrame.Position = UDim2.new(
-            frameStartPos.X.Scale, 
-            frameStartPos.X.Offset + dragDelta.X,
-            frameStartPos.Y.Scale, 
-            frameStartPos.Y.Offset + dragDelta.Y
-        )
-    end
-end)
-
-UIS.InputEnded:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 then
-        dragging = false
-    end
-end)
-
-local inputBox = Instance.new("TextBox")
-inputBox.Size = UDim2.new(0.9, 0, 0, 30)
-inputBox.Position = UDim2.new(0.05, 0, 0.25, 0)
-inputBox.PlaceholderText = "Enter username"
-inputBox.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
-inputBox.TextColor3 = Color3.new(1, 1, 1)
-inputBox.Parent = mainFrame
-
-local toggleBtn = Instance.new("TextButton")
-toggleBtn.Size = UDim2.new(0.9, 0, 0, 35)
-toggleBtn.Position = UDim2.new(0.05, 0, 0.6, 0)
-toggleBtn.Text = "START FLING"
-toggleBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-toggleBtn.TextColor3 = Color3.new(1, 1, 1)
-toggleBtn.Parent = mainFrame
-
--- Fling System
-local flingActive = false
-local targetPlayer = nil
-local TARGET_USERNAME = ""
-local FLING_POWER = 10000
-local PREDICTION_FACTOR = 0.2
-local DIRECTIONAL_OFFSET = 0.8
-
-local function getPlayer(name)
-    name = name:lower()
-    for _, player in pairs(Players:GetPlayers()) do
-        if player ~= lp and (player.Name:lower():find(name) or player.DisplayName:lower():find(name)) then
-            return player
+local function ApplyCollision(state)
+    if LP.Character then
+        for _, part in pairs(LP.Character:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.CanCollide = state
+            end
         end
     end
-    return nil
 end
 
--- Improved character preparation
-lp.CharacterAdded:Connect(function()
-    prepareCharacter()
-end)
+local function PredictionFling()
+    ApplyCollision(false)
+    local HRP = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
+    if not HRP or not Target then return end
 
-local function prepareCharacter()
-    repeat task.wait() until lp.Character
-    for _, v in pairs(lp.Character:GetDescendants()) do
-        if v:IsA("BasePart") then
-            v.CanCollide = false
-            v.Massless = true
+    local BodyVelocity = Instance.new("BodyVelocity")
+    BodyVelocity.Velocity = Vector3.new()
+    BodyVelocity.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+    BodyVelocity.P = 100000
+    BodyVelocity.Parent = HRP
+
+    local lastDirectionChange = tick()
+    local currentDirection = Vector3.new()
+
+    while Flinging and wait() do
+        if not Target.Parent then
+            Target = GetTarget()
+            if not Target then break end
+        end
+
+        -- Calculate predicted position
+        local targetVelocity = Target.Velocity
+        local predictedPosition = Target.Position + (targetVelocity * PredictionFactor)
+
+        -- Dynamic direction calculation with vertical component
+        local baseDirection = (predictedPosition - HRP.Position).Unit
+        local verticalComponent = Vector3.new(0, (Target.Position.Y - HRP.Position.Y > 3) and 2 or 1.5, 0)
+        currentDirection = baseDirection + verticalComponent
+
+        -- Apply random directional variation
+        if tick() - lastDirectionChange > DirectionChangeInterval then
+            currentDirection = currentDirection * Vector3.new(
+                math.random(80, 120)/100,
+                math.random(80, 120)/100,
+                math.random(80, 120)/100
+            )
+            lastDirectionChange = tick()
+        end
+
+        -- Velocity adjustment based on distance
+        local distanceFactor = math.clamp((HRP.Position - Target.Position).Magnitude / 10, 1, 5)
+        BodyVelocity.Velocity = currentDirection * (FlingForce * distanceFactor)
+
+        -- Anti-Jump/Spin compensation
+        if Target.Velocity.Y > 5 then -- Detect jumping
+            BodyVelocity.Velocity = BodyVelocity.Velocity + Vector3.new(0, FlingForce/2, 0)
         end
     end
-    if lp.Character:FindFirstChild("Humanoid") then
-        lp.Character.Humanoid:ChangeState(Enum.HumanoidStateType.Physics)
-    end
+
+    BodyVelocity:Destroy()
+    ApplyCollision(true)
 end
 
-local function aggressiveFling()
-    if not targetPlayer or not targetPlayer.Character or not targetPlayer.Character:FindFirstChild("HumanoidRootPart") then return end
-    if not lp.Character or not lp.Character:FindFirstChild("HumanoidRootPart") then return end
+ToggleBtn.MouseButton1Click:Connect(function()
+    Flinging = not Flinging
+    ToggleBtn.BackgroundColor3 = Flinging and Color3.new(1, 0, 0) or Color3.new(0.3, 0.3, 0.3)
     
-    local root = lp.Character.HumanoidRootPart
-    local tRoot = targetPlayer.Character.HumanoidRootPart
-    
-    local targetVelocity = tRoot.Velocity
-    local basePrediction = tRoot.Position + (targetVelocity * PREDICTION_FACTOR)
-    
-    -- Enhanced directional prediction
-    if targetVelocity.Magnitude > 5 then
-        local movementDirection = targetVelocity.Unit
-        basePrediction += (movementDirection * math.clamp(targetVelocity.Magnitude, 0, 30) * DIRECTIONAL_OFFSET)
-    end
-
-    local direction = (basePrediction - root.Position).Unit
-    root.Velocity = direction * FLING_POWER + Vector3.new(
-        math.random(-30, 30), --Reduced Randomness
-        math.random(15, 35),
-        math.random(-30, 30)
-    )
-end
-
--- Control System
-toggleBtn.MouseButton1Click:Connect(function()
-    flingActive = not flingActive
-    toggleBtn.Text = flingActive and "STOP FLING" or "START FLING"
-    
-    if flingActive then
-        TARGET_USERNAME = inputBox.Text
-        prepareCharacter()
-        
-        connection = RunService.Heartbeat:Connect(function()
-            -- Reacquire target every frame
-            targetPlayer = getPlayer(TARGET_USERNAME)
-            
-            if targetPlayer and targetPlayer.Character and targetPlayer.Character:FindFirstChild("HumanoidRootPart") then
-        pcall(aggressiveFling)
+    if Flinging then
+        Target = GetTarget()
+        if Target then
+            coroutine.wrap(PredictionFling)()
+        end
     else
-        -- Continuous search for new instances
-        targetPlayer = getPlayer(TARGET_USERNAME)
-    end
-end)
-    else
-        TARGET_USERNAME = ""
-        if connection then
-            connection:Disconnect()
-            connection = nil
-        end
-        if lp.Character and lp.Character:FindFirstChild("HumanoidRootPart") then
-            lp.Character.HumanoidRootPart.Velocity = Vector3.new()
-        end
+        Target = nil
     end
 end)
 
--- Auto-cleanup
-Players.PlayerRemoving:Connect(function(player)
-    if player == targetPlayer then
-        flingActive = false
-        toggleBtn.Text = "START FLING"
-        if connection then
-            connection:Disconnect()
-            connection = nil
+-- Auto-reconnect system
+RS.Heartbeat:Connect(function()
+    if Flinging and (not Target or not Target.Parent) then
+        Target = GetTarget()
+        if not Target then
+            Flinging = false
+            ToggleBtn.BackgroundColor3 = Color3.new(0.3, 0.3, 0.3)
         end
     end
 end)
-
--- Final safety check
-if connection then
-    connection:Disconnect()
-end
