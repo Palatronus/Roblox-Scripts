@@ -117,9 +117,11 @@ ToggleBtn.BackgroundColor3 = Color3.new(0.3, 0.3, 0.3)
 -- Optimized Fling Mechanics
 local Flinging = false
 local Target = nil
-local PredictionFactor = 1.4
-local BaseForce = 4500
-local ForceMultiplier = 3.5
+local PredictionFactor = 1.25  -- Reduced prediction
+local BaseForce = 4300         -- Slightly lower base force
+local ForceMultiplier = 2.9    -- Reduced multiplier
+local VERTICAL_COMPENSATION = 0.35  -- Add this new line
+local SAFE_DISTANCE = 7        -- Add this new line
 
 local function GetTarget()
     local targetPlayer = Players:FindFirstChild(TargetBox.Text)
@@ -154,18 +156,31 @@ local function PrecisionFling()
             HRP = LP.Character:WaitForChild("HumanoidRootPart")
         end
 
-        -- Smart Positioning System
+        -- Improved Positioning System
+        local targetPos = Target.Position
         local targetVel = Target.Velocity
-        local predictedPos = Target.Position + (targetVel * PredictionFactor)
-        local distance = (HRP.Position - Target.Position).Magnitude
-        local force = BaseForce * (distance > 10 and ForceMultiplier or 1)
-
-        -- Dynamic Force Application
-        BodyVelocity.Velocity = (predictedPos - HRP.Position).Unit * force
+        local currentDist = (HRP.Position - targetPos).Magnitude
         
-        -- Vertical Control System
-        if Target.Position.Y > HRP.Position.Y + 2 then
-            BodyVelocity.Velocity += Vector3.new(0, force/4, 0)
+        -- Adaptive Prediction
+        local prediction = targetVel * PredictionFactor
+        if targetVel.Magnitude < 20 then  -- Reduced prediction for slow movement
+            prediction = prediction * 0.8
+        end
+        
+        -- Force Control
+        local force = BaseForce * (currentDist > 8 and ForceMultiplier or 1)
+        force = math.min(force, 9500)  -- Safety cap
+        
+        -- Direction Calculation
+        local predictedPos = targetPos + prediction
+        local direction = (predictedPos - HRP.Position).Unit
+        local verticalAdjust = math.clamp((targetPos.Y - HRP.Position.Y) * VERTICAL_COMPENSATION, -2, 2)
+        
+        BodyVelocity.Velocity = (direction + Vector3.new(0, verticalAdjust, 0)) * force
+        
+        -- Proximity Stabilizer
+        if currentDist < SAFE_DISTANCE then
+            BodyVelocity.Velocity = BodyVelocity.Velocity * 0.7  -- Reduce force when close
         end
     end
 
