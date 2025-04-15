@@ -1,10 +1,10 @@
--- FE Ultimate Fling GUI (Full Working Version)
+-- FE Ultimate Fling System (Final Version)
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UIS = game:GetService("UserInputService")
 local LP = Players.LocalPlayer
 
--- GUI Setup (Visible and Functional)
+-- GUI Setup
 local FlingGui = Instance.new("ScreenGui")
 local Frame = Instance.new("Frame")
 local TargetBox = Instance.new("TextBox")
@@ -13,7 +13,6 @@ local ToggleBtn = Instance.new("TextButton")
 FlingGui.Name = "FlingControl"
 FlingGui.Parent = game.CoreGui
 
--- Main Window
 Frame.Parent = FlingGui
 Frame.Size = UDim2.new(0, 250, 0, 150)
 Frame.Position = UDim2.new(0.5, -125, 0.5, -75)
@@ -22,7 +21,6 @@ Frame.BackgroundTransparency = 0
 Frame.Active = true
 Frame.Draggable = true
 
--- Target Input Box
 TargetBox.Parent = Frame
 TargetBox.Size = UDim2.new(0.9, 0, 0.3, 0)
 TargetBox.Position = UDim2.new(0.05, 0, 0.1, 0)
@@ -32,7 +30,6 @@ TargetBox.PlaceholderText = "Enter Username"
 TargetBox.Font = Enum.Font.Gotham
 TargetBox.TextSize = 14
 
--- Toggle Button
 ToggleBtn.Parent = Frame
 ToggleBtn.Size = UDim2.new(0.9, 0, 0.3, 0)
 ToggleBtn.Position = UDim2.new(0.05, 0, 0.55, 0)
@@ -42,7 +39,7 @@ ToggleBtn.Font = Enum.Font.GothamBold
 ToggleBtn.Text = "START FLINGING"
 ToggleBtn.TextSize = 14
 
--- Dragging System
+-- Drag System
 local dragging, dragInput, dragStart, startPos
 Frame.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 then
@@ -74,52 +71,94 @@ end)
 -- Fling System
 local Flinging = false
 local Target = nil
-local PREDICTION = 1.25
-local FORCE = 9500
+local PREDICTION = 1.35
+local FORCE = 12500
+local NOCLIP_CONNECTION = nil
 
 local function GetTarget()
     local targetPlayer = Players:FindFirstChild(TargetBox.Text)
     return targetPlayer and targetPlayer.Character and targetPlayer.Character:FindFirstChild("HumanoidRootPart")
 end
 
-local function ApplyCollision(state)
-    if LP.Character then
-        for _, part in pairs(LP.Character:GetDescendants()) do
-            if part:IsA("BasePart") then
-                part.CanCollide = state
+local function EnableNoclip()
+    if NOCLIP_CONNECTION then NOCLIP_CONNECTION:Disconnect() end
+    NOCLIP_CONNECTION = RunService.Stepped:Connect(function()
+        if LP.Character then
+            for _, part in pairs(LP.Character:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    part.CanCollide = false
+                    part.Velocity = Vector3.new()
+                end
             end
         end
-    end
+    end)
 end
 
 local function ViolentFling()
-    ApplyCollision(false)
-    local HRP = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
-    if not HRP or not Target then return end
-
-    local BodyVelocity = Instance.new("BodyVelocity")
-    BodyVelocity.Velocity = Vector3.new()
-    BodyVelocity.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
-    BodyVelocity.Parent = HRP
-
-    while Flinging and task.wait() do
-        if not Target.Parent or not HRP.Parent then
+    local BodyVelocity, BodyPosition
+    
+    while Flinging do
+        if not LP.Character or not Target or not Target.Parent then
             Target = GetTarget()
-            HRP = LP.Character:FindFirstChild("HumanoidRootPart")
-            if not Target or not HRP then break end
+            if not Target then break end
+            task.wait()
+            continue
         end
 
+        local HRP = LP.Character:FindFirstChild("HumanoidRootPart")
+        if not HRP then
+            task.wait()
+            continue
+        end
+
+        -- Initialize physics controllers
+        if not BodyVelocity then
+            BodyVelocity = Instance.new("BodyVelocity")
+            BodyVelocity.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+            BodyVelocity.P = 125000
+            BodyVelocity.Parent = HRP
+            
+            BodyPosition = Instance.new("BodyPosition")
+            BodyPosition.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+            BodyPosition.P = 15000
+            BodyPosition.Parent = HRP
+        end
+
+        -- Smooth prediction calculations
         local targetPos = Target.Position
         local targetVel = Target.Velocity
-        local predictedPos = targetPos + (targetVel * PREDICTION)
+        local distance = (HRP.Position - targetPos).Magnitude
+        local prediction = targetVel * (PREDICTION + (distance/50))
+        local predictedPos = targetPos + prediction
         
+        -- Apply smooth forces
         BodyVelocity.Velocity = (predictedPos - HRP.Position).Unit * FORCE
-        HRP.RotVelocity = Vector3.new(math.random(-50,50), math.random(-50,50), math.random(-50,50))
+        BodyPosition.Position = predictedPos + Vector3.new(0, 2.5, 0)
+        
+        -- Aggressive rotation
+        HRP.RotVelocity = Vector3.new(
+            math.random(-FORCE/75, FORCE/75),
+            math.random(-FORCE/75, FORCE/75),
+            math.random(-FORCE/75, FORCE/75)
+        )
+        
+        task.wait()
     end
 
-    BodyVelocity:Destroy()
-    ApplyCollision(true)
-    if HRP then HRP.RotVelocity = Vector3.new() end
+    -- Cleanup
+    if BodyVelocity then BodyVelocity:Destroy() end
+    if BodyPosition then BodyPosition:Destroy() end
+    if NOCLIP_CONNECTION then NOCLIP_CONNECTION:Disconnect() end
+end
+
+-- Permanent fling system
+local function MaintainFling()
+    while task.wait() do
+        if Flinging then
+            EnableNoclip()
+            ViolentFling()
+        end
+    end
 end
 
 -- Toggle System
@@ -130,26 +169,21 @@ ToggleBtn.MouseButton1Click:Connect(function()
     
     if Flinging then
         Target = GetTarget()
-        if Target then
-            coroutine.wrap(ViolentFling)()
-        else
-            Flinging = false
-            ToggleBtn.Text = "START FLINGING"
-            ToggleBtn.BackgroundColor3 = Color3.fromRGB(0, 100, 200)
-        end
+        coroutine.wrap(MaintainFling)()
     end
 end)
 
--- Auto-Refresh
+-- Death handling
+LP.CharacterAdded:Connect(function()
+    if Flinging then
+        EnableNoclip()
+        coroutine.wrap(MaintainFling)()
+    end
+end)
+
+-- Auto-refresh
 RunService.Heartbeat:Connect(function()
     if Flinging and (not Target or not Target.Parent) then
         Target = GetTarget()
-    end
-end)
-
--- Respawn Handler
-LP.CharacterAdded:Connect(function()
-    if Flinging then
-        coroutine.wrap(ViolentFling)()
     end
 end)
