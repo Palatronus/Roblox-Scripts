@@ -117,13 +117,10 @@ ToggleBtn.BackgroundColor3 = Color3.new(0.3, 0.3, 0.3)
 -- Optimized Fling Mechanics
 local Flinging = false
 local Target = nil
-local ROTATION_SPEED = 250 -- Degrees per second (adjust intensity)
-local TELEPORT_INTERVAL = 0.08 -- Seconds between teleports
-local FLING_FORCE = Vector3.new(0, 1250, 0) -- Upward/downward force
-local CHAOS_OFFSET = 5 -- Max position randomness
-local VERTICAL_DAMPENING = 0.25  -- Add this
-local HORIZONTAL_BOOST = 1.3   -- Add this
-local SAFE_DISTANCE = 5        -- Add this
+local PredictionFactor = 1.2  -- ADD BACK
+local BaseForce = 3800         -- ADD BACK
+local ForceMultiplier = 2.2    -- ADD BACK
+local SAFE_DISTANCE = 5        -- FIX TYPO IN VARIABLE NAME
 
 local function GetTarget()
     local targetPlayer = Players:FindFirstChild(TargetBox.Text)
@@ -140,7 +137,7 @@ local function ApplyCollision(state)
     end
 end
 
-local function PrecisionFling()
+local function ViolentFling()
     ApplyCollision(false)
     local HRP = LP.Character and LP.Character:WaitForChild("HumanoidRootPart")
     if not HRP or not Target then return end
@@ -167,20 +164,24 @@ local function PrecisionFling()
         local prediction = targetVel * PredictionFactor * math.clamp(targetVel.Magnitude/30, 0.5, 1.2)
         
         -- Force Control
-        local force = BaseForce * (1 + (currentDist/15))  -- Smooth distance scaling
-        force = math.clamp(force, 3000, 8500)  -- Force boundaries
+        local force = BaseForce * (1 + (currentDist/15))
+        force = math.clamp(force, 3000, 8500)
         
         -- Direction Calculation
         local horizontalDirection = (targetPos + prediction - HRP.Position).Unit
-        local verticalAdjust = math.clamp((targetPos.Y - HRP.Position.Y) * VERTICAL_DAMPENING, -1.8, 1.8)
+        local verticalAdjust = math.clamp((targetPos.Y - HRP.Position.Y) * 0.25, -1.8, 1.8)
         
-        -- Final Velocity
-        BodyVelocity.Velocity = (horizontalDirection * HORIZONTAL_BOOST + Vector3.new(0, verticalAdjust, 0)) * force
+        BodyVelocity.Velocity = (horizontalDirection * 1.3 + Vector3.new(0, verticalAdjust, 0)) * force
         
         -- Proximity Stabilizer
         if currentDist < SAFE_DISTANCE then
             BodyVelocity.Velocity = BodyVelocity.Velocity * 0.6
         end
+    end
+
+    BodyVelocity:Destroy()
+    ApplyCollision(true)
+end
     end
 
     BodyVelocity:Destroy()
