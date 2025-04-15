@@ -1,12 +1,12 @@
--- FE Working Fling System with GUI
+-- FE Velocity-Controlled Orbital Fling System
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UIS = game:GetService("UserInputService")
 local LP = Players.LocalPlayer
 
--- GUI Initialization
+-- GUI Setup
 local FlingGui = Instance.new("ScreenGui")
-FlingGui.Name = "FlingControl_V2"
+FlingGui.Name = "FlingControl_Final"
 FlingGui.ResetOnSpawn = false
 FlingGui.Enabled = true
 FlingGui.DisplayOrder = 999
@@ -72,12 +72,19 @@ end)
 -- Fling System
 local Flinging = false
 local Target = nil
-local FORCE = 35000
+local FORCE = 28000
+local ORBIT_ANGLE = 0
+local ORBIT_RADIUS = 3.5
+local ANGULAR_SPEED = 15
+local VELOCITY_THRESHOLD = 14
+local PREDICTION_FACTOR = 0.16
 
 local function GetTarget()
-    local targetName = TargetBox.Text
-    local targetPlayer = Players:FindFirstChild(targetName)
-    return targetPlayer and targetPlayer.Character and targetPlayer.Character:FindFirstChild("HumanoidRootPart")
+    local targetPlayer = Players:FindFirstChild(TargetBox.Text)
+    if targetPlayer and targetPlayer.Character then
+        return targetPlayer.Character:FindFirstChild("HumanoidRootPart")
+    end
+    return nil
 end
 
 local function EnableNoclip()
@@ -90,6 +97,17 @@ local function EnableNoclip()
     end
 end
 
+local function StabilizedOrbit(targetPos, targetVel, HRP)
+    ORBIT_ANGLE += ANGULAR_SPEED * (0.8 + math.min(targetVel.Magnitude/20, 1.2))
+    local orbitOffset = Vector3.new(
+        math.cos(math.rad(ORBIT_ANGLE)) * ORBIT_RADIUS,
+        1.2,
+        math.sin(math.rad(ORBIT_ANGLE)) * ORBIT_RADIUS
+    )
+    local predictedPos = targetPos + (targetVel * PREDICTION_FACTOR) + orbitOffset
+    return (predictedPos - HRP.Position).Unit * FORCE * 0.6
+end
+
 local function FlingLoop()
     while Flinging and task.wait() do
         EnableNoclip()
@@ -98,8 +116,30 @@ local function FlingLoop()
         
         if HRP and Target and Target.Parent then
             local targetPos = Target.Position
-            HRP.Velocity = (targetPos - HRP.Position).Unit * FORCE
-            HRP.RotVelocity = Vector3.new(math.random(-50,50), math.random(-50,50), math.random(-50,50))
+            local targetVel = Target.Velocity
+            
+            -- Proximity stabilization
+            if (HRP.Position - targetPos).Magnitude > 4 then
+                HRP.CFrame = CFrame.new(targetPos + Vector3.new(0, 1.2, 0))
+            end
+
+            -- Velocity-controlled behavior
+            if targetVel.Magnitude > VELOCITY_THRESHOLD then
+                HRP.Velocity = StabilizedOrbit(targetPos, targetVel, HRP)
+            else
+                HRP.Velocity = Vector3.new(
+                    math.random(-FORCE, FORCE),
+                    math.random(-FORCE/2.5, FORCE),
+                    math.random(-FORCE, FORCE)
+                )
+            end
+
+            -- Stable rotation
+            HRP.RotVelocity = Vector3.new(
+                math.random(-15, 15),
+                math.random(-15, 15),
+                math.random(-15, 15)
+            )
         end
     end
 end
@@ -111,15 +151,26 @@ ToggleBtn.MouseButton1Click:Connect(function()
     ToggleBtn.BackgroundColor3 = Flinging and Color3.fromRGB(200, 0, 0) or Color3.fromRGB(0, 120, 215)
     
     if Flinging then
+        Target = GetTarget()
+        if Target and LP.Character then
+            LP.Character:WaitForChild("HumanoidRootPart").CFrame = Target.CFrame + Vector3.new(0, 1.5, 0)
+        end
         coroutine.wrap(FlingLoop)()
     end
 end)
 
--- Auto-Revive System
+-- Respawn Handling
 LP.CharacterAdded:Connect(function()
     if Flinging then
         coroutine.wrap(FlingLoop)()
     end
 end)
 
-print("Script loaded successfully! GUI visible at PlayerGui.FlingControl_V2")
+-- Auto-target refresh
+RunService.Heartbeat:Connect(function()
+    if Flinging and (not Target or not Target.Parent) then
+        Target = GetTarget()
+    end
+end)
+
+print("Orbital fling system loaded successfully!")
