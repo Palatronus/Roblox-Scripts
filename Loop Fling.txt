@@ -104,7 +104,7 @@ local function ViolentFling()
 
             -- Direct position locking
             local targetPos = Target.Position
-            local prediction = Target.Velocity * 0.15
+            local prediction = Target.Velocity * 0.5
             local finalPos = targetPos + prediction + Vector3.new(0, 5, 0)
             
             -- Instant teleportation
