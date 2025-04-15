@@ -1,4 +1,4 @@
--- FE Orbital LoopFling System (Final)
+-- FE Dynamic Orbital Fling System (Final)
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UIS = game:GetService("UserInputService")
@@ -72,11 +72,12 @@ end)
 -- Fling System
 local Flinging = false
 local Target = nil
-local FORCE = 35000
+local FORCE = 48000
 local NOCLIP_CONNECTION = nil
 local ORBIT_ANGLE = 0
-local ORBIT_RADIUS = 4
-local ANGULAR_SPEED = 8
+local ORBIT_RADIUS = 3.5
+local ANGULAR_SPEED = 22
+local MOVEMENT_THRESHOLD = 3.0
 
 local function GetTarget()
     local targetPlayer = Players:FindFirstChild(TargetBox.Text)
@@ -103,46 +104,52 @@ local function ViolentFling()
             local HRP = LP.Character:FindFirstChild("HumanoidRootPart")
             if not HRP then return end
 
-            -- Orbital prediction calculations
             local targetPos = Target.Position
             local targetVel = Target.Velocity
-            ORBIT_ANGLE += ANGULAR_SPEED * (0.5 + targetVel.Magnitude/50)
+            local isMoving = targetVel.Magnitude > MOVEMENT_THRESHOLD
             
-            -- Calculate orbital position
-            local orbitOffset = Vector3.new(
-                math.cos(math.rad(ORBIT_ANGLE)) * ORBIT_RADIUS,
-                1.5,
-                math.sin(math.rad(ORBIT_ANGLE)) * ORBIT_RADIUS
-            )
+            if isMoving then
+                ORBIT_ANGLE += ANGULAR_SPEED * (0.9 + targetVel.Magnitude/35)
+                local orbitOffset = Vector3.new(
+                    math.cos(math.rad(ORBIT_ANGLE)) * ORBIT_RADIUS,
+                    1.8,
+                    math.sin(math.rad(ORBIT_ANGLE)) * ORBIT_RADIUS
+                )
+                
+                local prediction = targetVel * 0.4
+                HRP.CFrame = CFrame.new(targetPos + prediction + orbitOffset)
+                HRP.Velocity = (targetVel * 2.5) + Vector3.new(
+                    math.cos(math.rad(ORBIT_ANGLE + 90)) * FORCE/1.5,
+                    math.random(-FORCE/2.5, FORCE),
+                    math.sin(math.rad(ORBIT_ANGLE + 90)) * FORCE/1.5
+                )
+            else
+                HRP.CFrame = CFrame.new(targetPos + Vector3.new(
+                    math.random(-3, 3),
+                    3.2,
+                    math.random(-3, 3)
+                ))
+                HRP.Velocity = Vector3.new(
+                    math.random(-FORCE, FORCE),
+                    math.random(-FORCE/1.8, FORCE),
+                    math.random(-FORCE, FORCE)
+                )
+            end
             
-            -- Apply predictive orbital position
-            local finalPos = targetPos + (targetVel * 0.25) + orbitOffset
-            
-            -- Update position and velocity
-            HRP.CFrame = CFrame.new(finalPos)
-            HRP.Velocity = (targetVel * 1.5) + Vector3.new(
-                math.cos(math.rad(ORBIT_ANGLE + 90)) * FORCE/2,
-                math.random(-FORCE/4, FORCE/2),
-                math.sin(math.rad(ORBIT_ANGLE + 90)) * FORCE/2
-            )
-            
-            -- Aggressive rotation
             HRP.RotVelocity = Vector3.new(
-                math.random(-FORCE/25, FORCE/25),
-                math.random(-FORCE/25, FORCE/25),
-                math.random(-FORCE/25, FORCE/25)
+                math.random(-FORCE/15, FORCE/15),
+                math.random(-FORCE/15, FORCE/15),
+                math.random(-FORCE/15, FORCE/15)
             )
         end
     end)
 end
 
--- Permanent system
 local function MaintainFling()
     EnableNoclip()
     ViolentFling()
 end
 
--- Toggle System
 ToggleBtn.MouseButton1Click:Connect(function()
     Flinging = not Flinging
     ToggleBtn.Text = Flinging and "STOP FLINGING" or "START FLINGING"
@@ -158,14 +165,12 @@ ToggleBtn.MouseButton1Click:Connect(function()
     end
 end)
 
--- Death handling
 LP.CharacterAdded:Connect(function()
     if Flinging then
         coroutine.wrap(MaintainFling)()
     end
 end)
 
--- Auto-refresh
 RunService.Heartbeat:Connect(function()
     if Flinging and (not Target or not Target.Parent) then
         Target = GetTarget()
