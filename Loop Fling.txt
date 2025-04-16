@@ -196,7 +196,7 @@ end)
 -- Persistence on respawn
 LocalPlayer.CharacterAdded:Connect(function()
     if flinging then
-        task.wait(0.25)
+        task.wait(1)
         flingCycle()
     end
 end)
