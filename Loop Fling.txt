@@ -165,7 +165,7 @@ local function flingCycle()
     table.insert(connections, spin)
 
     -- Reset after delay
-    task.delay(0.25, function()
+    task.delay(1.2, function()
         cleanup()
         if hrp and hrp.Parent then
             hrp.CFrame = originalCFrame
@@ -196,7 +196,7 @@ end)
 -- Persistence on respawn
 LocalPlayer.CharacterAdded:Connect(function()
     if flinging then
-        task.wait(1)
+        task.wait(0.25)
         flingCycle()
     end
 end)
