@@ -10,8 +10,8 @@ local function align(Part0, Part1)
 
     local ap = Instance.new("AlignPosition", att0)
     ap.ApplyAtCenterOfMass = true
-    ap.MaxForce = 9e10
-    ap.MaxVelocity = 9e10
+    ap.MaxForce = 9e99
+    ap.MaxVelocity = 9e99
     ap.ReactionForceEnabled = false
     ap.Responsiveness = 200
     ap.RigidityEnabled = false
