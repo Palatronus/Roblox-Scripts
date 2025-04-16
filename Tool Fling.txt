@@ -1,0 +1,118 @@
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local LocalPlayer = Players.LocalPlayer
+
+local function align(Part0, Part1)
+	local att1 = Instance.new("Attachment")
+	att1.Position = Vector3.new(0, 0, 0)
+	local att0 = att1:Clone()
+
+	local ap = Instance.new("AlignPosition", att0)
+	ap.ApplyAtCenterOfMass = true
+	ap.MaxForce = 9e9
+	ap.MaxVelocity = 9e9
+	ap.ReactionForceEnabled = false
+	ap.Responsiveness = 200
+	ap.RigidityEnabled = false
+	ap.Attachment1 = att1
+	ap.Attachment0 = att0
+
+	att1.Parent = Part1
+	att0.Parent = Part0
+end
+
+local function createFlingTool()
+	if LocalPlayer:FindFirstChild("Backpack") and not LocalPlayer.Backpack:FindFirstChild("Fling") then
+		local tool = Instance.new("Tool")
+		tool.Name = "Fling"
+		tool.RequiresHandle = false
+		tool.CanBeDropped = false
+		tool.Parent = LocalPlayer.Backpack
+
+		tool.Equipped:Connect(function(mouse)
+			mouse.Button1Down:Connect(function()
+				local target = mouse.Target
+				if not target then return end
+
+				local targetPlayer = Players:GetPlayerFromCharacter(target:FindFirstAncestorWhichIsA("Model"))
+				if not targetPlayer or targetPlayer == LocalPlayer then return end
+
+				local character = LocalPlayer.Character
+				if not character then return end
+
+				local targetChar = targetPlayer.Character
+				if not targetChar or not targetChar:FindFirstChild("HumanoidRootPart") then return end
+
+				local hrp = character:FindFirstChild("HumanoidRootPart")
+				if not hrp then return end
+
+				-- Store original position and physics before teleport
+				local originalCFrame = hrp.CFrame
+				local originalRot = hrp.RotVelocity
+				local originalVelocity = hrp.Velocity
+
+				-- Teleport to target
+				hrp.CFrame = targetChar.HumanoidRootPart.CFrame
+
+				-- Fling setup
+				local parts = {}
+				for _, part in ipairs(character:GetDescendants()) do
+					if part:IsA("BasePart") and part.CanCollide then
+						table.insert(parts, part)
+					elseif part:IsA("BasePart") then
+						part.Velocity = Vector3.new(0, -1000, 0)
+					end
+				end
+
+				local anchor = Instance.new("Part", character)
+				anchor.Name = "FlingAnchor"
+				anchor.Anchored = true
+				anchor.Transparency = 1
+				anchor.CanCollide = false
+				anchor.Size = Vector3.new(2, 2, 1)
+				anchor.CFrame = hrp.CFrame
+
+				for _, part in ipairs(parts) do
+					align(part, anchor)
+				end
+
+				local follow = RunService.Stepped:Connect(function()
+					if targetChar and targetChar:FindFirstChild("HumanoidRootPart") then
+						anchor.CFrame = targetChar.HumanoidRootPart.CFrame
+					end
+				end)
+
+				local spin = RunService.Heartbeat:Connect(function()
+					for _, part in ipairs(parts) do
+						part.Velocity = Vector3.new(0, -25.05, 0)
+						part.RotVelocity = Vector3.new(9999, 9999, 9999)
+					end
+				end)
+
+				local function returnToOrigin()
+					if hrp and hrp.Parent then
+						hrp.CFrame = originalCFrame
+						hrp.Velocity = originalVelocity
+						hrp.RotVelocity = originalRot
+					end
+				end
+
+				task.delay(1.0, returnToOrigin)
+				task.delay(1.1, returnToOrigin)
+				task.delay(1.2, function()
+					returnToOrigin()
+					if anchor and anchor.Parent then anchor:Destroy() end
+					follow:Disconnect()
+					spin:Disconnect()
+				end)
+			end)
+		end)
+	end
+end
+
+createFlingTool()
+
+LocalPlayer.CharacterAdded:Connect(function()
+	task.wait(1)
+	createFlingTool()
+end)
