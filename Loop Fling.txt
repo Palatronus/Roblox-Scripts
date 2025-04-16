@@ -39,15 +39,7 @@ toggleButton.Text = "Start"
 toggleButton.Parent = frame
 
 -- Draggable GUI
-local dragging
-local dragInput
-local dragStart
-local startPos
-
-local function update(input)
-    local delta = input.Position - dragStart
-    frame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-end
+local dragging, dragInput, dragStart, startPos
 
 dragHandle.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 then
@@ -70,112 +62,113 @@ end)
 
 UserInputService.InputChanged:Connect(function(input)
     if input == dragInput and dragging then
-        update(input)
+        local delta = input.Position - dragStart
+        frame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
     end
 end)
 
--- Fling Core
-local align = function(Part0, Part1)
+-- Optimized Fling Core
+local flingActive = false
+local connections = {}
+local anchor = nil
+local alignments = {}
+
+local function cleanUp()
+    for _, conn in ipairs(connections) do conn:Disconnect() end
+    table.clear(connections)
+    
+    if anchor then
+        anchor:Destroy()
+        anchor = nil
+    end
+    
+    for part, _ in pairs(alignments) do
+        if part:FindFirstChild("FlingAttachment") then
+            part.FlingAttachment:Destroy()
+        end
+    end
+    table.clear(alignments)
+end
+
+local function align(Part0, Part1)
+    if alignments[Part0] then return end
+    
     local att1 = Instance.new("Attachment")
-    att1.Position = Vector3.new(0, 0, 0)
+    att1.Name = "FlingAttachment"
+    att1.Parent = Part1
+
     local att0 = att1:Clone()
+    att0.Parent = Part0
 
     local ap = Instance.new("AlignPosition")
     ap.ApplyAtCenterOfMass = true
-    ap.MaxForce = 9e9
-    ap.MaxVelocity = 9e9
-    ap.ReactionForceEnabled = false
-    ap.Responsiveness = 200
-    ap.RigidityEnabled = false
+    ap.MaxForce = 1e6 -- Reduced from 9e9
+    ap.MaxVelocity = 1e4 -- Reduced from 9e9
+    ap.Responsiveness = 100
     ap.Attachment1 = att1
     ap.Attachment0 = att0
     ap.Parent = att0
 
-    att1.Parent = Part1
-    att0.Parent = Part0
+    alignments[Part0] = true
 end
-
-local flingActive = false
-local connections = {}
 
 local function startFling(targetName)
     local targetPlayer = Players:FindFirstChild(targetName)
     if not targetPlayer or targetPlayer == LocalPlayer then return end
 
-    local function flingLoop()
-        repeat
-            task.wait(0.1)
-            local character = LocalPlayer.Character
-            local targetChar = targetPlayer.Character
-            if not character or not targetChar or not targetChar:FindFirstChild("HumanoidRootPart") then continue end
+    while flingActive and task.wait(0.5) do -- Throttled loop
+        cleanUp()
+        
+        local character = LocalPlayer.Character
+        local targetChar = targetPlayer.Character
+        if not character or not targetChar or not targetChar:FindFirstChild("HumanoidRootPart") then continue end
 
-            local hrp = character:FindFirstChild("HumanoidRootPart")
-            if not hrp then continue end
+        local hrp = character:FindFirstChild("HumanoidRootPart")
+        if not hrp then continue end
 
-            -- Store original state
-            local originalCFrame = hrp.CFrame
-            local originalRot = hrp.RotVelocity
-            local originalVelocity = hrp.Velocity
+        -- Single anchor reuse
+        anchor = Instance.new("Part")
+        anchor.Name = "FlingAnchor"
+        anchor.Anchored = true
+        anchor.Transparency = 1
+        anchor.CanCollide = false
+        anchor.Size = Vector3.new(2, 2, 1)
+        anchor.CFrame = hrp.CFrame
+        anchor.Parent = character
 
-            -- Teleport
-            hrp.CFrame = targetChar.HumanoidRootPart.CFrame
-
-            -- Fling setup
-            local parts = {}
-            for _, part in ipairs(character:GetDescendants()) do
-                if part:IsA("BasePart") then
-                    if part.CanCollide then
-                        table.insert(parts, part)
-                    else
-                        part.Velocity = Vector3.new(0, -1000, 0)
-                    end
+        -- Reduced part scanning
+        local parts = {}
+        for _, part in ipairs(character:GetDescendants()) do
+            if part:IsA("BasePart") then
+                if part.CanCollide then
+                    table.insert(parts, part)
+                else
+                    part.Velocity = Vector3.new(0, -250, 0) -- Reduced force
                 end
             end
+        end
 
-            local anchor = Instance.new("Part")
-            anchor.Name = "FlingAnchor"
-            anchor.Anchored = true
-            anchor.Transparency = 1
-            anchor.CanCollide = false
-            anchor.Size = Vector3.new(2, 2, 1)
-            anchor.CFrame = hrp.CFrame
-            anchor.Parent = character
+        -- Batch alignment
+        for _, part in ipairs(parts) do
+            align(part, anchor)
+        end
 
+        -- Optimized connections
+        local follow = RunService.Stepped:Connect(function()
+            if targetChar:FindFirstChild("HumanoidRootPart") then
+                anchor.CFrame = targetChar.HumanoidRootPart.CFrame
+            end
+        end)
+
+        local spin = RunService.Heartbeat:Connect(function()
             for _, part in ipairs(parts) do
-                align(part, anchor)
+                part.RotVelocity = Vector3.new(500, 500, 500) -- Reduced rotation
             end
+        end)
 
-            -- Persistent connections
-            local follow = RunService.Stepped:Connect(function()
-                if targetChar and targetChar.Parent and targetChar:FindFirstChild("HumanoidRootPart") then
-                    anchor.CFrame = targetChar.HumanoidRootPart.CFrame
-                end
-            end)
-
-            local spin = RunService.Heartbeat:Connect(function()
-                for _, part in ipairs(parts) do
-                    part.Velocity = Vector3.new(0, -25.05, 0)
-                    part.RotVelocity = Vector3.new(9999, 9999, 9999)
-                end
-            end)
-
-            table.insert(connections, follow)
-            table.insert(connections, spin)
-
-            -- Auto-reconnect on character change
-            local function onCharacterAdded(newChar)
-                task.wait(1)
-                anchor:Destroy()
-                for _, v in ipairs(connections) do v:Disconnect() end
-                table.clear(connections)
-                flingLoop()
-            end
-
-            LocalPlayer.CharacterAdded:Connect(onCharacterAdded)
-            targetPlayer.CharacterAdded:Connect(onCharacterAdded)
-        until not flingActive
+        table.insert(connections, follow)
+        table.insert(connections, spin)
     end
-    flingLoop()
 end
 
 -- Toggle Control
@@ -186,21 +179,14 @@ toggleButton.MouseButton1Click:Connect(function()
     if flingActive then
         startFling(textBox.Text)
     else
-        for _, conn in ipairs(connections) do
-            conn:Disconnect()
-        end
-        table.clear(connections)
-        if LocalPlayer.Character then
-            local anchor = LocalPlayer.Character:FindFirstChild("FlingAnchor")
-            if anchor then anchor:Destroy() end
-        end
+        cleanUp()
     end
 end)
 
--- Auto-reinit
+-- Auto-reinit with cooldown
 LocalPlayer.CharacterAdded:Connect(function()
     if flingActive then
-        task.wait(1)
+        task.wait(2) -- Increased cooldown
         startFling(textBox.Text)
     end
 end)
