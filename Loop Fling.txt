@@ -184,7 +184,7 @@ toggle.MouseButton1Click:Connect(function()
         local function loop()
             while flinging do
                 flingCycle()
-                wait(3)
+                wait(1.5)
             end
         end
         coroutine.wrap(loop)()
