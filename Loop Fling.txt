@@ -63,10 +63,17 @@ UserInputService.InputChanged:Connect(function(input)
     end
 end)
 
--- Original Fling Mechanics
-local flingActive = false
-local connections = {}
-local anchor, originalCFrame, originalVelocity, originalRotVelocity
+-- Fling System Core
+local flingData = {
+    Active = false,
+    Connections = {},
+    Anchors = {},
+    Original = {
+        CFrame = nil,
+        Velocity = nil,
+        RotVelocity = nil
+    }
+}
 
 local function align(Part0, Part1)
     local att1 = Instance.new("Attachment")
@@ -87,24 +94,33 @@ local function align(Part0, Part1)
     att0.Parent = Part0
 end
 
-local function returnToOrigin()
-    if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
-        local hrp = LocalPlayer.Character.HumanoidRootPart
-        hrp.CFrame = originalCFrame
-        hrp.Velocity = originalVelocity
-        hrp.RotVelocity = originalRotVelocity
+local function cleanFling()
+    for _, conn in pairs(flingData.Connections) do conn:Disconnect() end
+    for _, anchor in pairs(flingData.Anchors) do anchor:Destroy() end
+    flingData.Connections = {}
+    flingData.Anchors = {}
+    
+    if LocalPlayer.Character and flingData.Original.CFrame then
+        local hrp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+        if hrp then
+            hrp.CFrame = flingData.Original.CFrame
+            hrp.Velocity = flingData.Original.Velocity
+            hrp.RotVelocity = flingData.Original.RotVelocity
+        end
     end
 end
 
-local function startFling(targetChar)
-    if not targetChar or not targetChar:FindFirstChild("HumanoidRootPart") then return end
+local function trackCharacter(targetChar)
+    cleanFling()
+    if not flingData.Active then return end
+    
     local hrp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-    if not hrp then return end
+    if not hrp or not targetChar or not targetChar:FindFirstChild("HumanoidRootPart") then return end
 
     -- Store original state
-    originalCFrame = hrp.CFrame
-    originalVelocity = hrp.Velocity
-    originalRotVelocity = hrp.RotVelocity
+    flingData.Original.CFrame = hrp.CFrame
+    flingData.Original.Velocity = hrp.Velocity
+    flingData.Original.RotVelocity = hrp.RotVelocity
 
     -- Teleport to target
     hrp.CFrame = targetChar.HumanoidRootPart.CFrame
@@ -121,7 +137,7 @@ local function startFling(targetChar)
         end
     end
 
-    anchor = Instance.new("Part")
+    local anchor = Instance.new("Part")
     anchor.Name = "FlingAnchor"
     anchor.Anchored = true
     anchor.Transparency = 1
@@ -129,19 +145,20 @@ local function startFling(targetChar)
     anchor.Size = Vector3.new(2, 2, 1)
     anchor.CFrame = hrp.CFrame
     anchor.Parent = LocalPlayer.Character
+    table.insert(flingData.Anchors, anchor)
 
     for _, part in ipairs(parts) do
         align(part, anchor)
     end
 
     -- Continuous tracking
-    connections.follow = RunService.Stepped:Connect(function()
-        if targetChar and targetChar:FindFirstChild("HumanoidRootPart") then
+    flingData.Connections.follow = RunService.Stepped:Connect(function()
+        if targetChar:FindFirstChild("HumanoidRootPart") then
             anchor.CFrame = targetChar.HumanoidRootPart.CFrame
         end
     end)
 
-    connections.spin = RunService.Heartbeat:Connect(function()
+    flingData.Connections.spin = RunService.Heartbeat:Connect(function()
         for _, part in ipairs(parts) do
             part.Velocity = Vector3.new(0, -25.05, 0)
             part.RotVelocity = Vector3.new(9999, 9999, 9999)
@@ -149,41 +166,46 @@ local function startFling(targetChar)
     end)
 end
 
-local function stopFling()
-    flingActive = false
-    for _, conn in pairs(connections) do conn:Disconnect() end
-    if anchor then anchor:Destroy() end
-    returnToOrigin()
-end
-
--- Toggle System
+-- Control System
 toggleBtn.MouseButton1Click:Connect(function()
-    flingActive = not flingActive
-    toggleBtn.Text = flingActive and "Stop Fling" or "Start Fling"
+    flingData.Active = not flingData.Active
+    toggleBtn.Text = flingData.Active and "Stop Fling" or "Start Fling"
 
-    if flingActive then
+    if flingData.Active then
         local targetName = inputBox.Text
         local targetPlayer = Players:FindFirstChild(targetName)
         if not targetPlayer then return end
 
-        -- Initial fling
+        -- Initial tracking
         if targetPlayer.Character then
-            startFling(targetPlayer.Character)
+            trackCharacter(targetPlayer.Character)
         end
 
-        -- Death/Rejoin handler
-        connections.respawn = targetPlayer.CharacterAdded:Connect(function(newChar)
-            startFling(newChar)
+        -- Target respawn handler
+        flingData.Connections.targetAdded = targetPlayer.CharacterAdded:Connect(function(newChar)
+            trackCharacter(newChar)
         end)
 
         -- Local respawn handler
-        connections.localRespawn = LocalPlayer.CharacterAdded:Connect(function()
+        flingData.Connections.localAdded = LocalPlayer.CharacterAdded:Connect(function()
             task.wait(1)
             if targetPlayer.Character then
-                startFling(targetPlayer.Character)
+                trackCharacter(targetPlayer.Character)
+            end
+        end)
+
+        -- Player leave handler
+        flingData.Connections.playerRemoved = targetPlayer.AncestryChanged:Connect(function(_, parent)
+            if parent == nil then
+                flingData.Connections.rejoin = Players.PlayerAdded:Connect(function(newPlayer)
+                    if newPlayer.Name == targetName then
+                        targetPlayer = newPlayer
+                        trackCharacter(newPlayer.Character)
+                    end
+                end)
             end
         end)
     else
-        stopFling()
+        cleanFling()
     end
 end)
