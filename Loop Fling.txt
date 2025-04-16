@@ -93,6 +93,7 @@ local function align(Part0, Part1)
 
     att1.Parent = Part1
     att0.Parent = Part0
+    table.insert(alignments, ap)
 end
 
 local function cleanupFling()
@@ -116,36 +117,35 @@ end
 
 toggleButton.MouseButton1Click:Connect(function()
     flinging = not flinging
+    toggleButton.Text = flinging and "Toggle Fling (ON)" or "Toggle Fling (OFF)"
+    
     if flinging then
-        targetPlayer = Players:FindFirstChild(textBox.Text)
-        if not targetPlayer then
-            flinging = false
-            return
+        -- Improved player finding with case-insensitivity
+        local targetName = string.lower(textBox.Text)
+        for _, player in ipairs(Players:GetPlayers()) do
+            if string.lower(player.Name) == targetName then
+                targetPlayer = player
+                break
+            end
         end
-        toggleButton.Text = "Toggle Fling (ON)"
+        
+        if not targetPlayer then return end
         
         local function flingLoop()
-            local localCharConn, targetCharConn
-            
-            local function resetFling()
-                cleanupFling()
-            end
-            
-            localCharConn = LocalPlayer.CharacterAdded:Connect(resetFling)
-            targetCharConn = targetPlayer.CharacterAdded:Connect(resetFling)
-            
-            while flinging do
+            while flinging and targetPlayer do
                 local localChar = LocalPlayer.Character
                 local targetChar = targetPlayer.Character
+                
                 if localChar and targetChar then
                     local hrp = localChar:FindFirstChild("HumanoidRootPart")
                     local targetHrp = targetChar:FindFirstChild("HumanoidRootPart")
+                    
                     if hrp and targetHrp then
-                        -- Teleport to target
-                        hrp.CFrame = targetHrp.CFrame
+                        -- Force teleport
+                        hrp.CFrame = targetHrp.CFrame * CFrame.new(0, 0, 0)
                         
                         -- Create anchor
-                        if not anchor then
+                        if not anchor or not anchor.Parent then
                             anchor = Instance.new("Part")
                             anchor.Name = "FlingAnchor"
                             anchor.Anchored = true
@@ -158,19 +158,16 @@ toggleButton.MouseButton1Click:Connect(function()
                         
                         -- Align parts
                         for _, part in ipairs(localChar:GetDescendants()) do
-                            if part:IsA("BasePart") then
+                            if part:IsA("BasePart") and not part:FindFirstChild("AlignPosition") then
                                 if part.CanCollide then
-                                    if not part:FindFirstChild("Attachment") then
-                                        align(part, anchor)
-                                        table.insert(alignments, part:FindFirstChild("AlignPosition"))
-                                    end
+                                    align(part, anchor)
                                 else
                                     part.Velocity = Vector3.new(0, -1000, 0)
                                 end
                             end
                         end
                         
-                        -- Follow and spin
+                        -- Update anchor position
                         if not follow then
                             follow = RunService.Stepped:Connect(function()
                                 if targetHrp and targetHrp.Parent then
@@ -178,6 +175,8 @@ toggleButton.MouseButton1Click:Connect(function()
                                 end
                             end)
                         end
+                        
+                        -- Apply spin
                         if not spin then
                             spin = RunService.Heartbeat:Connect(function()
                                 for _, part in ipairs(localChar:GetDescendants()) do
@@ -192,19 +191,10 @@ toggleButton.MouseButton1Click:Connect(function()
                 end
                 RunService.Heartbeat:Wait()
             end
-            
-            -- Cleanup
-            if localCharConn then
-                localCharConn:Disconnect()
-            end
-            if targetCharConn then
-                targetCharConn:Disconnect()
-            end
             cleanupFling()
         end
         coroutine.wrap(flingLoop)()
     else
-        toggleButton.Text = "Toggle Fling (OFF)"
         cleanupFling()
     end
 end)
