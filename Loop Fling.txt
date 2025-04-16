@@ -77,6 +77,7 @@ end)
 -- Fling Logic
 local flingEnabled = false
 local connections = {}
+local targetMonitorConnections = {}
 local anchorPart
 
 local function align(Part0, Part1)
@@ -98,7 +99,17 @@ local function align(Part0, Part1)
     att0.Parent = Part0
 end
 
+local function cleanUp()
+    if anchorPart then anchorPart:Destroy() end
+    for _, conn in pairs(connections) do
+        conn:Disconnect()
+    end
+    connections = {}
+end
+
 local function flingTarget(targetChar)
+    cleanUp() -- Clear previous connections before new setup
+    
     if not LocalPlayer.Character or not targetChar or not targetChar:FindFirstChild("HumanoidRootPart") then return end
     local hrp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
     if not hrp then return end
@@ -128,7 +139,7 @@ local function flingTarget(targetChar)
     end
 
     connections.follow = RunService.Stepped:Connect(function()
-        if targetChar and targetChar:FindFirstChild("HumanoidRootPart") then
+        if targetChar and targetChar.Parent and targetChar:FindFirstChild("HumanoidRootPart") then
             anchorPart.CFrame = targetChar.HumanoidRootPart.CFrame
         end
     end)
@@ -141,12 +152,50 @@ local function flingTarget(targetChar)
     end)
 end
 
-local function cleanUp()
-    if anchorPart then anchorPart:Destroy() end
-    for _, conn in pairs(connections) do
-        conn:Disconnect()
+local function monitorTarget()
+    for _, v in pairs(targetMonitorConnections) do v:Disconnect() end
+    targetMonitorConnections = {}
+
+    while flingEnabled do
+        local targetName = textBox.Text
+        local targetPlayer = Players:FindFirstChild(targetName)
+        
+        if targetPlayer then
+            -- Connect to existing character
+            if targetPlayer.Character then
+                flingTarget(targetPlayer.Character)
+            end
+            
+            -- Connect to future characters
+            local conn1 = targetPlayer.CharacterAdded:Connect(function(char)
+                task.wait(1) -- Wait for character to fully load
+                flingTarget(char)
+            end)
+            table.insert(targetMonitorConnections, conn1)
+            
+            -- Listen for player leaving
+            local conn2 = targetPlayer.AncestryChanged:Connect(function()
+                if not targetPlayer.Parent then
+                    cleanUp()
+                end
+            end)
+            table.insert(targetMonitorConnections, conn2)
+        end
+        
+        -- Listen for new players with target name
+        local conn3 = Players.PlayerAdded:Connect(function(newPlayer)
+            if newPlayer.Name == targetName then
+                local conn4 = newPlayer.CharacterAdded:Connect(function(char)
+                    task.wait(1)
+                    flingTarget(char)
+                end)
+                table.insert(targetMonitorConnections, conn4)
+            end
+        end)
+        table.insert(targetMonitorConnections, conn3)
+        
+        task.wait(1) -- Prevent tight loop
     end
-    connections = {}
 end
 
 toggleButton.MouseButton1Click:Connect(function()
@@ -154,38 +203,19 @@ toggleButton.MouseButton1Click:Connect(function()
     toggleButton.Text = flingEnabled and "Stop Fling" or "Start Fling"
     
     if flingEnabled then
-        local targetName = textBox.Text
-        local targetPlayer = Players:FindFirstChild(targetName)
-        if not targetPlayer then return end
-        
+        -- Re-init when local player respawns
         LocalPlayer.CharacterAdded:Connect(function()
             if flingEnabled then
                 task.wait(1)
-                flingTarget(targetPlayer.Character)
+                monitorTarget()
             end
         end)
         
-        targetPlayer.CharacterAdded:Connect(function(char)
-            if flingEnabled then
-                task.wait(1)
-                flingTarget(char)
-            end
-        end)
-        
-        flingTarget(targetPlayer.Character)
+        -- Start monitoring
+        monitorTarget()
     else
         cleanUp()
-    end
-end)
-
--- Auto-reinit on local player respawn
-LocalPlayer.CharacterAdded:Connect(function()
-    if flingEnabled then
-        task.wait(1)
-        local targetName = textBox.Text
-        local targetPlayer = Players:FindFirstChild(targetName)
-        if targetPlayer then
-            flingTarget(targetPlayer.Character)
-        end
+        for _, v in pairs(targetMonitorConnections) do v:Disconnect() end
+        targetMonitorConnections = {}
     end
 end)
