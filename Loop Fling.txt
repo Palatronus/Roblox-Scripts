@@ -69,6 +69,7 @@ local activeConnections = {}
 local anchorPart
 local originalState = {}
 local targetPlayer
+local safetyCheckActive = false
 
 local function alignParts(part1, part2)
     local att0 = Instance.new("Attachment")
@@ -156,10 +157,24 @@ local function executeFling(targetHRP)
         end
     end)
 
+    -- Self-healing system
+    activeConnections.healthCheck = RunService.Heartbeat:Connect(function()
+        if not safetyCheckActive then
+            safetyCheckActive = true
+            -- Primary integrity check
+            if not anchorPart or not anchorPart.Parent or not targetHRP.Parent then
+                terminateFling()
+                monitorTarget()
+            end
+            -- Secondary validation
+            task.wait(5) -- Check interval
+            safetyCheckActive = false
+        end
+    end)
+
     -- Death/Rejoin handler
     activeConnections.characterTracker = targetHRP:GetPropertyChangedSignal("Parent"):Connect(function()
         if not targetHRP.Parent then
-            -- Wait for new character
             local charConnection
             charConnection = targetPlayer.CharacterAdded:Connect(function(newChar)
                 charConnection:Disconnect()
@@ -201,7 +216,6 @@ local function monitorTarget()
     -- Player leave/rejoin handler
     activeConnections.playerTracker = targetPlayer.AncestryChanged:Connect(function(_, parent)
         if parent == nil then
-            -- Player left, wait for return
             local rejoinConnection
             rejoinConnection = Players.PlayerAdded:Connect(function(newPlayer)
                 if newPlayer.Name == inputBox.Text then
@@ -220,7 +234,6 @@ toggleBtn.MouseButton1Click:Connect(function()
         toggleBtn.Text = "DISABLE FLING"
         monitorTarget()
         
-        -- Reconnect on local respawn
         activeConnections.respawnTracker = LocalPlayer.CharacterAdded:Connect(function()
             task.wait(1)
             monitorTarget()
