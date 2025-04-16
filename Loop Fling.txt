@@ -1,12 +1,7 @@
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
-local PhysicsService = game:GetService("PhysicsService")
 local LocalPlayer = Players.LocalPlayer
-
--- Configure collision groups
-PhysicsService:CreateCollisionGroup("NoCollidePlayer")
-PhysicsService:CollisionGroupSetCollidable("NoCollidePlayer", "Default", false)
 
 -- GUI Setup
 local gui = Instance.new("ScreenGui")
@@ -64,30 +59,34 @@ UserInputService.InputChanged:Connect(function(input)
     end
 end)
 
--- Noclip functions
+-- Noclip system
 local noclipConnections = {}
+local originalCollisionStates = {}
 
 local function enableNoclip(character)
     for _, part in ipairs(character:GetDescendants()) do
         if part:IsA("BasePart") then
-            PhysicsService:SetPartCollisionGroup(part, "NoCollidePlayer")
+            originalCollisionStates[part] = part.CanCollide
+            part.CanCollide = false
         end
     end
     
-    local conn = character.DescendantAdded:Connect(function(descendant)
-        if descendant:IsA("BasePart") then
-            PhysicsService:SetPartCollisionGroup(descendant, "NoCollidePlayer")
+    local conn = character.DescendantAdded:Connect(function(part)
+        if part:IsA("BasePart") then
+            originalCollisionStates[part] = part.CanCollide
+            part.CanCollide = false
         end
     end)
     table.insert(noclipConnections, conn)
 end
 
 local function disableNoclip(character)
-    for _, part in ipairs(character:GetDescendants()) do
-        if part:IsA("BasePart") then
-            PhysicsService:SetPartCollisionGroup(part, "Default")
+    for part, state in pairs(originalCollisionStates) do
+        if part.Parent then
+            part.CanCollide = state
         end
     end
+    originalCollisionStates = {}
 end
 
 -- Original fling mechanics
@@ -200,7 +199,7 @@ toggleButton.MouseButton1Click:Connect(function()
     toggleButton.Text = flinging and "Toggle Fling (ON)" or "Toggle Fling (OFF)"
     
     if flinging then
-        -- Noclip setup
+        -- Enable noclip
         if LocalPlayer.Character then
             enableNoclip(LocalPlayer.Character)
         end
@@ -208,7 +207,7 @@ toggleButton.MouseButton1Click:Connect(function()
             enableNoclip(character)
         end))
         
-        -- Target finding
+        -- Find target
         local targetName = string.lower(textBox.Text)
         local targetPlayer
         
@@ -225,7 +224,7 @@ toggleButton.MouseButton1Click:Connect(function()
             return
         end
 
-        -- Fling connections
+        -- Setup fling connections
         table.insert(activeConnections, targetPlayer.CharacterAdded:Connect(function()
             performFling(targetPlayer.Character)
         end))
