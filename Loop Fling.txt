@@ -1,143 +1,212 @@
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
-local CoreGui = game:GetService("CoreGui")
 local LocalPlayer = Players.LocalPlayer
 
--- ========== GUI FORCE-INJECTION SYSTEM ==========
+-- ========== GUI SYSTEM ==========
 local gui = Instance.new("ScreenGui")
-gui.Name = "🔧FlingGUI_ULTRA"
+gui.Name = "FlingGUI"
 gui.ResetOnSpawn = false
-gui.ZIndexBehavior = Enum.ZIndexBehavior.Global
-gui.DisplayOrder = 9999
+gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+gui.DisplayOrder = 999
+gui.Parent = game.CoreGui
 
--- Nuclear parenting system
-local function nuclearParent()
-    local success, _ = pcall(function()
-        gui.Parent = LocalPlayer:WaitForChild("PlayerGui", 5) 
-    end)
-    if not success then
-        gui.Parent = CoreGui
-        warn("GUI forced to CoreGui - check executor permissions!")
-    end
-    if not gui.Parent then
-        gui.Parent = game:GetService("StarterGui")
-    end
-end
-
--- Purge existing GUIs
-for _, existingGui in ipairs(CoreGui:GetChildren()) do
-    if existingGui:IsA("ScreenGui") and existingGui.Name:find("FlingGUI") then
-        existingGui:Destroy()
-    end
-end
-nuclearParent()
-
--- ========== MAIN INTERFACE ==========
 local frame = Instance.new("Frame")
 frame.Size = UDim2.new(0, 220, 0, 140)
 frame.Position = UDim2.new(0.5, -110, 0.5, -70)
-frame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-frame.BorderSizePixel = 1
-frame.BorderColor3 = Color3.fromRGB(80, 80, 80)
+frame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+frame.BorderSizePixel = 0
 frame.Active = true
 frame.Parent = gui
 
--- Drag system with momentum
-local dragSpeed = 0.25
-local dragInput, dragStart, startPos, dragMomentum
+-- Dragging System (Fixed)
+local dragging, dragInput, dragStart, startPos
 frame.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = true
         dragStart = input.Position
         startPos = frame.Position
-        dragMomentum = nil
         
         input.Changed:Connect(function()
             if input.UserInputState == Enum.UserInputState.End then
-                dragMomentum = (frame.Position - startPos).Magnitude * 0.1
+                dragging = false
             end
         end)
     end
 end)
 
+frame.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement then
+        dragInput = input
+    end
+end)
+
 UserInputService.InputChanged:Connect(function(input)
-    if input == dragInput then
+    if dragging and input == dragInput then
         local delta = input.Position - dragStart
         frame.Position = startPos + UDim2.new(0, delta.X, 0, delta.Y)
     end
 end)
 
--- Momentum animation
-game:GetService("RunService").Heartbeat:Connect(function()
-    if dragMomentum and dragMomentum > 1 then
-        frame.Position += UDim2.new(0, dragMomentum, 0, dragMomentum)
-        dragMomentum *= 0.85
-    end
-end)
-
--- ========== UI ELEMENTS ==========
+-- UI Elements
 local title = Instance.new("TextLabel")
-title.Size = UDim2.new(1, -24, 0, 24)
-title.Position = UDim2.new(0, 12, 0, 4)
-title.Text = "FLING CONTROL v3.1"
+title.Size = UDim2.new(1, 0, 0, 25)
+title.Text = "FLING CONTROLLER"
 title.Font = Enum.Font.GothamBold
-title.TextColor3 = Color3.new(1, 0.5, 0.2)
-title.BackgroundTransparency = 1
+title.TextColor3 = Color3.new(1, 1, 1)
+title.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
 title.Parent = frame
 
 local targetBox = Instance.new("TextBox")
-targetBox.Size = UDim2.new(0.9, 0, 0, 28)
+targetBox.Size = UDim2.new(0.9, 0, 0, 30)
 targetBox.Position = UDim2.new(0.05, 0, 0.25, 0)
-targetBox.PlaceholderText = "👤 Target username"
-targetBox.ClearTextOnFocus = false
-targetBox.TextXAlignment = Enum.TextXAlignment.Left
+targetBox.PlaceholderText = "Enter Username"
+targetBox.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+targetBox.TextColor3 = Color3.new(1, 1, 1)
 targetBox.Parent = frame
 
 local toggleButton = Instance.new("TextButton")
-toggleButton.Size = UDim2.new(0.9, 0, 0, 32)
+toggleButton.Size = UDim2.new(0.9, 0, 0, 30)
 toggleButton.Position = UDim2.new(0.05, 0, 0.6, 0)
-toggleButton.Text = "▶ START FLING"
-toggleButton.Font = Enum.Font.GothamMedium
+toggleButton.Text = "START FLING"
+toggleButton.Font = Enum.Font.Gotham
+toggleButton.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+toggleButton.TextColor3 = Color3.new(1, 1, 1)
 toggleButton.Parent = frame
 
--- ========== FLING CORE (UNCHANGED MECHANICS) ==========
--- [Insert previous fling logic here - IDENTICAL to original version]
--- [Include align(), cleanup(), flingLoop(), and toggle system]
+-- ========== FLING CORE ==========
+local flingEnabled = false
+local activeConnections = {}
+local anchorPart
 
--- ========== NUCLEAR VISIBILITY SAFEGUARDS ==========
--- Force GUI awake
+local function align(Part0, Part1)
+    local att0 = Instance.new("Attachment", Part0)
+    local att1 = Instance.new("Attachment", Part1)
+    
+    local alignPos = Instance.new("AlignPosition")
+    alignPos.Attachment0 = att0
+    alignPos.Attachment1 = att1
+    alignPos.RigidityEnabled = false
+    alignPos.Responsiveness = 200
+    alignPos.Parent = att0
+end
+
+local function cleanup()
+    -- Disconnect all connections
+    for _, conn in pairs(activeConnections) do
+        conn:Disconnect()
+    end
+    activeConnections = {}
+    
+    -- Remove physics
+    if LocalPlayer.Character then
+        for _, part in ipairs(LocalPlayer.Character:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.Velocity = Vector3.new()
+                part.RotVelocity = Vector3.new()
+            end
+        end
+    end
+    
+    -- Destroy anchor
+    if anchorPart then
+        anchorPart:Destroy()
+        anchorPart = nil
+    end
+end
+
+local function flingLoop()
+    cleanup()
+    
+    -- Get target player
+    local targetName = targetBox.Text:lower()
+    local targetPlayer
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Name:lower():find(targetName) then
+            targetPlayer = player
+            break
+        end
+    end
+    if not targetPlayer then return end
+
+    -- Character validation
+    local char = LocalPlayer.Character
+    local targetChar = targetPlayer.Character
+    if not char or not targetChar then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    local targetHrp = targetChar:FindFirstChild("HumanoidRootPart")
+    if not hrp or not targetHrp then return end
+
+    -- Teleport to target
+    hrp.CFrame = targetHrp.CFrame
+
+    -- Create anchor
+    anchorPart = Instance.new("Part")
+    anchorPart.Size = Vector3.new(2, 2, 1)
+    anchorPart.Transparency = 1
+    anchorPart.Anchored = true
+    anchorPart.CanCollide = false
+    anchorPart.CFrame = hrp.CFrame
+    anchorPart.Parent = char
+
+    -- Align parts
+    local parts = {}
+    for _, part in ipairs(char:GetDescendants()) do
+        if part:IsA("BasePart") then
+            if part.CanCollide then
+                table.insert(parts, part)
+                align(part, anchorPart)
+            else
+                part.Velocity = Vector3.new(0, -1000, 0)
+            end
+        end
+    end
+
+    -- Movement tracking
+    table.insert(activeConnections, RunService.Stepped:Connect(function()
+        if targetHrp and targetHrp.Parent then
+            anchorPart.CFrame = targetHrp.CFrame
+        end
+    end))
+
+    -- Physics manipulation
+    table.insert(activeConnections, RunService.Heartbeat:Connect(function()
+        for _, part in ipairs(parts) do
+            part.Velocity = Vector3.new(0, -25.05, 0)
+            part.RotVelocity = Vector3.new(9999, 9999, 9999)
+        end
+    end))
+
+    -- Auto-reconnect system
+    local function respawnHandler()
+        if flingEnabled then
+            task.wait(1)
+            flingLoop()
+        end
+    end
+    LocalPlayer.CharacterAdded:Connect(respawnHandler)
+    targetPlayer.CharacterAdded:Connect(respawnHandler)
+end
+
+-- ========== TOGGLE SYSTEM ==========
+toggleButton.MouseButton1Click:Connect(function()
+    flingEnabled = not flingEnabled
+    toggleButton.Text = flingEnabled and "STOP FLING" or "START FLING"
+    
+    if flingEnabled then
+        flingLoop()
+    else
+        cleanup()
+    end
+end)
+
+-- Force GUI visibility
 task.spawn(function()
     while true do
         gui.Enabled = true
         frame.Visible = true
-        frame.Active = true
-        wait(0.5)
+        wait(1)
     end
 end)
 
--- Emergency visibility hotkeys
-UserInputService.InputBegan:Connect(function(input)
-    if input.KeyCode == Enum.KeyCode.F6 then
-        frame.Visible = not frame.Visible
-    end
-    if input.KeyCode == Enum.KeyCode.F7 then
-        nuclearParent() -- Re-inject GUI
-    end
-end)
-
--- Diagnostic HUD
-local diagLabel = Instance.new("TextLabel")
-diagLabel.Text = string.format(
-    "GUI Status: ACTIVE | Parent: %s | F6: Toggle | F7: Reinject",
-    gui.Parent:GetFullName()
-)
-diagLabel.Size = UDim2.new(1, 0, 0, 18)
-diagLabel.Position = UDim2.new(0, 0, 1, 0)
-diagLabel.TextColor3 = Color3.new(0, 1, 0)
-diagLabel.BackgroundTransparency = 1
-diagLabel.Font = Enum.Font.RobotoMono
-diagLabel.Parent = frame
-
-print("🔥 FLING SYSTEM ACTIVE - If GUI not visible:")
-print("1. Press F6/F7 | 2. Check executor UI settings")
-print("3. Verify no other scripts interfering")
+print("Fling system loaded - GUI should be visible!")
