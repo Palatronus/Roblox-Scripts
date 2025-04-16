@@ -66,9 +66,9 @@ end)
 
 -- Core Fling System
 local activeConnections = {}
-local targetPlayer
 local anchorPart
 local originalState = {}
+local targetPlayer
 
 local function alignParts(part1, part2)
     local att0 = Instance.new("Attachment")
@@ -87,7 +87,6 @@ local function alignParts(part1, part2)
 end
 
 local function terminateFling()
-    -- Cleanup connections and parts
     for _, conn in pairs(activeConnections) do
         conn:Disconnect()
     end
@@ -98,7 +97,6 @@ local function terminateFling()
         anchorPart = nil
     end
     
-    -- Restore original state
     if LocalPlayer.Character and originalState.CFrame then
         local hrp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
         if hrp then
@@ -110,7 +108,7 @@ local function terminateFling()
 end
 
 local function executeFling(targetHRP)
-    terminateFling() -- Clear previous
+    terminateFling()
     
     if not LocalPlayer.Character or not targetHRP then return end
     local localHRP = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
@@ -121,10 +119,8 @@ local function executeFling(targetHRP)
     originalState.Velocity = localHRP.Velocity
     originalState.RotVelocity = localHRP.RotVelocity
 
-    -- Teleport to target
+    -- Teleport and anchor setup
     localHRP.CFrame = targetHRP.CFrame
-
-    -- Create anchor
     anchorPart = Instance.new("Part")
     anchorPart.Name = "FlingCore"
     anchorPart.Anchored = true
@@ -133,7 +129,7 @@ local function executeFling(targetHRP)
     anchorPart.CFrame = localHRP.CFrame
     anchorPart.Parent = LocalPlayer.Character
 
-    -- Configure parts
+    -- Part configuration
     local flingParts = {}
     for _, part in ipairs(LocalPlayer.Character:GetDescendants()) do
         if part:IsA("BasePart") then
@@ -160,42 +156,56 @@ local function executeFling(targetHRP)
         end
     end)
 
-    -- Death/rejoin handler
-    activeConnections.targetTracker = targetHRP:GetPropertyChangedSignal("Parent"):Connect(function()
+    -- Death/Rejoin handler
+    activeConnections.characterTracker = targetHRP:GetPropertyChangedSignal("Parent"):Connect(function()
         if not targetHRP.Parent then
             -- Wait for new character
-            local newChar
-            activeConnections.charWait = targetPlayer.CharacterAdded:Connect(function(char)
-                newChar = char
-                char:WaitForChild("HumanoidRootPart", 2)
-                executeFling(char.HumanoidRootPart)
+            local charConnection
+            charConnection = targetPlayer.CharacterAdded:Connect(function(newChar)
+                charConnection:Disconnect()
+                local newHRP = newChar:WaitForChild("HumanoidRootPart", 3)
+                if newHRP then
+                    executeFling(newHRP)
+                end
             end)
         end
     end)
 end
 
 local function monitorTarget()
-    -- Find target player (supports name changes/rejoins)
+    -- Clean previous connections
+    if activeConnections.playerTracker then
+        activeConnections.playerTracker:Disconnect()
+    end
+
+    -- Find target player
     targetPlayer = Players:FindFirstChild(inputBox.Text)
     if not targetPlayer then return end
 
     -- Existing character
-    if targetPlayer.Character and targetPlayer.Character:FindFirstChild("HumanoidRootPart") then
-        executeFling(targetPlayer.Character.HumanoidRootPart)
+    if targetPlayer.Character then
+        local hrp = targetPlayer.Character:FindFirstChild("HumanoidRootPart", 2)
+        if hrp then
+            executeFling(hrp)
+        end
     end
 
-    -- New characters
-    activeConnections.charAdded = targetPlayer.CharacterAdded:Connect(function(char)
-        char:WaitForChild("HumanoidRootPart", 2)
-        executeFling(char.HumanoidRootPart)
+    -- New character handler
+    activeConnections.charAdded = targetPlayer.CharacterAdded:Connect(function(newChar)
+        local hrp = newChar:WaitForChild("HumanoidRootPart", 2)
+        if hrp then
+            executeFling(hrp)
+        end
     end)
 
     -- Player leave/rejoin handler
-    activeConnections.playerTracker = targetPlayer.AncestryChanged:Connect(function()
-        if targetPlayer.Parent == nil then
+    activeConnections.playerTracker = targetPlayer.AncestryChanged:Connect(function(_, parent)
+        if parent == nil then
             -- Player left, wait for return
-            activeConnections.rejoinTracker = Players.PlayerAdded:Connect(function(newPlayer)
+            local rejoinConnection
+            rejoinConnection = Players.PlayerAdded:Connect(function(newPlayer)
                 if newPlayer.Name == inputBox.Text then
+                    rejoinConnection:Disconnect()
                     targetPlayer = newPlayer
                     monitorTarget()
                 end
