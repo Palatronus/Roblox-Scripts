@@ -59,36 +59,6 @@ UserInputService.InputChanged:Connect(function(input)
     end
 end)
 
--- Noclip system
-local noclipConnections = {}
-local originalCollisionStates = {}
-
-local function enableNoclip(character)
-    for _, part in ipairs(character:GetDescendants()) do
-        if part:IsA("BasePart") then
-            originalCollisionStates[part] = part.CanCollide
-            part.CanCollide = false
-        end
-    end
-    
-    local conn = character.DescendantAdded:Connect(function(part)
-        if part:IsA("BasePart") then
-            originalCollisionStates[part] = part.CanCollide
-            part.CanCollide = false
-        end
-    end)
-    table.insert(noclipConnections, conn)
-end
-
-local function disableNoclip(character)
-    for part, state in pairs(originalCollisionStates) do
-        if part.Parent then
-            part.CanCollide = state
-        end
-    end
-    originalCollisionStates = {}
-end
-
 -- Original fling mechanics
 local flinging = false
 local activeConnections = {}
@@ -199,18 +169,10 @@ toggleButton.MouseButton1Click:Connect(function()
     toggleButton.Text = flinging and "Toggle Fling (ON)" or "Toggle Fling (OFF)"
     
     if flinging then
-        -- Enable noclip
-        if LocalPlayer.Character then
-            enableNoclip(LocalPlayer.Character)
-        end
-        table.insert(activeConnections, LocalPlayer.CharacterAdded:Connect(function(character)
-            enableNoclip(character)
-        end))
-        
-        -- Find target
         local targetName = string.lower(textBox.Text)
         local targetPlayer
         
+        -- Find target player
         for _, player in ipairs(Players:GetPlayers()) do
             if string.lower(player.Name) == targetName and player ~= LocalPlayer then
                 targetPlayer = player
@@ -224,7 +186,7 @@ toggleButton.MouseButton1Click:Connect(function()
             return
         end
 
-        -- Setup fling connections
+        -- Main fling loop
         table.insert(activeConnections, targetPlayer.CharacterAdded:Connect(function()
             performFling(targetPlayer.Character)
         end))
@@ -233,11 +195,11 @@ toggleButton.MouseButton1Click:Connect(function()
             performFling(targetPlayer.Character)
         end))
         
-        -- Main loop
+        -- Initial execution
         while flinging do
             if targetPlayer.Character then
                 performFling(targetPlayer.Character)
-                task.wait(1.2)
+                task.wait(1.2) -- Match original delay cycle
             end
             task.wait()
         end
@@ -247,15 +209,5 @@ toggleButton.MouseButton1Click:Connect(function()
             connection:Disconnect()
         end
         activeConnections = {}
-        
-        -- Disable noclip
-        for _, conn in ipairs(noclipConnections) do
-            conn:Disconnect()
-        end
-        noclipConnections = {}
-        
-        if LocalPlayer.Character then
-            disableNoclip(LocalPlayer.Character)
-        end
     end
 end)
