@@ -65,8 +65,9 @@ UserInputService.InputChanged:Connect(function(input)
 end)
 
 -- Core Fling System
-local activeFling
-local targetObserver
+local activeConnections = {}
+local targetPlayer
+local anchorPart
 local originalState = {}
 
 local function alignParts(part1, part2)
@@ -85,64 +86,16 @@ local function alignParts(part1, part2)
     att1.Parent = part2
 end
 
-local function executeFling(targetHRP)
-    if not LocalPlayer.Character then return end
-    local localHRP = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-    if not localHRP then return end
-
-    -- Preserve original state
-    originalState.CFrame = localHRP.CFrame
-    originalState.Velocity = localHRP.Velocity
-    originalState.RotVelocity = localHRP.RotVelocity
-
-    -- Teleport to target
-    localHRP.CFrame = targetHRP.CFrame
-
-    -- Anchor setup
-    local anchor = Instance.new("Part")
-    anchor.Name = "FlingCore"
-    anchor.Anchored = true
-    anchor.Transparency = 1
-    anchor.Size = Vector3.new(2, 2, 1)
-    anchor.CFrame = localHRP.CFrame
-    anchor.Parent = LocalPlayer.Character
-
-    -- Part configuration
-    local flingParts = {}
-    for _, part in ipairs(LocalPlayer.Character:GetDescendants()) do
-        if part:IsA("BasePart") then
-            if part.CanCollide then
-                table.insert(flingParts, part)
-                alignParts(part, anchor)
-            else
-                part.Velocity = Vector3.new(0, -1000, 0)
-            end
-        end
-    end
-
-    -- Persistent tracking
-    activeFling = {
-        Follow = RunService.Stepped:Connect(function()
-            if targetHRP and targetHRP.Parent then
-                anchor.CFrame = targetHRP.CFrame
-            end
-        end),
-        Spin = RunService.Heartbeat:Connect(function()
-            for _, part in ipairs(flingParts) do
-                part.Velocity = Vector3.new(0, -25.05, 0)
-                part.RotVelocity = Vector3.new(9999, 9999, 9999)
-            end
-        end),
-        Anchor = anchor
-    }
-end
-
 local function terminateFling()
-    if activeFling then
-        activeFling.Follow:Disconnect()
-        activeFling.Spin:Disconnect()
-        activeFling.Anchor:Destroy()
-        activeFling = nil
+    -- Cleanup connections and parts
+    for _, conn in pairs(activeConnections) do
+        conn:Disconnect()
+    end
+    activeConnections = {}
+    
+    if anchorPart then
+        anchorPart:Destroy()
+        anchorPart = nil
     end
     
     -- Restore original state
@@ -156,42 +109,111 @@ local function terminateFling()
     end
 end
 
-local function monitorTarget()
-    while true do
-        local target = Players:FindFirstChild(inputBox.Text)
-        if not target then task.wait(1) continue end
+local function executeFling(targetHRP)
+    terminateFling() -- Clear previous
+    
+    if not LocalPlayer.Character or not targetHRP then return end
+    local localHRP = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if not localHRP then return end
 
-        -- Existing character
-        if target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
-            executeFling(target.Character.HumanoidRootPart)
+    -- Store original state
+    originalState.CFrame = localHRP.CFrame
+    originalState.Velocity = localHRP.Velocity
+    originalState.RotVelocity = localHRP.RotVelocity
+
+    -- Teleport to target
+    localHRP.CFrame = targetHRP.CFrame
+
+    -- Create anchor
+    anchorPart = Instance.new("Part")
+    anchorPart.Name = "FlingCore"
+    anchorPart.Anchored = true
+    anchorPart.Transparency = 1
+    anchorPart.Size = Vector3.new(2, 2, 1)
+    anchorPart.CFrame = localHRP.CFrame
+    anchorPart.Parent = LocalPlayer.Character
+
+    -- Configure parts
+    local flingParts = {}
+    for _, part in ipairs(LocalPlayer.Character:GetDescendants()) do
+        if part:IsA("BasePart") then
+            if part.CanCollide then
+                table.insert(flingParts, part)
+                alignParts(part, anchorPart)
+            else
+                part.Velocity = Vector3.new(0, -1000, 0)
+            end
         end
-
-        -- Future characters
-        targetObserver = target.CharacterAdded:Connect(function(char)
-            char:WaitForChild("HumanoidRootPart")
-            executeFling(char.HumanoidRootPart)
-        end)
-
-        -- Break condition
-        repeat task.wait() until inputBox.Text ~= target.Name or not toggleBtn.Text:find("DISABLE")
-        targetObserver:Disconnect()
-        if not toggleBtn.Text:find("DISABLE") then break end
     end
+
+    -- Persistent tracking
+    activeConnections.follow = RunService.Stepped:Connect(function()
+        if targetHRP and targetHRP.Parent then
+            anchorPart.CFrame = targetHRP.CFrame
+        end
+    end)
+
+    activeConnections.spin = RunService.Heartbeat:Connect(function()
+        for _, part in ipairs(flingParts) do
+            part.Velocity = Vector3.new(0, -25.05, 0)
+            part.RotVelocity = Vector3.new(9999, 9999, 9999)
+        end
+    end)
+
+    -- Death/rejoin handler
+    activeConnections.targetTracker = targetHRP:GetPropertyChangedSignal("Parent"):Connect(function()
+        if not targetHRP.Parent then
+            -- Wait for new character
+            local newChar
+            activeConnections.charWait = targetPlayer.CharacterAdded:Connect(function(char)
+                newChar = char
+                char:WaitForChild("HumanoidRootPart", 2)
+                executeFling(char.HumanoidRootPart)
+            end)
+        end
+    end)
+end
+
+local function monitorTarget()
+    -- Find target player (supports name changes/rejoins)
+    targetPlayer = Players:FindFirstChild(inputBox.Text)
+    if not targetPlayer then return end
+
+    -- Existing character
+    if targetPlayer.Character and targetPlayer.Character:FindFirstChild("HumanoidRootPart") then
+        executeFling(targetPlayer.Character.HumanoidRootPart)
+    end
+
+    -- New characters
+    activeConnections.charAdded = targetPlayer.CharacterAdded:Connect(function(char)
+        char:WaitForChild("HumanoidRootPart", 2)
+        executeFling(char.HumanoidRootPart)
+    end)
+
+    -- Player leave/rejoin handler
+    activeConnections.playerTracker = targetPlayer.AncestryChanged:Connect(function()
+        if targetPlayer.Parent == nil then
+            -- Player left, wait for return
+            activeConnections.rejoinTracker = Players.PlayerAdded:Connect(function(newPlayer)
+                if newPlayer.Name == inputBox.Text then
+                    targetPlayer = newPlayer
+                    monitorTarget()
+                end
+            end)
+        end
+    end)
 end
 
 -- Control Logic
 toggleBtn.MouseButton1Click:Connect(function()
     if toggleBtn.Text == "ENABLE FLING" then
         toggleBtn.Text = "DISABLE FLING"
-        terminateFling() -- Clear previous
-        spawn(monitorTarget)
+        monitorTarget()
         
         -- Reconnect on local respawn
-        LocalPlayer.CharacterAdded:Connect(function()
+        activeConnections.respawnTracker = LocalPlayer.CharacterAdded:Connect(function()
             task.wait(1)
-            if toggleBtn.Text == "DISABLE FLING" then
-                spawn(monitorTarget)
-            end
+            monitorTarget()
         end)
     else
         toggleBtn.Text = "ENABLE FLING"
