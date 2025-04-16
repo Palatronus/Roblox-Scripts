@@ -3,150 +3,206 @@ local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local LocalPlayer = Players.LocalPlayer
 
--- GUI Creation
-local gui = Instance.new("ScreenGui")
-gui.Name = "FlingGUI"
-gui.ResetOnSpawn = false
-
-local dragFrame = Instance.new("Frame", gui)
-dragFrame.Size = UDim2.new(0, 200, 0, 25)
-dragFrame.Position = UDim2.new(0.5, -100, 0, 10)
-dragFrame.BackgroundColor3 = Color3.new(0.2, 0.2, 0.2)
-dragFrame.Active = true
-dragFrame.Draggable = true
-
-local title = Instance.new("TextLabel", dragFrame)
-title.Size = UDim2.new(1, 0, 1, 0)
-title.Text = "Fling Controller (Drag Me)"
-title.BackgroundTransparency = 1
-title.TextColor3 = Color3.new(1, 1, 1)
-
-local inputFrame = Instance.new("Frame", gui)
-inputFrame.Size = UDim2.new(0, 200, 0, 80)
-inputFrame.Position = UDim2.new(0.5, -100, 0, 40)
-inputFrame.BackgroundColor3 = Color3.new(0.25, 0.25, 0.25)
-
-local textBox = Instance.new("TextBox", inputFrame)
-textBox.Size = UDim2.new(0.9, 0, 0, 25)
-textBox.Position = UDim2.new(0.05, 0, 0.1, 0)
-textBox.PlaceholderText = "Target Username"
-
-local toggleButton = Instance.new("TextButton", inputFrame)
-toggleButton.Size = UDim2.new(0.9, 0, 0, 25)
-toggleButton.Position = UDim2.new(0.05, 0, 0.6, 0)
-toggleButton.Text = "Start Flinging"
-
-gui.Parent = LocalPlayer:WaitForChild("PlayerGui")
-
--- Fling Logic
-local isFlinging = false
-local connections = {}
-local anchor, originalCFrame, originalVel, originalRot
-
+-- Original Fling Mechanics (UNTOUCHED)
 local function align(Part0, Part1)
     local att1 = Instance.new("Attachment")
-    att1.Parent = Part1
+    att1.Position = Vector3.new(0, 0, 0)
     local att0 = att1:Clone()
-    att0.Parent = Part0
 
     local ap = Instance.new("AlignPosition")
-    ap.Attachment0 = att0
-    ap.Attachment1 = att1
     ap.ApplyAtCenterOfMass = true
     ap.MaxForce = 9e9
     ap.MaxVelocity = 9e9
     ap.ReactionForceEnabled = false
     ap.Responsiveness = 200
     ap.RigidityEnabled = false
+    ap.Attachment1 = att1
+    ap.Attachment0 = att0
     ap.Parent = att0
+
+    att1.Parent = Part1
+    att0.Parent = Part0
 end
 
-local function cleanFling()
-    if anchor then anchor:Destroy() end
-    originalCFrame, originalVel, originalRot = nil, nil, nil
-    for _, v in pairs(connections) do
-        v:Disconnect()
+-- GUI Creation
+local gui = Instance.new("ScreenGui")
+gui.Name = "FlingGUI"
+gui.ResetOnSpawn = false
+
+local frame = Instance.new("Frame")
+frame.Size = UDim2.new(0, 200, 0, 120)
+frame.Position = UDim2.new(0.5, -100, 0.5, -60)
+frame.BackgroundColor3 = Color3.new(0.2, 0.2, 0.2)
+frame.Active = true
+frame.Draggable = true
+frame.Parent = gui
+
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1, 0, 0, 20)
+title.BackgroundColor3 = Color3.new(0.3, 0.3, 0.3)
+title.Text = "Fling Controller (Drag Me)"
+title.Parent = frame
+
+local input = Instance.new("TextBox")
+input.Size = UDim2.new(0.9, 0, 0, 25)
+input.Position = UDim2.new(0.05, 0, 0.3, 0)
+input.PlaceholderText = "Enter username"
+input.Parent = frame
+
+local toggle = Instance.new("TextButton")
+toggle.Size = UDim2.new(0.6, 0, 0, 30)
+toggle.Position = UDim2.new(0.2, 0, 0.6, 0)
+toggle.Text = "Start Fling"
+toggle.Parent = frame
+
+-- Dragging Implementation
+local dragging
+local dragInput
+local dragStart
+local startPos
+
+local function update(input)
+    local delta = input.Position - dragStart
+    frame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+end
+
+title.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = true
+        dragStart = input.Position
+        startPos = frame.Position
+        
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                dragging = false
+            end
+        end)
     end
-    connections = {}
-end
+end)
 
-local function resetCharacter()
-    local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-    if hrp and originalCFrame then
-        hrp.CFrame = originalCFrame
-        hrp.Velocity = originalVel
-        hrp.RotVelocity = originalRot
+title.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement then
+        dragInput = input
     end
-end
+end)
 
-local function startFling(targetName)
-    cleanFling()
-    local targetPlayer = Players:FindFirstChild(targetName)
-    if not targetPlayer then return end
+UserInputService.InputChanged:Connect(function(input)
+    if input == dragInput and dragging then
+        update(input)
+    end
+end)
 
-    local character = LocalPlayer.Character
-    local hrp = character and character:FindFirstChild("HumanoidRootPart")
-    if not hrp then return end
+-- Fling Loop Manager
+local flingActive = false
+local connections = {}
 
-    originalCFrame = hrp.CFrame
-    originalVel = hrp.Velocity
-    originalRot = hrp.RotVelocity
-
-    anchor = Instance.new("Part")
-    anchor.Name = "FlingAnchor"
-    anchor.Anchored = true
-    anchor.Transparency = 1
-    anchor.CanCollide = false
-    anchor.Size = Vector3.new(2, 2, 1)
-    anchor.Parent = character
-
-    local parts = {}
-    for _, part in ipairs(character:GetDescendants()) do
-        if part:IsA("BasePart") then
-            if part.CanCollide then
-                table.insert(parts, part)
-            else
-                part.Velocity = Vector3.new(0, -1000, 0)
+local function getTarget()
+    local targetPlayer = Players:FindFirstChild(input.Text)
+    if not targetPlayer then
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player.Name:lower() == input.Text:lower() then
+                targetPlayer = player
+                break
             end
         end
     end
-
-    for _, part in ipairs(parts) do
-        align(part, anchor)
-    end
-
-    table.insert(connections, RunService.Stepped:Connect(function()
-        local targetChar = targetPlayer.Character
-        local targetHrp = targetChar and targetChar:FindFirstChild("HumanoidRootPart")
-        if targetHrp then
-            anchor.CFrame = targetHrp.CFrame
-        end
-    end))
-
-    table.insert(connections, RunService.Heartbeat:Connect(function()
-        for _, part in ipairs(parts) do
-            part.Velocity = Vector3.new(0, -25.05, 0)
-            part.RotVelocity = Vector3.new(9999, 9999, 9999)
-        end
-    end))
+    return targetPlayer
 end
 
-toggleButton.MouseButton1Click:Connect(function()
-    isFlinging = not isFlinging
-    toggleButton.Text = isFlinging and "Stop Flinging" or "Start Flinging"
+local function persistentFling()
+    while flingActive and task.wait(0.1) do
+        local targetPlayer = getTarget()
+        if not targetPlayer or targetPlayer == LocalPlayer then continue end
+        
+        local character = LocalPlayer.Character
+        local targetChar = targetPlayer.Character
+        if not character or not targetChar or not targetChar:FindFirstChild("HumanoidRootPart") then continue end
+        
+        local hrp = character:FindFirstChild("HumanoidRootPart")
+        if not hrp then continue end
+
+        -- Original teleport/fling logic
+        local originalCFrame = hrp.CFrame
+        local originalRot = hrp.RotVelocity
+        local originalVelocity = hrp.Velocity
+        
+        hrp.CFrame = targetChar.HumanoidRootPart.CFrame
+        
+        local parts = {}
+        for _, part in ipairs(character:GetDescendants()) do
+            if part:IsA("BasePart") then
+                if part.CanCollide then
+                    table.insert(parts, part)
+                else
+                    part.Velocity = Vector3.new(0, -1000, 0)
+                end
+            end
+        end
+
+        local anchor = Instance.new("Part")
+        anchor.Name = "FlingAnchor"
+        anchor.Anchored = true
+        anchor.Transparency = 1
+        anchor.CanCollide = false
+        anchor.Size = Vector3.new(2, 2, 1)
+        anchor.CFrame = hrp.CFrame
+        anchor.Parent = character
+
+        for _, part in ipairs(parts) do
+            align(part, anchor)
+        end
+
+        local follow = RunService.Stepped:Connect(function()
+            if targetChar and targetChar:FindFirstChild("HumanoidRootPart") then
+                anchor.CFrame = targetChar.HumanoidRootPart.CFrame
+            end
+        end)
+
+        local spin = RunService.Heartbeat:Connect(function()
+            for _, part in ipairs(parts) do
+                part.Velocity = Vector3.new(0, -25.05, 0)
+                part.RotVelocity = Vector3.new(9999, 9999, 9999)
+            end
+        end)
+
+        table.insert(connections, follow)
+        table.insert(connections, spin)
+
+        task.delay(3, function()
+            if hrp and hrp.Parent then
+                hrp.CFrame = originalCFrame
+                hrp.Velocity = originalVelocity
+                hrp.RotVelocity = originalRot
+            end
+            anchor:Destroy()
+            follow:Disconnect()
+            spin:Disconnect()
+        end)
+    end
+end
+
+-- Toggle Handler
+toggle.MouseButton1Click:Connect(function()
+    flingActive = not flingActive
+    toggle.Text = flingActive and "Stop Fling" or "Start Fling"
     
-    if isFlinging then
-        startFling(textBox.Text)
+    if flingActive then
+        coroutine.wrap(persistentFling)()
     else
-        cleanFling()
-        resetCharacter()
+        -- Cleanup connections
+        for _, conn in ipairs(connections) do
+            conn:Disconnect()
+        end
+        connections = {}
     end
 end)
 
--- Handle respawns
+-- Persistence Handler
 LocalPlayer.CharacterAdded:Connect(function()
-    if isFlinging then
+    if flingActive then
         task.wait(1)
-        startFling(textBox.Text)
+        coroutine.wrap(persistentFling)()
     end
 end)
+
+gui.Parent = LocalPlayer:WaitForChild("PlayerGui")
