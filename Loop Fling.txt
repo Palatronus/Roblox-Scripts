@@ -165,7 +165,7 @@ local function flingCycle()
     table.insert(connections, spin)
 
     -- Reset after delay
-    task.delay(1.2, function()
+    task.delay(0.25, function()
         cleanup()
         if hrp and hrp.Parent then
             hrp.CFrame = originalCFrame
@@ -184,7 +184,7 @@ toggle.MouseButton1Click:Connect(function()
         local function loop()
             while flinging do
                 flingCycle()
-                wait(1.5)
+                wait(3)
             end
         end
         coroutine.wrap(loop)()
