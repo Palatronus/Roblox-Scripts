@@ -3,77 +3,27 @@ local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local LocalPlayer = Players.LocalPlayer
 
--- Fling mechanics (optimized)
-local function align(Part0, Part1)
-    local att1 = Instance.new("Attachment")
-    att1.Position = Vector3.new(0, 0, 0)
-    local att0 = att1:Clone()
-
-    local ap = Instance.new("AlignPosition", att0)
-    ap.ApplyAtCenterOfMass = true
-    ap.MaxForce = 9e9
-    ap.MaxVelocity = 9e9
-    ap.ReactionForceEnabled = false
-    ap.Responsiveness = 200
-    ap.RigidityEnabled = false
-    ap.Attachment1 = att1
-    ap.Attachment0 = att0
-
-    att1.Parent = Part1
-    att0.Parent = Part0
-    return {att0, att1, ap} -- Return objects for cleanup
-end
-
-local flingEnabled = false
-local currentTarget = nil
-local activeAnchor = nil
-local mainLoop = nil
-local alignObjects = {}
-
--- GUI Creation (unchanged)
+-- GUI Creation
 local gui = Instance.new("ScreenGui")
 gui.Name = "FlingGUI"
 gui.ResetOnSpawn = false
+gui.Parent = game.CoreGui
 
 local frame = Instance.new("Frame")
 frame.Size = UDim2.new(0, 200, 0, 120)
 frame.Position = UDim2.new(0.5, -100, 0.5, -60)
-frame.BackgroundColor3 = Color3.new(0.2, 0.2, 0.2)
+frame.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+frame.BorderSizePixel = 0
 frame.Active = true
-frame.Draggable = true
-frame.Parent = gui
 
-local title = Instance.new("TextLabel")
-title.Size = UDim2.new(1, 0, 0, 20)
-title.BackgroundColor3 = Color3.new(0.3, 0.3, 0.3)
-title.Text = "Drag Me - Fling GUI"
-title.Parent = frame
-
-local input = Instance.new("TextBox")
-input.PlaceholderText = "Target Username"
-input.Size = UDim2.new(0.9, 0, 0, 25)
-input.Position = UDim2.new(0.05, 0, 0.25, 0)
-input.Parent = frame
-
-local toggle = Instance.new("TextButton")
-toggle.Size = UDim2.new(0.9, 0, 0, 25)
-toggle.Position = UDim2.new(0.05, 0, 0.6, 0)
-toggle.Text = "Start Fling"
-toggle.Parent = frame
-
--- Dragging functionality (unchanged)
+-- Dragging Logic
 local dragging, dragInput, dragStart, startPos
-
-local function update(input)
-    local delta = input.Position - dragStart
-    frame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-end
-
-title.InputBegan:Connect(function(input)
+frame.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 then
         dragging = true
         dragStart = input.Position
         startPos = frame.Position
+        
         input.Changed:Connect(function()
             if input.UserInputState == Enum.UserInputState.End then
                 dragging = false
@@ -82,124 +32,164 @@ title.InputBegan:Connect(function(input)
     end
 end)
 
-title.InputChanged:Connect(function(input)
+frame.InputChanged:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseMovement then
         dragInput = input
     end
 end)
 
 UserInputService.InputChanged:Connect(function(input)
-    if input == dragInput and dragging then
-        update(input)
+    if dragging and input == dragInput then
+        local delta = input.Position - dragStart
+        frame.Position = startPos + UDim2.new(0, delta.X, 0, delta.Y)
     end
 end)
 
--- Optimized fling logic
-local function fullCleanup()
-    -- Clean all physics objects
-    if activeAnchor then
-        activeAnchor:Destroy()
-        activeAnchor = nil
-    end
+-- Title
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1, 0, 0, 20)
+title.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+title.Font = Enum.Font.SourceSansBold
+title.TextColor3 = Color3.new(1, 1, 1)
+title.Text = "Fling Controller"
+title.Parent = frame
+
+-- Target Box
+local targetBox = Instance.new("TextBox")
+targetBox.Size = UDim2.new(0.9, 0, 0, 25)
+targetBox.Position = UDim2.new(0.05, 0, 0.25, 0)
+targetBox.PlaceholderText = "Target Username"
+targetBox.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+targetBox.TextColor3 = Color3.new(1, 1, 1)
+targetBox.Parent = frame
+
+-- Toggle Button
+local toggleButton = Instance.new("TextButton")
+toggleButton.Size = UDim2.new(0.9, 0, 0, 25)
+toggleButton.Position = UDim2.new(0.05, 0, 0.6, 0)
+toggleButton.Text = "Start Fling"
+toggleButton.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+toggleButton.TextColor3 = Color3.new(1, 1, 1)
+toggleButton.Parent = frame
+
+-- Close Button
+local closeButton = Instance.new("TextButton")
+closeButton.Size = UDim2.new(0, 20, 0, 20)
+closeButton.Position = UDim2.new(1, -20, 0, 0)
+closeButton.Text = "X"
+closeButton.BackgroundColor3 = Color3.fromRGB(255, 60, 60)
+closeButton.TextColor3 = Color3.new(1, 1, 1)
+closeButton.Parent = frame
+closeButton.MouseButton1Click:Connect(function() gui:Destroy() end)
+
+-- Fling Logic
+local flingEnabled = false
+local targetPlayer, follow, spin, anchor
+
+local function align(Part0, Part1)
+    local att1 = Instance.new("Attachment", Part1)
+    local att0 = att1:Clone()
+    att0.Parent = Part0
     
-    for _, obj in ipairs(alignObjects) do
-        for _, item in ipairs(obj) do
-            pcall(function() item:Destroy() end)
-        end
-    end
-    alignObjects = {}
+    local ap = Instance.new("AlignPosition")
+    ap.Attachment0 = att0
+    ap.Attachment1 = att1
+    ap.RigidityEnabled = false
+    ap.ReactionForceEnabled = false
+    ap.Responsiveness = 200
+    ap.Parent = att0
 end
 
-local heartbeatConnection
-local steppedConnection
-
-local function startFling(targetChar)
-    local character = LocalPlayer.Character
-    if not character or not targetChar or not targetChar:FindFirstChild("HumanoidRootPart") then return end
-
-    local hrp = character:FindFirstChild("HumanoidRootPart")
-    if not hrp then return end
-
-    -- Clean previous instances
-    fullCleanup()
-
-    -- Create single anchor
-    activeAnchor = Instance.new("Part")
-    activeAnchor.Name = "FlingAnchor"
-    activeAnchor.Anchored = true
-    activeAnchor.Transparency = 1
-    activeAnchor.CanCollide = false
-    activeAnchor.Size = Vector3.new(2, 2, 1)
-    activeAnchor.CFrame = hrp.CFrame
-    activeAnchor.Parent = character
-
-    -- Align parts once
-    local parts = {}
-    for _, part in ipairs(character:GetDescendants()) do
-        if part:IsA("BasePart") then
-            if part.CanCollide then
-                table.insert(parts, part)
-            else
-                part.Velocity = Vector3.new(0, -1000, 0)
+local function cleanup()
+    if follow then follow:Disconnect() end
+    if spin then spin:Disconnect() end
+    if anchor then anchor:Destroy() end
+    
+    local chr = LocalPlayer.Character
+    if chr then
+        for _, v in ipairs(chr:GetDescendants()) do
+            if v:IsA("BasePart") then
+                v.Velocity, v.RotVelocity = Vector3.new(), Vector3.new()
             end
         end
     end
+end
 
-    -- Create alignments
-    for _, part in ipairs(parts) do
-        table.insert(alignObjects, align(part, activeAnchor))
+local function flingLoop()
+    cleanup()
+    
+    -- Get target
+    targetPlayer = nil
+    for _, v in ipairs(Players:GetPlayers()) do
+        if v.Name:lower() == targetBox.Text:lower() and v ~= LocalPlayer then
+            targetPlayer = v
+            break
+        end
     end
-
-    -- Single optimized heartbeat connection
-    heartbeatConnection = RunService.Heartbeat:Connect(function()
-        if activeAnchor and targetChar:FindFirstChild("HumanoidRootPart") then
-            activeAnchor.CFrame = targetChar.HumanoidRootPart.CFrame
-            for _, part in ipairs(parts) do
-                part.Velocity = Vector3.new(0, -25.05, 0)
-                part.RotVelocity = Vector3.new(9999, 9999, 9999)
-            end
+    if not targetPlayer then return end
+    
+    -- Character check
+    local chr = LocalPlayer.Character
+    local tchr = targetPlayer.Character
+    if not chr or not tchr or not chr:FindFirstChild("HumanoidRootPart") or not tchr:FindFirstChild("HumanoidRootPart") then return end
+    
+    -- Teleport
+    local hrp = chr.HumanoidRootPart
+    hrp.CFrame = tchr.HumanoidRootPart.CFrame
+    
+    -- Setup anchor
+    anchor = Instance.new("Part")
+    anchor.Anchored = true
+    anchor.Transparency = 1
+    anchor.CanCollide = false
+    anchor.Size = Vector3.new(2, 2, 1)
+    anchor.CFrame = hrp.CFrame
+    anchor.Parent = chr
+    
+    -- Align parts
+    local parts = {}
+    for _, v in ipairs(chr:GetDescendants()) do
+        if v:IsA("BasePart") and v.CanCollide then
+            table.insert(parts, v)
+            align(v, anchor)
+        elseif v:IsA("BasePart") then
+            v.Velocity = Vector3.new(0, -1000, 0)
+        end
+    end
+    
+    -- Connections
+    follow = RunService.Stepped:Connect(function()
+        if tchr and tchr.Parent and tchr:FindFirstChild("HumanoidRootPart") then
+            anchor.CFrame = tchr.HumanoidRootPart.CFrame
         end
     end)
-end
-
--- Optimized management
-local function manageFling()
-    while flingEnabled and currentTarget do
-        local targetPlayer = Players:FindFirstChild(currentTarget)
-        if targetPlayer then
-            local targetChar = targetPlayer.Character
-            if targetChar then
-                startFling(targetChar)
-                targetPlayer.CharacterAdded:Wait()
-            end
+    
+    spin = RunService.Heartbeat:Connect(function()
+        for _, v in ipairs(parts) do
+            v.Velocity = Vector3.new(0, -25.05, 0)
+            v.RotVelocity = Vector3.new(9999, 9999, 9999)
         end
-        task.wait(1) -- Reduced check frequency
+    end)
+    
+    -- Auto-reconnect on respawn
+    local function respawnHandler()
+        if flingEnabled then
+            task.wait(1)
+            flingLoop()
+        end
     end
+    
+    LocalPlayer.CharacterAdded:Connect(respawnHandler)
+    targetPlayer.CharacterAdded:Connect(respawnHandler)
 end
 
--- Toggle handler
-toggle.MouseButton1Click:Connect(function()
+toggleButton.MouseButton1Click:Connect(function()
     flingEnabled = not flingEnabled
-    currentTarget = input.Text
+    toggleButton.Text = flingEnabled and "Stop Fling" or "Start Fling"
     
     if flingEnabled then
-        toggle.Text = "Stop Fling"
-        -- Kill previous loop
-        if mainLoop then task.cancel(mainLoop) end
-        mainLoop = task.spawn(manageFling)
+        flingLoop()
     else
-        toggle.Text = "Start Fling"
-        -- Cleanup everything
-        fullCleanup()
-        if heartbeatConnection then
-            heartbeatConnection:Disconnect()
-            heartbeatConnection = nil
-        end
-        if mainLoop then
-            task.cancel(mainLoop)
-            mainLoop = nil
-        end
+        cleanup()
     end
 end)
-
-gui.Parent = LocalPlayer:WaitForChild("PlayerGui")
