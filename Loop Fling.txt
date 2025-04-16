@@ -159,7 +159,7 @@ local function flingCycle()
     local spin = RunService.Heartbeat:Connect(function()
         for _, part in ipairs(parts) do
             part.Velocity = Vector3.new(0, -25.05, 0)
-            part.RotVelocity = Vector3.new(9e4, 9e4, 9e4)
+            part.RotVelocity = Vector3.new(19999, 19999, 19999)
         end
     end)
     table.insert(connections, spin)
