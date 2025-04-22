@@ -3675,8 +3675,10 @@ btn("metamorphosis vibe", function()
 	local BulletWeld = getPartJoint(movingbullet)
 	local movingshield = getPartFromMesh(8801052279, 8801052293)
 	local ShieldWeld = getPartJoint(movingshield)
-local movingparty = getPartFromMesh(6554823870, 6507130382)
-local PartyWeld = getPartJoint(movingparty)
+	local movingparty = getPartFromMesh(6554823870, 6507130382)
+	local PartyWeld = getPartJoint(movingparty)
+	local movingheady = getPartFromMesh(8185096448, 8184998505)
+	local HeadyWeld = GetPartJoint(movingheady)
 	t.setWalkSpeed(16)
 
 	addmode("default",{
@@ -3718,7 +3720,7 @@ ShieldWeld.C0=Lerp(ShieldWeld.C0,cfMul(cf(0,0.5 * sin(sine*3),0),angles(0,0,-1.7
 				lilhit = nil
 			end
 			lilhack = tick()
-			local hitbox = t.cframes[movingshield].Position
+			local hitbox = t.cframes[movingheady].Position
 			if lilhit ~= nil then
 				local width = 1
 				local cflol = CFrame.lookAt(lilhit, hitbox)
