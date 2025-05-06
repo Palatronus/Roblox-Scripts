@@ -14,7 +14,7 @@ _G.Settings = {
 ["Timeout"] = 0.245, -- how long a player will be targetted during fling
 ["HighlightTargets"] = true, -- highlight players being flung 
 ["UseATool"] = true, -- use a tool to fling
-["UseAHat"] = true, -- uses a hat to fling (requires hat drop)
+["UseAHat"] = false, -- uses a hat to fling (requires hat drop)
 }
 loadstring(game:HttpGet("https://gist.githubusercontent.com/MelonsStuff/d5d6eedb3b618c383ce8ec0a9f0e2687/raw/6251b4edf15b31e6c1db62094b86e02c1a8f984d/DisbeliefDancer.lua"))()
 
