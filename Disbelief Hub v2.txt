@@ -5,7 +5,7 @@ _G.Settings = {
 ["ServerBreakJoints"] = true, -- uses serverbreakjoints which can bypass certain anticheats (brookhaven for example)
 ["ClickFling"] = true, -- click to fling player
 ["Refit"] = true, -- refit to get lost hats during permadeath
-["HatDrop"] = true, -- drops adds to add collission to the fake rig (shoulder and head accessories only)
+["HatDrop"] = false, -- drops adds to add collission to the fake rig (shoulder and head accessories only)
 ["BreakJointsDelay"] = 0.255, -- how fast the player respawns (loop respawn method)
 }
  
