@@ -1,5 +1,6 @@
--- Universal Chat Spy Script for Roblox TextChatService
+-- Universal Chat Spy Script for Roblox TextChatService (2023+)
 -- Compatible with most executors
+-- Updated for new TextChatService API
 
 if not game:IsLoaded() then
     game.Loaded:Wait()
@@ -12,7 +13,7 @@ local function createChatSpy()
         local TextChatService = game:GetService("TextChatService")
         local ReplicatedStorage = game:GetService("ReplicatedStorage")
         
-        -- Create remote event if it doesn't exist
+        -- Create remote event
         local ChatSpyRemote
         if not ReplicatedStorage:FindFirstChild("ChatSpyRemote") then
             ChatSpyRemote = Instance.new("RemoteEvent")
@@ -22,25 +23,24 @@ local function createChatSpy()
             ChatSpyRemote = ReplicatedStorage.ChatSpyRemote
         end
         
-        -- Message handler
-        local function onPlayerMessage(message)
-            if message.TextSource then
+        -- Message handler using new TextChatService API
+        local function onIncomingMessage(message)
+            if message.MessageType == "Text" and message.TextSource then
                 local player = Players:GetPlayerByUserId(message.TextSource.UserId)
                 if player then
                     local spyMessage = string.format(
-                        "<font color='#FF5555'>[SPY] %s:</font> %s",
+                        '<font color="#FF5555">[SPY] %s:</font> %s',
                         player.Name,
                         message.Text
                     )
                     ChatSpyRemote:FireAllClients(spyMessage)
                 end
             end
+            return nil
         end
         
         -- Connect to chat events
-        if TextChatService:FindFirstChild("OnIncomingMessage") then
-            TextChatService.OnIncomingMessage:Connect(onPlayerMessage)
-        end
+        TextChatService.OnIncomingMessage = onIncomingMessage
         
         warn("Chat Spy Server Module Activated")
         return true
@@ -50,6 +50,8 @@ local function createChatSpy()
     local clientScript = [[
         local ReplicatedStorage = game:GetService("ReplicatedStorage")
         local TextChatService = game:GetService("TextChatService")
+        local Players = game:GetService("Players")
+        local LocalPlayer = Players.LocalPlayer
         
         -- Wait for required components
         local ChatSpyRemote
@@ -57,16 +59,24 @@ local function createChatSpy()
             ChatSpyRemote = ReplicatedStorage:FindFirstChild("ChatSpyRemote")
         until ChatSpyRemote
         
-        local RBXSystem
-        repeat task.wait(1)
-            if TextChatService.TextChannels then
-                RBXSystem = TextChatService.TextChannels:FindFirstChild("RBXSystem")
-            end
-        until RBXSystem
+        -- Create dedicated spy channel
+        local spyChannel
+        if not TextChatService:FindFirstChild("ChatSpyChannel") then
+            spyChannel = Instance.new("TextChannel")
+            spyChannel.Name = "ChatSpyChannel"
+            spyChannel.Parent = TextChatService
+        else
+            spyChannel = TextChatService.ChatSpyChannel
+        end
+        
+        -- Subscribe local player
+        if not spyChannel:IsSubscribed(LocalPlayer) then
+            spyChannel:Subscribe(LocalPlayer)
+        end
         
         -- Message receiver
         ChatSpyRemote.OnClientEvent:Connect(function(message)
-            RBXSystem:DisplaySystemMessage(message)
+            spyChannel:DisplaySystemMessage(message)
         end)
         
         print("Chat Spy Client Module Activated")
@@ -90,7 +100,7 @@ local function createChatSpy()
         end
     end
     
-    -- Client injection (works for all executors)
+    -- Client injection
     local clientSuccess, clientErr = pcall(function()
         local script = Instance.new("LocalScript")
         script.Source = clientScript
@@ -99,7 +109,7 @@ local function createChatSpy()
     
     if not clientSuccess then
         warn("Client injection failed: "..clientErr)
-        -- Fallback to direct execution if injection fails
+        -- Fallback to direct execution
         loadstring(clientScript)()
     end
     
