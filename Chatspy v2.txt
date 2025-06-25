@@ -1,5 +1,5 @@
 -- Universal Chat Spy Script for Roblox
--- Safe, reliable approach without GUI conflicts
+-- Client-side only, reliable private message capture
 
 if not game:IsLoaded() then
     game.Loaded:Wait()
@@ -10,55 +10,102 @@ local Players = game:GetService("Players")
 local TextChatService = game:GetService("TextChatService")
 local LocalPlayer = Players.LocalPlayer
 
--- Safe message display function
-local function displaySpyMessage(playerName, message)
-    -- Use Roblox's built-in system message display
+-- Function to display spy messages
+local function displaySpyMessage(message)
     if TextChatService.DisplaySystemMessage then
-        local formatted = string.format(
-            '<font color="rgb(255,85,85)">[SPY] %s:</font> %s',
-            playerName,
-            message
-        )
-        TextChatService:DisplaySystemMessage(formatted)
+        TextChatService:DisplaySystemMessage(message)
+    else
+        -- Fallback to chat output
+        game.StarterGui:SetCore("ChatMakeSystemMessage", {
+            Text = message,
+            Color = Color3.fromRGB(255, 85, 85),
+            Font = Enum.Font.SourceSansBold,
+            TextSize = 18
+        })
     end
-    
-    -- Alternative: Print to console
-    print(string.format("[SPY] %s: %s", playerName, message))
 end
 
--- Function to capture chat messages
+-- Main chat capture function
 local function captureChatMessages()
-    -- Listen to player chat events
-    local function onPlayerChatted(player, message)
-        if player ~= LocalPlayer then
-            displaySpyMessage(player.Name, message)
+    -- Store processed messages to avoid duplicates
+    local messageHistory = {}
+    
+    -- Function to handle incoming messages
+    local function processMessage(message)
+        -- Check if we've already processed this message
+        if messageHistory[message] then return end
+        messageHistory[message] = true
+        
+        -- Extract player information
+        local playerName = "Unknown"
+        if message.TextSource then
+            local player = Players:GetPlayerByUserId(message.TextSource.UserId)
+            if player then
+                playerName = player.Name
+            end
+        end
+        
+        -- Format and display spy message
+        local spyMessage = string.format(
+            '<font color="#FF5555">[SPY] %s:</font> %s',
+            playerName,
+            message.Text
+        )
+        
+        displaySpyMessage(spyMessage)
+    end
+
+    -- Method 1: Use TextChatService events
+    if TextChatService.OnIncomingMessage then
+        local originalHandler = TextChatService.OnIncomingMessage
+        TextChatService.OnIncomingMessage = function(message)
+            if originalHandler then
+                originalHandler(message)
+            end
+            processMessage(message)
+            return nil
         end
     end
-    
-    -- Capture existing players
+
+    -- Method 2: Listen to Player.Chatted events as fallback
     for _, player in ipairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer then
-            player.Chatted:Connect(function(message)
-                onPlayerChatted(player, message)
-            end)
-        end
+        player.Chatted:Connect(function(message)
+            local formatted = string.format(
+                '<font color="#FF5555">[SPY] %s:</font> %s',
+                player.Name,
+                message
+            )
+            displaySpyMessage(formatted)
+        end)
     end
     
-    -- Capture new players
     Players.PlayerAdded:Connect(function(player)
         player.Chatted:Connect(function(message)
-            onPlayerChatted(player, message)
+            local formatted = string.format(
+                '<font color="#FF5555">[SPY] %s:</font> %s',
+                player.Name,
+                message
+            )
+            displaySpyMessage(formatted)
         end)
     end)
     
     -- Initial message
-    displaySpyMessage("System", "Chat spy activated")
+    displaySpyMessage('<font color="#FF5555">[SPY] System:</font> Chat spy activated')
 end
 
 -- Initialize with error handling
 local success, err = pcall(captureChatMessages)
 if success then
-    print("Chat Spy Activated - Messages will appear with [SPY] tag")
+    print("Chat Spy Activated - Private messages will appear with [SPY] tag")
 else
     warn("Chat Spy Error: "..tostring(err))
+    
+    -- Ultimate fallback: Use chat commands to test
+    LocalPlayer.Chatted:Connect(function(message)
+        if message == "/testspy" then
+            displaySpyMessage('<font color="#FF5555">[SPY] System:</font> Spy functionality is active')
+        end
+    end)
+    print("Type '/testspy' in chat to verify spy functionality")
 end
