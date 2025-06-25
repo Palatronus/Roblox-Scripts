@@ -1,6 +1,5 @@
 -- Universal Chat Spy Script for Roblox
--- Based on Infinite Yield's chat logging approach
--- Displays messages in the regular Roblox chat UI
+-- Safe, reliable approach without GUI conflicts
 
 if not game:IsLoaded() then
     game.Loaded:Wait()
@@ -8,56 +7,23 @@ end
 
 -- Get necessary services
 local Players = game:GetService("Players")
+local TextChatService = game:GetService("TextChatService")
 local LocalPlayer = Players.LocalPlayer
-local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
--- Function to display messages in the chat UI
-local function displaySpyMessage(message, playerName)
-    -- Get the main chat GUI
-    local chatGUI = PlayerGui:FindFirstChild("Chat", true)
-    if not chatGUI then 
-        warn("Chat GUI not found")
-        return
+-- Safe message display function
+local function displaySpyMessage(playerName, message)
+    -- Use Roblox's built-in system message display
+    if TextChatService.DisplaySystemMessage then
+        local formatted = string.format(
+            '<font color="rgb(255,85,85)">[SPY] %s:</font> %s',
+            playerName,
+            message
+        )
+        TextChatService:DisplaySystemMessage(formatted)
     end
     
-    -- Find the message display container
-    local messageContainer
-    for _, child in ipairs(chatGUI:GetDescendants()) do
-        if child:IsA("ScrollingFrame") and child.Name == "ChatChannelParentFrame" then
-            messageContainer = child:FindFirstChild("Frame_MessageLogDisplay", true)
-            if messageContainer then break end
-        end
-    end
-    
-    -- Fallback for older chat systems
-    if not messageContainer then
-        messageContainer = chatGUI:FindFirstChild("Frame_MessageLogDisplay", true)
-    end
-    
-    if not messageContainer then
-        warn("Message container not found")
-        return
-    end
-    
-    -- Create message label
-    local messageLabel = Instance.new("TextLabel")
-    messageLabel.Text = string.format(
-        '<font color="#FF5555">[SPY] %s:</font> %s',
-        playerName or "System",
-        message
-    )
-    messageLabel.RichText = true
-    messageLabel.TextSize = 18
-    messageLabel.BackgroundTransparency = 1
-    messageLabel.TextXAlignment = Enum.TextXAlignment.Left
-    messageLabel.Size = UDim2.new(1, -10, 0, 24)
-    messageLabel.Parent = messageContainer
-    
-    -- Auto-scroll to bottom
-    local scrollFrame = messageContainer.Parent
-    if scrollFrame:IsA("ScrollingFrame") then
-        scrollFrame.CanvasPosition = Vector2.new(0, scrollFrame.CanvasSize.Y.Offset)
-    end
+    -- Alternative: Print to console
+    print(string.format("[SPY] %s: %s", playerName, message))
 end
 
 -- Function to capture chat messages
@@ -65,7 +31,7 @@ local function captureChatMessages()
     -- Listen to player chat events
     local function onPlayerChatted(player, message)
         if player ~= LocalPlayer then
-            displaySpyMessage(message, player.Name)
+            displaySpyMessage(player.Name, message)
         end
     end
     
@@ -84,10 +50,15 @@ local function captureChatMessages()
             onPlayerChatted(player, message)
         end)
     end)
+    
+    -- Initial message
+    displaySpyMessage("System", "Chat spy activated")
 end
 
--- Initialize the chat spy
-displaySpyMessage("Chat spy activated", "System")
-captureChatMessages()
-
-return "Chat Spy Activated - All messages will appear with [SPY] tag"
+-- Initialize with error handling
+local success, err = pcall(captureChatMessages)
+if success then
+    print("Chat Spy Activated - Messages will appear with [SPY] tag")
+else
+    warn("Chat Spy Error: "..tostring(err))
+end
