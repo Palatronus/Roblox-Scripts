@@ -1,6 +1,6 @@
--- Universal Chat Spy Script for Roblox TextChatService
--- Updated for current Roblox chat systems
--- Compatible with most executors
+-- Universal Chat Spy Script for Roblox
+-- Uses Infinite Yield-inspired approach for reliability
+-- Displays messages in the regular Roblox chat UI
 
 if not game:IsLoaded() then
     game.Loaded:Wait()
@@ -13,7 +13,7 @@ local function createChatSpy()
         local TextChatService = game:GetService("TextChatService")
         local ReplicatedStorage = game:GetService("ReplicatedStorage")
         
-        -- Create remote event if it doesn't exist
+        -- Create remote event
         local ChatSpyRemote
         if not ReplicatedStorage:FindFirstChild("ChatSpyRemote") then
             ChatSpyRemote = Instance.new("RemoteEvent")
@@ -23,24 +23,35 @@ local function createChatSpy()
             ChatSpyRemote = ReplicatedStorage.ChatSpyRemote
         end
         
-        -- Message handler for new TextChatService
-        local function onMessageReceived(message, channel)
+        -- Message handler using Infinite Yield approach
+        local function onIncomingMessage(message)
             if message.MessageType == "Text" and message.TextSource then
                 local player = Players:GetPlayerByUserId(message.TextSource.UserId)
                 if player then
+                    -- Format message with color
                     local spyMessage = string.format(
-                        "<font color='#FF5555'>[SPY] %s:</font> %s",
+                        '<font color="rgb(255,85,85)">[SPY] %s:</font> %s',
                         player.Name,
                         message.Text
                     )
+                    -- Send to all clients
                     ChatSpyRemote:FireAllClients(spyMessage)
                 end
             end
             return nil
         end
         
-        -- Connect to chat events using new API
-        TextChatService.OnIncomingMessage = onMessageReceived
+        -- Connect to chat events
+        if TextChatService.OnIncomingMessage then
+            -- Preserve existing handler if present
+            local existingHandler = TextChatService.OnIncomingMessage
+            TextChatService.OnIncomingMessage = function(message)
+                existingHandler(message)
+                onIncomingMessage(message)
+            end
+        else
+            TextChatService.OnIncomingMessage = onIncomingMessage
+        end
         
         warn("Chat Spy Server Module Activated")
         return true
@@ -53,31 +64,48 @@ local function createChatSpy()
         local Players = game:GetService("Players")
         local LocalPlayer = Players.LocalPlayer
         
-        -- Wait for required components
+        -- Wait for remote event
         local ChatSpyRemote
         repeat task.wait(1)
             ChatSpyRemote = ReplicatedStorage:FindFirstChild("ChatSpyRemote")
         until ChatSpyRemote
         
-        -- Create spy channel
-        local spyChannel
-        if not TextChatService:FindFirstChild("ChatSpyChannel") then
-            spyChannel = Instance.new("TextChannel")
-            spyChannel.Name = "ChatSpyChannel"
-            spyChannel.Parent = TextChatService
-        else
-            spyChannel = TextChatService.ChatSpyChannel
-        end
-        
-        -- Subscribe local player
-        if not spyChannel:IsSubscribed(LocalPlayer) then
-            spyChannel:Subscribe(LocalPlayer)
+        -- Infinite Yield-style message display
+        local function displaySpyMessage(message)
+            -- Get the main chat GUI
+            local chatGUI = LocalPlayer.PlayerGui:FindFirstChild("Chat", true)
+            if not chatGUI then return end
+            
+            -- Find the message display container
+            local messageDisplay
+            for _, child in ipairs(chatGUI:GetDescendants()) do
+                if child:IsA("ScrollingFrame") and child.Name == "ChatChannelParentFrame" then
+                    messageDisplay = child:FindFirstChild("Frame_MessageLogDisplay", true)
+                    if messageDisplay then break end
+                end
+            end
+            
+            if not messageDisplay then return end
+            
+            -- Create message label
+            local messageLabel = Instance.new("TextLabel")
+            messageLabel.Text = message
+            messageLabel.RichText = true
+            messageLabel.TextSize = 18
+            messageLabel.BackgroundTransparency = 1
+            messageLabel.TextXAlignment = Enum.TextXAlignment.Left
+            messageLabel.Size = UDim2.new(1, 0, 0, 24)
+            messageLabel.Parent = messageDisplay
+            
+            -- Auto-scroll to bottom
+            local scrollFrame = messageDisplay.Parent
+            if scrollFrame:IsA("ScrollingFrame") then
+                scrollFrame.CanvasPosition = Vector2.new(0, scrollFrame.CanvasSize.Y.Offset)
+            end
         end
         
         -- Message receiver
-        ChatSpyRemote.OnClientEvent:Connect(function(message)
-            spyChannel:DisplaySystemMessage(message)
-        end)
+        ChatSpyRemote.OnClientEvent:Connect(displaySpyMessage)
         
         print("Chat Spy Client Module Activated")
         return true
@@ -100,7 +128,7 @@ local function createChatSpy()
         end
     end
     
-    -- Client injection (works for all executors)
+    -- Client injection
     local clientSuccess, clientErr = pcall(function()
         local script = Instance.new("LocalScript")
         script.Source = clientScript
@@ -109,7 +137,7 @@ local function createChatSpy()
     
     if not clientSuccess then
         warn("Client injection failed: "..clientErr)
-        -- Fallback to direct execution if injection fails
+        -- Fallback to direct execution
         loadstring(clientScript)()
     end
     
