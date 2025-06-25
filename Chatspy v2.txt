@@ -1,0 +1,115 @@
+-- Universal Chat Spy Script for Roblox TextChatService
+-- Compatible with most executors
+
+if not game:IsLoaded() then
+    game.Loaded:Wait()
+end
+
+local function createChatSpy()
+    -- Server-side component
+    local serverScript = [[
+        local Players = game:GetService("Players")
+        local TextChatService = game:GetService("TextChatService")
+        local ReplicatedStorage = game:GetService("ReplicatedStorage")
+        
+        -- Create remote event if it doesn't exist
+        local ChatSpyRemote
+        if not ReplicatedStorage:FindFirstChild("ChatSpyRemote") then
+            ChatSpyRemote = Instance.new("RemoteEvent")
+            ChatSpyRemote.Name = "ChatSpyRemote"
+            ChatSpyRemote.Parent = ReplicatedStorage
+        else
+            ChatSpyRemote = ReplicatedStorage.ChatSpyRemote
+        end
+        
+        -- Message handler
+        local function onPlayerMessage(message)
+            if message.TextSource then
+                local player = Players:GetPlayerByUserId(message.TextSource.UserId)
+                if player then
+                    local spyMessage = string.format(
+                        "<font color='#FF5555'>[SPY] %s:</font> %s",
+                        player.Name,
+                        message.Text
+                    )
+                    ChatSpyRemote:FireAllClients(spyMessage)
+                end
+            end
+        end
+        
+        -- Connect to chat events
+        if TextChatService:FindFirstChild("OnIncomingMessage") then
+            TextChatService.OnIncomingMessage:Connect(onPlayerMessage)
+        end
+        
+        warn("Chat Spy Server Module Activated")
+        return true
+    ]]
+    
+    -- Client-side component
+    local clientScript = [[
+        local ReplicatedStorage = game:GetService("ReplicatedStorage")
+        local TextChatService = game:GetService("TextChatService")
+        
+        -- Wait for required components
+        local ChatSpyRemote
+        repeat task.wait(1)
+            ChatSpyRemote = ReplicatedStorage:FindFirstChild("ChatSpyRemote")
+        until ChatSpyRemote
+        
+        local RBXSystem
+        repeat task.wait(1)
+            if TextChatService.TextChannels then
+                RBXSystem = TextChatService.TextChannels:FindFirstChild("RBXSystem")
+            end
+        until RBXSystem
+        
+        -- Message receiver
+        ChatSpyRemote.OnClientEvent:Connect(function(message)
+            RBXSystem:DisplaySystemMessage(message)
+        end)
+        
+        print("Chat Spy Client Module Activated")
+        return true
+    ]]
+    
+    -- Execution logic
+    if is_sirhurt_closure or syn or KRNL_LOADED then
+        -- Server injection for executors with server access
+        local serverSuccess, serverErr = pcall(function()
+            local serverModule = require(game:GetService("ServerScriptService"):WaitForChild("ServerModule", 10))
+            if serverModule then
+                serverModule:Execute(serverScript)
+            else
+                error("Could not find ServerModule")
+            end
+        end)
+        
+        if not serverSuccess then
+            warn("Server injection failed: "..serverErr)
+        end
+    end
+    
+    -- Client injection (works for all executors)
+    local clientSuccess, clientErr = pcall(function()
+        local script = Instance.new("LocalScript")
+        script.Source = clientScript
+        script.Parent = game:GetService("Players").LocalPlayer:WaitForChild("PlayerScripts", 10)
+    end)
+    
+    if not clientSuccess then
+        warn("Client injection failed: "..clientErr)
+        -- Fallback to direct execution if injection fails
+        loadstring(clientScript)()
+    end
+    
+    return "Chat Spy Activated"
+end
+
+-- Execute the chat spy
+local success, result = pcall(createChatSpy)
+if not success then
+    warn("Chat Spy Error: "..tostring(result))
+else
+    print(result)
+end
