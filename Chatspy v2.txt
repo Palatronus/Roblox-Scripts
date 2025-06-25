@@ -1,5 +1,6 @@
 -- Universal Chat Spy Script for Roblox TextChatService
 -- Compatible with most executors
+-- Updated for Roblox's latest TextChatService API
 
 if not game:IsLoaded() then
     game.Loaded:Wait()
@@ -12,7 +13,7 @@ local function createChatSpy()
         local TextChatService = game:GetService("TextChatService")
         local ReplicatedStorage = game:GetService("ReplicatedStorage")
         
-        -- Create remote event if it doesn't exist
+        -- Create remote event
         local ChatSpyRemote
         if not ReplicatedStorage:FindFirstChild("ChatSpyRemote") then
             ChatSpyRemote = Instance.new("RemoteEvent")
@@ -23,23 +24,19 @@ local function createChatSpy()
         end
         
         -- Message handler
-        local function onPlayerMessage(message)
-            if message.TextSource then
+        TextChatService.OnIncomingMessage = function(message)
+            if message.MessageType == "Text" and message.TextSource then
                 local player = Players:GetPlayerByUserId(message.TextSource.UserId)
                 if player then
                     local spyMessage = string.format(
-                        "<font color='#FF5555'>[SPY] %s:</font> %s",
+                        '[SPY] %s: %s',
                         player.Name,
                         message.Text
                     )
                     ChatSpyRemote:FireAllClients(spyMessage)
                 end
             end
-        end
-        
-        -- Connect to chat events
-        if TextChatService:FindFirstChild("OnIncomingMessage") then
-            TextChatService.OnIncomingMessage:Connect(onPlayerMessage)
+            return nil
         end
         
         warn("Chat Spy Server Module Activated")
@@ -50,24 +47,47 @@ local function createChatSpy()
     local clientScript = [[
         local ReplicatedStorage = game:GetService("ReplicatedStorage")
         local TextChatService = game:GetService("TextChatService")
+        local Players = game:GetService("Players")
+        local LocalPlayer = Players.LocalPlayer
         
-        -- Wait for required components
+        -- Wait for remote event
         local ChatSpyRemote
         repeat task.wait(1)
             ChatSpyRemote = ReplicatedStorage:FindFirstChild("ChatSpyRemote")
         until ChatSpyRemote
         
-        local RBXSystem
-        repeat task.wait(1)
-            if TextChatService.TextChannels then
-                RBXSystem = TextChatService.TextChannels:FindFirstChild("RBXSystem")
+        -- Create bubble chat listener
+        local function displaySpyMessage(message)
+            local text = string.format(
+                '<font color="#FF5555">%s</font>',
+                message
+            )
+            
+            -- Try both methods to ensure compatibility
+            if TextChatService.DisplaySystemMessage then
+                TextChatService:DisplaySystemMessage(text)
             end
-        until RBXSystem
+            
+            if LocalPlayer:FindFirstChild("PlayerGui") then
+                local chatMain = LocalPlayer.PlayerGui:FindFirstChild("ChatMain", true)
+                if chatMain then
+                    local messageLog = chatMain:FindFirstChild("MessageLogDisplay", true)
+                    if messageLog then
+                        local newMessage = Instance.new("TextLabel")
+                        newMessage.Text = text
+                        newMessage.RichText = true
+                        newMessage.TextSize = 18
+                        newMessage.BackgroundTransparency = 1
+                        newMessage.TextXAlignment = Enum.TextXAlignment.Left
+                        newMessage.Size = UDim2.new(1, 0, 0, 24)
+                        newMessage.Parent = messageLog
+                    end
+                end
+            end
+        end
         
         -- Message receiver
-        ChatSpyRemote.OnClientEvent:Connect(function(message)
-            RBXSystem:DisplaySystemMessage(message)
-        end)
+        ChatSpyRemote.OnClientEvent:Connect(displaySpyMessage)
         
         print("Chat Spy Client Module Activated")
         return true
@@ -90,7 +110,7 @@ local function createChatSpy()
         end
     end
     
-    -- Client injection (works for all executors)
+    -- Client injection
     local clientSuccess, clientErr = pcall(function()
         local script = Instance.new("LocalScript")
         script.Source = clientScript
@@ -99,7 +119,7 @@ local function createChatSpy()
     
     if not clientSuccess then
         warn("Client injection failed: "..clientErr)
-        -- Fallback to direct execution if injection fails
+        -- Fallback to direct execution
         loadstring(clientScript)()
     end
     
