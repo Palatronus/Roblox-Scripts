@@ -1,147 +1,119 @@
--- Universal Chat Spy Script for Roblox
--- Inspired by Infinite Yield's approach
--- Directly monitors the chat UI for messages
+-- Universal Chat Spy Script for Roblox TextChatService
+-- Updated for current Roblox chat systems
+-- Compatible with most executors
 
 if not game:IsLoaded() then
     game.Loaded:Wait()
 end
 
 local function createChatSpy()
-    -- Get necessary services
-    local Players = game:GetService("Players")
-    local LocalPlayer = Players.LocalPlayer
-    local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
-    
-    -- Create spy GUI
-    local screenGui = Instance.new("ScreenGui")
-    screenGui.Name = "ChatSpyGUI"
-    screenGui.ResetOnSpawn = false
-    screenGui.Parent = PlayerGui
-    
-    local frame = Instance.new("Frame")
-    frame.Name = "ChatFrame"
-    frame.Size = UDim2.new(0.4, 0, 0.3, 0)
-    frame.Position = UDim2.new(0.01, 0, 0.69, 0)
-    frame.BackgroundTransparency = 0.7
-    frame.BackgroundColor3 = Color3.new(0, 0, 0)
-    frame.Parent = screenGui
-    
-    local scrollingFrame = Instance.new("ScrollingFrame")
-    scrollingFrame.Name = "MessageLog"
-    scrollingFrame.Size = UDim2.new(1, -10, 1, -10)
-    scrollingFrame.Position = UDim2.new(0, 5, 0, 5)
-    scrollingFrame.BackgroundTransparency = 1
-    scrollingFrame.ScrollBarThickness = 5
-    scrollingFrame.AutomaticCanvasSize = Enum.AutomaticSize.Y
-    scrollingFrame.ScrollingDirection = Enum.ScrollingDirection.Y
-    scrollingFrame.Parent = frame
-    
-    local uiListLayout = Instance.new("UIListLayout")
-    uiListLayout.Parent = scrollingFrame
-    
-    -- Function to display messages in our spy window
-    local function displaySpyMessage(message, playerName)
-        -- Format message with player name
-        local formatted = string.format(
-            '<font color="#FF5555">[SPY] %s:</font> %s',
-            playerName or "System",
-            message
-        )
+    -- Server-side component
+    local serverScript = [[
+        local Players = game:GetService("Players")
+        local TextChatService = game:GetService("TextChatService")
+        local ReplicatedStorage = game:GetService("ReplicatedStorage")
         
-        -- Create message label
-        local textLabel = Instance.new("TextLabel")
-        textLabel.Text = formatted
-        textLabel.RichText = true
-        textLabel.TextColor3 = Color3.new(1, 1, 1)
-        textLabel.TextSize = 16
-        textLabel.BackgroundTransparency = 1
-        textLabel.TextXAlignment = Enum.TextXAlignment.Left
-        textLabel.Size = UDim2.new(1, 0, 0, 20)
-        textLabel.Parent = scrollingFrame
-        
-        -- Auto-scroll to bottom
-        scrollingFrame.CanvasPosition = Vector2.new(0, scrollingFrame.CanvasSize.Y.Offset)
-    end
-    
-    -- Find the main chat GUI
-    local function findMainChatGui()
-        for _, child in ipairs(PlayerGui:GetChildren()) do
-            if child:IsA("ScreenGui") and child.Name == "Chat" then
-                return child
-            end
-        end
-        return nil
-    end
-    
-    -- Monitor the chat for new messages
-    local function monitorChat()
-        local chatGui = findMainChatGui()
-        if not chatGui then
-            displaySpyMessage("Failed to find chat GUI. Trying again...", "System")
-            task.wait(3)
-            return monitorChat()
+        -- Create remote event if it doesn't exist
+        local ChatSpyRemote
+        if not ReplicatedStorage:FindFirstChild("ChatSpyRemote") then
+            ChatSpyRemote = Instance.new("RemoteEvent")
+            ChatSpyRemote.Name = "ChatSpyRemote"
+            ChatSpyRemote.Parent = ReplicatedStorage
+        else
+            ChatSpyRemote = ReplicatedStorage.ChatSpyRemote
         end
         
-        -- Find the message container
-        local messageContainer
-        for _, child in ipairs(chatGui:GetDescendants()) do
-            if child.Name == "Scroller" and child:IsA("ScrollingFrame") then
-                messageContainer = child
-                break
-            end
-        end
-        
-        if not messageContainer then
-            displaySpyMessage("Failed to find message container", "System")
-            return
-        end
-        
-        -- Track messages we've already seen
-        local knownMessages = {}
-        
-        -- Continuous monitoring loop
-        while true do
-            task.wait(0.5)
-            
-            -- Check for new messages
-            for _, messageFrame in ipairs(messageContainer:GetChildren()) do
-                if messageFrame:IsA("Frame") and not knownMessages[messageFrame] then
-                    knownMessages[messageFrame] = true
-                    
-                    -- Extract message text
-                    local messageText = ""
-                    local playerName = "Unknown"
-                    
-                    -- Find text labels in the message frame
-                    for _, label in ipairs(messageFrame:GetDescendants()) do
-                        if label:IsA("TextLabel") or label:IsA("TextButton") then
-                            if label.Name == "Text" or label.Name == "TextLabel" then
-                                messageText = label.Text
-                            elseif label.Name == "Name" then
-                                playerName = label.Text
-                            end
-                        end
-                    end
-                    
-                    -- Clean up player name (remove colon if present)
-                    playerName = playerName:gsub(":$", "")
-                    
-                    -- Display in our spy window
-                    if messageText ~= "" then
-                        displaySpyMessage(messageText, playerName)
-                    end
+        -- Message handler for new TextChatService
+        local function onMessageReceived(message, channel)
+            if message.MessageType == "Text" and message.TextSource then
+                local player = Players:GetPlayerByUserId(message.TextSource.UserId)
+                if player then
+                    local spyMessage = string.format(
+                        "<font color='#FF5555'>[SPY] %s:</font> %s",
+                        player.Name,
+                        message.Text
+                    )
+                    ChatSpyRemote:FireAllClients(spyMessage)
                 end
             end
+            return nil
+        end
+        
+        -- Connect to chat events using new API
+        TextChatService.OnIncomingMessage = onMessageReceived
+        
+        warn("Chat Spy Server Module Activated")
+        return true
+    ]]
+    
+    -- Client-side component
+    local clientScript = [[
+        local ReplicatedStorage = game:GetService("ReplicatedStorage")
+        local TextChatService = game:GetService("TextChatService")
+        local Players = game:GetService("Players")
+        local LocalPlayer = Players.LocalPlayer
+        
+        -- Wait for required components
+        local ChatSpyRemote
+        repeat task.wait(1)
+            ChatSpyRemote = ReplicatedStorage:FindFirstChild("ChatSpyRemote")
+        until ChatSpyRemote
+        
+        -- Create spy channel
+        local spyChannel
+        if not TextChatService:FindFirstChild("ChatSpyChannel") then
+            spyChannel = Instance.new("TextChannel")
+            spyChannel.Name = "ChatSpyChannel"
+            spyChannel.Parent = TextChatService
+        else
+            spyChannel = TextChatService.ChatSpyChannel
+        end
+        
+        -- Subscribe local player
+        if not spyChannel:IsSubscribed(LocalPlayer) then
+            spyChannel:Subscribe(LocalPlayer)
+        end
+        
+        -- Message receiver
+        ChatSpyRemote.OnClientEvent:Connect(function(message)
+            spyChannel:DisplaySystemMessage(message)
+        end)
+        
+        print("Chat Spy Client Module Activated")
+        return true
+    ]]
+    
+    -- Execution logic
+    if is_sirhurt_closure or syn or KRNL_LOADED then
+        -- Server injection for executors with server access
+        local serverSuccess, serverErr = pcall(function()
+            local serverModule = require(game:GetService("ServerScriptService"):WaitForChild("ServerModule", 10))
+            if serverModule then
+                serverModule:Execute(serverScript)
+            else
+                error("Could not find ServerModule")
+            end
+        end)
+        
+        if not serverSuccess then
+            warn("Server injection failed: "..serverErr)
         end
     end
     
-    -- Start monitoring
-    coroutine.wrap(monitorChat)()
+    -- Client injection (works for all executors)
+    local clientSuccess, clientErr = pcall(function()
+        local script = Instance.new("LocalScript")
+        script.Source = clientScript
+        script.Parent = game:GetService("Players").LocalPlayer:WaitForChild("PlayerScripts", 10)
+    end)
     
-    -- Display activation message
-    displaySpyMessage("Chat spy activated", "System")
+    if not clientSuccess then
+        warn("Client injection failed: "..clientErr)
+        -- Fallback to direct execution if injection fails
+        loadstring(clientScript)()
+    end
     
-    return "Chat Spy Activated - Messages will appear in bottom-left window"
+    return "Chat Spy Activated - Private messages will appear in regular chat"
 end
 
 -- Execute the chat spy
