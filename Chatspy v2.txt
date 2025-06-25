@@ -1,132 +1,55 @@
 -- Universal Chat Spy Script for Roblox
 -- Compatible with most executors
--- Uses direct chat logging approach
+-- Uses direct chat logging with bypassed injection
 
 if not game:IsLoaded() then
     game.Loaded:Wait()
 end
 
 local function createChatSpy()
-    -- Server-side component
-    local serverScript = [[
-        local Players = game:GetService("Players")
-        local ReplicatedStorage = game:GetService("ReplicatedStorage")
-        
-        -- Create remote event
-        local ChatSpyRemote
-        if not ReplicatedStorage:FindFirstChild("ChatSpyRemote") then
-            ChatSpyRemote = Instance.new("RemoteEvent")
-            ChatSpyRemote.Name = "ChatSpyRemote"
-            ChatSpyRemote.Parent = ReplicatedStorage
-        else
-            ChatSpyRemote = ReplicatedStorage.ChatSpyRemote
-        end
-        
-        -- Capture chat messages directly from players
-        local function onPlayerChatted(player, message)
-            local spyMessage = string.format(
-                "[SPY] %s: %s",
-                player.Name,
-                message
-            )
-            ChatSpyRemote:FireAllClients(spyMessage)
-        end
-        
-        -- Connect to chat events
-        for _, player in ipairs(Players:GetPlayers()) do
-            player.Chatted:Connect(function(message)
-                onPlayerChatted(player, message)
-            end)
-        end
-        
-        Players.PlayerAdded:Connect(function(player)
-            player.Chatted:Connect(function(message)
-                onPlayerChatted(player, message)
-            end)
-        end)
-        
-        warn("Chat Spy Server Module Activated")
-        return true
-    ]]
-    
-    -- Client-side component
-    local clientScript = [[
-        local ReplicatedStorage = game:GetService("ReplicatedStorage")
-        local Players = game:GetService("Players")
-        local LocalPlayer = Players.LocalPlayer
-        local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
-        
-        -- Wait for remote event
-        local ChatSpyRemote
-        repeat task.wait(1)
-            ChatSpyRemote = ReplicatedStorage:FindFirstChild("ChatSpyRemote")
-        until ChatSpyRemote
-        
-        -- Find or create chat window
-        local function getChatWindow()
-            local screenGui = PlayerGui:FindFirstChild("ChatSpyGUI")
-            if not screenGui then
-                screenGui = Instance.new("ScreenGui")
-                screenGui.Name = "ChatSpyGUI"
-                screenGui.ResetOnSpawn = false
-                screenGui.Parent = PlayerGui
-            end
-            
-            local frame = screenGui:FindFirstChild("ChatFrame")
-            if not frame then
-                frame = Instance.new("Frame")
-                frame.Name = "ChatFrame"
-                frame.Size = UDim2.new(0.4, 0, 0.3, 0)
-                frame.Position = UDim2.new(0.01, 0, 0.69, 0)
-                frame.BackgroundTransparency = 0.7
-                frame.BackgroundColor3 = Color3.new(0, 0, 0)
-                frame.Parent = screenGui
-                
-                local scrollingFrame = Instance.new("ScrollingFrame")
-                scrollingFrame.Name = "MessageLog"
-                scrollingFrame.Size = UDim2.new(1, -10, 1, -10)
-                scrollingFrame.Position = UDim2.new(0, 5, 0, 5)
-                scrollingFrame.BackgroundTransparency = 1
-                scrollingFrame.ScrollBarThickness = 5
-                scrollingFrame.AutomaticCanvasSize = Enum.AutomaticSize.Y
-                scrollingFrame.Parent = frame
-                
-                local uiListLayout = Instance.new("UIListLayout")
-                uiListLayout.Parent = scrollingFrame
-            end
-            
-            return frame:FindFirstChild("MessageLog")
-        end
-        
-        -- Display message in chat window
-        local function displaySpyMessage(message)
-            local messageLog = getChatWindow()
-            if not messageLog then return end
-            
-            local textLabel = Instance.new("TextLabel")
-            textLabel.Text = message
-            textLabel.RichText = true
-            textLabel.TextColor3 = Color3.new(1, 0.33, 0.33) -- Red color
-            textLabel.TextSize = 16
-            textLabel.BackgroundTransparency = 1
-            textLabel.TextXAlignment = Enum.TextXAlignment.Left
-            textLabel.Size = UDim2.new(1, 0, 0, 20)
-            textLabel.Parent = messageLog
-            
-            -- Auto-scroll to bottom
-            messageLog.CanvasPosition = Vector2.new(0, messageLog.CanvasSize.Y.Offset)
-        end
-        
-        -- Message receiver
-        ChatSpyRemote.OnClientEvent:Connect(displaySpyMessage)
-        
-        print("Chat Spy Client Module Activated")
-        return true
-    ]]
-    
-    -- Execution logic
+    -- Server-side component (only for executors with server access)
     if is_sirhurt_closure or syn or KRNL_LOADED then
-        -- Server injection for executors with server access
+        local serverScript = [[
+            local Players = game:GetService("Players")
+            local ReplicatedStorage = game:GetService("ReplicatedStorage")
+            
+            -- Create remote event
+            local ChatSpyRemote
+            if not ReplicatedStorage:FindFirstChild("ChatSpyRemote") then
+                ChatSpyRemote = Instance.new("RemoteEvent")
+                ChatSpyRemote.Name = "ChatSpyRemote"
+                ChatSpyRemote.Parent = ReplicatedStorage
+            else
+                ChatSpyRemote = ReplicatedStorage.ChatSpyRemote
+            end
+            
+            -- Capture chat messages directly from players
+            local function onPlayerChatted(player, message)
+                local spyMessage = string.format(
+                    "[SPY] %s: %s",
+                    player.Name,
+                    message
+                )
+                ChatSpyRemote:FireAllClients(spyMessage)
+            end
+            
+            -- Connect to chat events
+            for _, player in ipairs(Players:GetPlayers()) do
+                player.Chatted:Connect(function(message)
+                    onPlayerChatted(player, message)
+                end)
+            end
+            
+            Players.PlayerAdded:Connect(function(player)
+                player.Chatted:Connect(function(message)
+                    onPlayerChatted(player, message)
+                end)
+            end)
+            
+            warn("Chat Spy Server Module Activated")
+            return true
+        ]]
+        
         local serverSuccess, serverErr = pcall(function()
             local serverModule = require(game:GetService("ServerScriptService"):WaitForChild("ServerModule", 10))
             if serverModule then
@@ -141,17 +64,93 @@ local function createChatSpy()
         end
     end
     
-    -- Client injection
-    local clientSuccess, clientErr = pcall(function()
-        local script = Instance.new("LocalScript")
-        script.Source = clientScript
-        script.Parent = game:GetService("Players").LocalPlayer:WaitForChild("PlayerScripts", 10)
-    end)
+    -- Client-side component (works for all executors)
+    local function createClientSpy()
+        -- Get player objects
+        local Players = game:GetService("Players")
+        local LocalPlayer = Players.LocalPlayer
+        local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+        local ReplicatedStorage = game:GetService("ReplicatedStorage")
+        
+        -- Wait for remote event
+        local ChatSpyRemote
+        repeat task.wait(1)
+            ChatSpyRemote = ReplicatedStorage:FindFirstChild("ChatSpyRemote")
+        until ChatSpyRemote
+        
+        -- Create chat window
+        local screenGui = Instance.new("ScreenGui")
+        screenGui.Name = "ChatSpyGUI"
+        screenGui.ResetOnSpawn = false
+        screenGui.Parent = PlayerGui
+        
+        local frame = Instance.new("Frame")
+        frame.Name = "ChatFrame"
+        frame.Size = UDim2.new(0.4, 0, 0.3, 0)
+        frame.Position = UDim2.new(0.01, 0, 0.69, 0)
+        frame.BackgroundTransparency = 0.7
+        frame.BackgroundColor3 = Color3.new(0, 0, 0)
+        frame.Parent = screenGui
+        
+        local scrollingFrame = Instance.new("ScrollingFrame")
+        scrollingFrame.Name = "MessageLog"
+        scrollingFrame.Size = UDim2.new(1, -10, 1, -10)
+        scrollingFrame.Position = UDim2.new(0, 5, 0, 5)
+        scrollingFrame.BackgroundTransparency = 1
+        scrollingFrame.ScrollBarThickness = 5
+        scrollingFrame.AutomaticCanvasSize = Enum.AutomaticSize.Y
+        scrollingFrame.Parent = frame
+        
+        local uiListLayout = Instance.new("UIListLayout")
+        uiListLayout.Parent = scrollingFrame
+        
+        -- Display message in chat window
+        local function displaySpyMessage(message)
+            local textLabel = Instance.new("TextLabel")
+            textLabel.Text = message
+            textLabel.RichText = true
+            textLabel.TextColor3 = Color3.new(1, 0.33, 0.33) -- Red color
+            textLabel.TextSize = 16
+            textLabel.BackgroundTransparency = 1
+            textLabel.TextXAlignment = Enum.TextXAlignment.Left
+            textLabel.Size = UDim2.new(1, 0, 0, 20)
+            textLabel.Parent = scrollingFrame
+            
+            -- Auto-scroll to bottom
+            scrollingFrame.CanvasPosition = Vector2.new(0, scrollingFrame.CanvasSize.Y.Offset)
+        end
+        
+        -- Message receiver
+        ChatSpyRemote.OnClientEvent:Connect(displaySpyMessage)
+        
+        -- Fallback: Listen to chat messages directly if server injection failed
+        LocalPlayer.Chatted:Connect(function(message)
+            displaySpyMessage("[LOCAL] "..message)
+        end)
+        
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer then
+                player.Chatted:Connect(function(message)
+                    displaySpyMessage("[DIRECT] "..player.Name..": "..message)
+                end)
+            end
+        end
+        
+        Players.PlayerAdded:Connect(function(player)
+            player.Chatted:Connect(function(message)
+                displaySpyMessage("[DIRECT] "..player.Name..": "..message)
+            end)
+        end)
+        
+        print("Chat Spy Client Module Activated")
+        return true
+    end
     
+    -- Execute client spy directly
+    local clientSuccess, clientErr = pcall(createClientSpy)
     if not clientSuccess then
-        warn("Client injection failed: "..clientErr)
-        -- Fallback to direct execution
-        loadstring(clientScript)()
+        warn("Client spy failed: "..clientErr)
+        return "Chat Spy Failed: "..clientErr
     end
     
     return "Chat Spy Activated - Messages will appear in bottom-left chat window"
