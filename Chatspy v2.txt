@@ -1,5 +1,5 @@
 -- Universal Chat Spy Script for Roblox
--- Client-side only, reliable private message capture
+-- Client-side only, avoids TextChatService conflicts
 
 if not game:IsLoaded() then
     game.Loaded:Wait()
@@ -7,105 +7,92 @@ end
 
 -- Get necessary services
 local Players = game:GetService("Players")
-local TextChatService = game:GetService("TextChatService")
 local LocalPlayer = Players.LocalPlayer
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
--- Function to display spy messages
-local function displaySpyMessage(message)
-    if TextChatService.DisplaySystemMessage then
-        TextChatService:DisplaySystemMessage(message)
-    else
-        -- Fallback to chat output
-        game.StarterGui:SetCore("ChatMakeSystemMessage", {
-            Text = message,
-            Color = Color3.fromRGB(255, 85, 85),
-            Font = Enum.Font.SourceSansBold,
-            TextSize = 18
-        })
-    end
+-- Create spy GUI
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "ChatSpyGUI"
+screenGui.ResetOnSpawn = false
+screenGui.Parent = PlayerGui
+
+local frame = Instance.new("Frame")
+frame.Name = "ChatFrame"
+frame.Size = UDim2.new(0.4, 0, 0.3, 0)
+frame.Position = UDim2.new(0.01, 0, 0.69, 0)
+frame.BackgroundTransparency = 0.7
+frame.BackgroundColor3 = Color3.new(0, 0, 0)
+frame.Parent = screenGui
+
+local scrollingFrame = Instance.new("ScrollingFrame")
+scrollingFrame.Name = "MessageLog"
+scrollingFrame.Size = UDim2.new(1, -10, 1, -10)
+scrollingFrame.Position = UDim2.new(0, 5, 0, 5)
+scrollingFrame.BackgroundTransparency = 1
+scrollingFrame.ScrollBarThickness = 5
+scrollingFrame.AutomaticCanvasSize = Enum.AutomaticSize.Y
+scrollingFrame.ScrollingDirection = Enum.ScrollingDirection.Y
+scrollingFrame.Parent = frame
+
+local uiListLayout = Instance.new("UIListLayout")
+uiListLayout.Parent = scrollingFrame
+
+-- Function to display messages
+local function displaySpyMessage(player, message)
+    local textLabel = Instance.new("TextLabel")
+    textLabel.Text = string.format("[SPY] %s: %s", player, message)
+    textLabel.TextColor3 = Color3.new(1, 0.33, 0.33) -- Red color
+    textLabel.TextSize = 16
+    textLabel.BackgroundTransparency = 1
+    textLabel.TextXAlignment = Enum.TextXAlignment.Left
+    textLabel.Size = UDim2.new(1, 0, 0, 20)
+    textLabel.Parent = scrollingFrame
+    
+    -- Auto-scroll to bottom
+    scrollingFrame.CanvasPosition = Vector2.new(0, scrollingFrame.CanvasSize.Y.Offset)
 end
 
 -- Main chat capture function
 local function captureChatMessages()
-    -- Store processed messages to avoid duplicates
-    local messageHistory = {}
-    
-    -- Function to handle incoming messages
-    local function processMessage(message)
-        -- Check if we've already processed this message
-        if messageHistory[message] then return end
-        messageHistory[message] = true
-        
-        -- Extract player information
-        local playerName = "Unknown"
-        if message.TextSource then
-            local player = Players:GetPlayerByUserId(message.TextSource.UserId)
-            if player then
-                playerName = player.Name
-            end
-        end
-        
-        -- Format and display spy message
-        local spyMessage = string.format(
-            '<font color="#FF5555">[SPY] %s:</font> %s',
-            playerName,
-            message.Text
-        )
-        
-        displaySpyMessage(spyMessage)
-    end
-
-    -- Method 1: Use TextChatService events
-    if TextChatService.OnIncomingMessage then
-        local originalHandler = TextChatService.OnIncomingMessage
-        TextChatService.OnIncomingMessage = function(message)
-            if originalHandler then
-                originalHandler(message)
-            end
-            processMessage(message)
-            return nil
+    -- Function to handle player messages
+    local function handlePlayerChat(player, message)
+        if player ~= LocalPlayer then
+            displaySpyMessage(player.Name, message)
         end
     end
 
-    -- Method 2: Listen to Player.Chatted events as fallback
+    -- Capture existing players
     for _, player in ipairs(Players:GetPlayers()) do
         player.Chatted:Connect(function(message)
-            local formatted = string.format(
-                '<font color="#FF5555">[SPY] %s:</font> %s',
-                player.Name,
-                message
-            )
-            displaySpyMessage(formatted)
+            handlePlayerChat(player, message)
         end)
     end
     
+    -- Capture new players
     Players.PlayerAdded:Connect(function(player)
         player.Chatted:Connect(function(message)
-            local formatted = string.format(
-                '<font color="#FF5555">[SPY] %s:</font> %s',
-                player.Name,
-                message
-            )
-            displaySpyMessage(formatted)
+            handlePlayerChat(player, message)
         end)
     end)
     
     -- Initial message
-    displaySpyMessage('<font color="#FF5555">[SPY] System:</font> Chat spy activated')
+    displaySpyMessage("System", "Chat spy activated")
 end
 
 -- Initialize with error handling
 local success, err = pcall(captureChatMessages)
 if success then
-    print("Chat Spy Activated - Private messages will appear with [SPY] tag")
+    print("Chat Spy Activated - Messages appear in bottom-left window")
 else
-    warn("Chat Spy Error: "..tostring(err))
+    -- Ultimate fallback if everything fails
+    displaySpyMessage("System", "Spy activated with limited functionality")
     
-    -- Ultimate fallback: Use chat commands to test
-    LocalPlayer.Chatted:Connect(function(message)
-        if message == "/testspy" then
-            displaySpyMessage('<font color="#FF5555">[SPY] System:</font> Spy functionality is active')
-        end
-    end)
-    print("Type '/testspy' in chat to verify spy functionality")
+    -- Simple console logging
+    for _, player in ipairs(Players:GetPlayers()) do
+        player.Chatted:Connect(function(message)
+            if player ~= LocalPlayer then
+                print("[SPY] " .. player.Name .. ": " .. message)
+            end
+        end)
+    end
 end
