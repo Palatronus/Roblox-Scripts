@@ -1,5 +1,6 @@
 -- Universal Chat Spy Script for Roblox
--- Client-side only, avoids TextChatService conflicts
+-- Safe client-side implementation
+-- Bypasses TextChatService limitations
 
 if not game:IsLoaded() then
     game.Loaded:Wait()
@@ -63,9 +64,11 @@ local function captureChatMessages()
 
     -- Capture existing players
     for _, player in ipairs(Players:GetPlayers()) do
-        player.Chatted:Connect(function(message)
-            handlePlayerChat(player, message)
-        end)
+        if player ~= LocalPlayer then
+            player.Chatted:Connect(function(message)
+                handlePlayerChat(player, message)
+            end)
+        end
     end
     
     -- Capture new players
@@ -79,20 +82,7 @@ local function captureChatMessages()
     displaySpyMessage("System", "Chat spy activated")
 end
 
--- Initialize with error handling
-local success, err = pcall(captureChatMessages)
-if success then
-    print("Chat Spy Activated - Messages appear in bottom-left window")
-else
-    -- Ultimate fallback if everything fails
-    displaySpyMessage("System", "Spy activated with limited functionality")
-    
-    -- Simple console logging
-    for _, player in ipairs(Players:GetPlayers()) do
-        player.Chatted:Connect(function(message)
-            if player ~= LocalPlayer then
-                print("[SPY] " .. player.Name .. ": " .. message)
-            end
-        end)
-    end
-end
+-- Initialize
+captureChatMessages()
+
+print("Chat Spy Activated - Messages appear in bottom-left window")
