@@ -1,5 +1,5 @@
 -- Universal Chat Spy Script for Roblox
--- Client-side only, reliable with Roblox chat integration
+-- Reliable client-side solution with proper chat integration
 
 if not game:IsLoaded() then
     game.Loaded:Wait()
@@ -10,35 +10,50 @@ local Players = game:GetService("Players")
 local TextChatService = game:GetService("TextChatService")
 local LocalPlayer = Players.LocalPlayer
 
--- Function to display spy messages in Roblox chat
-local function displaySpyMessage(player, message)
+-- Function to display spy messages directly in Roblox chat
+local function displayInChat(player, message)
     -- Format with original blue color and proper spacing
     local formatted = string.format(
-        '\n<font color="#5555FF">[SPY] %s:</font> %s\n',
+        '<font color="#5555FF">[SPY] %s:</font> %s',
         player,
         message
     )
     
-    -- Use modern DisplaySystemMessage if available
+    -- Display as system message in chat
     if TextChatService.DisplaySystemMessage then
         TextChatService:DisplaySystemMessage(formatted)
     else
         -- Fallback for older clients
-        game:GetService("StarterGui"):SetCore("ChatMakeSystemMessage", {
-            Text = formatted,
-            Color = Color3.fromRGB(85, 85, 255),
-            Font = Enum.Font.SourceSansBold,
-            TextSize = 18
-        })
+        local success = pcall(function()
+            game:GetService("StarterGui"):SetCore("ChatMakeSystemMessage", {
+                Text = formatted,
+                Color = Color3.fromRGB(85, 85, 255),
+                Font = Enum.Font.SourceSansBold,
+                TextSize = 18
+            })
+        end)
+        
+        if not success then
+            -- Ultimate fallback: Print to console
+            print("[SPY] " .. player .. ": " .. message)
+        end
     end
 end
 
--- Main chat capture function
-local function captureChatMessages()
+-- Main function to capture and display chat
+local function startChatSpy()
+    -- Create a remote event for testing
+    local testRemote = Instance.new("RemoteEvent")
+    testRemote.Name = "ChatSpyTestRemote"
+    testRemote.Parent = game:GetService("ReplicatedStorage")
+    
+    -- Test message to verify functionality
+    displayInChat("System", "Chat spy activated")
+    
     -- Function to handle player messages
-    local function handlePlayerChat(player, message)
+    local function handleChat(player, message)
         if player ~= LocalPlayer then
-            displaySpyMessage(player.Name, message)
+            displayInChat(player.Name, message)
         end
     end
 
@@ -46,7 +61,7 @@ local function captureChatMessages()
     for _, player in ipairs(Players:GetPlayers()) do
         if player ~= LocalPlayer then
             player.Chatted:Connect(function(message)
-                handlePlayerChat(player, message)
+                handleChat(player, message)
             end)
         end
     end
@@ -54,26 +69,35 @@ local function captureChatMessages()
     -- Capture new players
     Players.PlayerAdded:Connect(function(player)
         player.Chatted:Connect(function(message)
-            handlePlayerChat(player, message)
+            handleChat(player, message)
         end)
     end)
     
-    -- Initial message
-    displaySpyMessage("System", "Chat spy activated")
-end
-
--- Initialize with error handling
-local success, err = pcall(captureChatMessages)
-if success then
-    print("Chat Spy Activated - Messages appear in chat with blue [SPY] tags")
-else
-    warn("Chat Spy Error: "..tostring(err))
-    
-    -- Ultimate fallback: Use chat commands to test
+    -- Test command
     LocalPlayer.Chatted:Connect(function(message)
         if message == "/testspy" then
-            displaySpyMessage("System", "Spy functionality is active")
+            displayInChat("System", "Spy is working! All messages will be shown with blue [SPY] tags")
         end
     end)
-    print("Type '/testspy' in chat to verify spy functionality")
+    
+    return true
+end
+
+-- Initialize with comprehensive error handling
+local success, err = pcall(startChatSpy)
+if success then
+    print("Chat Spy Activated - Messages appear in chat with blue [SPY] tags")
+    print("Type '/testspy' in chat to verify")
+else
+    warn("Initialization failed: "..tostring(err))
+    
+    -- Fallback: Simple console logging
+    for _, player in ipairs(Players:GetPlayers()) do
+        player.Chatted:Connect(function(message)
+            if player ~= LocalPlayer then
+                print("[SPY] " .. player.Name .. ": " .. message)
+            end
+        end)
+    end
+    print("Chat Spy Activated (Fallback Mode) - Messages printed to console")
 end
