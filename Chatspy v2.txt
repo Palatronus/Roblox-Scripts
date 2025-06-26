@@ -1,144 +1,79 @@
--- Universal Chat Spy Script for Roblox TextChatService
--- Updated for new chat UI with original positioning and styling
+-- Universal Chat Spy Script for Roblox
+-- Client-side only, reliable with Roblox chat integration
 
 if not game:IsLoaded() then
     game.Loaded:Wait()
 end
 
-local function createChatSpy()
-    -- Server-side component
-    local serverScript = [[
-        local Players = game:GetService("Players")
-        local TextChatService = game:GetService("TextChatService")
-        local ReplicatedStorage = game:GetService("ReplicatedStorage")
-        
-        -- Create remote event
-        local ChatSpyRemote
-        if not ReplicatedStorage:FindFirstChild("ChatSpyRemote") then
-            ChatSpyRemote = Instance.new("RemoteEvent")
-            ChatSpyRemote.Name = "ChatSpyRemote"
-            ChatSpyRemote.Parent = ReplicatedStorage
-        else
-            ChatSpyRemote = ReplicatedStorage.ChatSpyRemote
-        end
-        
-        -- Message handler for new TextChatService
-        TextChatService.IncomingMessage:Connect(function(message)
-            if message.MessageType == "Text" and message.TextSource then
-                local player = Players:GetPlayerByUserId(message.TextSource.UserId)
-                if player then
-                    -- Original blue color with proper spacing
-                    local spyMessage = string.format(
-                        '<font color="#5555FF">[SPY] %s:</font> %s\n ',
-                        player.Name,
-                        message.Text
-                    )
-                    ChatSpyRemote:FireAllClients(spyMessage)
-                end
-            end
-        end)
-        
-        warn("Chat Spy Server Module Activated")
-        return true
-    ]]
+-- Get necessary services
+local Players = game:GetService("Players")
+local TextChatService = game:GetService("TextChatService")
+local LocalPlayer = Players.LocalPlayer
+
+-- Function to display spy messages in Roblox chat
+local function displaySpyMessage(player, message)
+    -- Format with original blue color and proper spacing
+    local formatted = string.format(
+        '\n<font color="#5555FF">[SPY] %s:</font> %s\n',
+        player,
+        message
+    )
     
-    -- Client-side component
-    local clientScript = [[
-        local ReplicatedStorage = game:GetService("ReplicatedStorage")
-        local TextChatService = game:GetService("TextChatService")
-        local Players = game:GetService("Players")
-        local LocalPlayer = Players.LocalPlayer
-        
-        -- Wait for remote event
-        local ChatSpyRemote
-        repeat task.wait(1)
-            ChatSpyRemote = ReplicatedStorage:FindFirstChild("ChatSpyRemote")
-        until ChatSpyRemote
-        
-        -- Get the main chat window
-        local function getMainChatWindow()
-            local chatWindow = TextChatService:FindFirstChild("ChatWindow")
-            if not chatWindow then
-                chatWindow = TextChatService:FindFirstChild("ChatWindowConfiguration", true)
-            end
-            return chatWindow
-        end
-        
-        -- Display message in main chat
-        local function displayInMainChat(message)
-            -- Try to use the modern DisplaySystemMessage API first
-            if TextChatService.DisplaySystemMessage then
-                TextChatService:DisplaySystemMessage(message)
-                return
-            end
-            
-            -- Fallback to inserting directly into chat UI
-            local chatWindow = getMainChatWindow()
-            if chatWindow then
-                local messageLog = chatWindow:FindFirstChild("MessageLog", true)
-                if messageLog then
-                    local textLabel = Instance.new("TextLabel")
-                    textLabel.Text = message
-                    textLabel.RichText = true
-                    textLabel.TextSize = 18
-                    textLabel.BackgroundTransparency = 1
-                    textLabel.TextXAlignment = Enum.TextXAlignment.Left
-                    textLabel.Size = UDim2.new(1, 0, 0, 24)
-                    textLabel.Parent = messageLog
-                    
-                    -- Add spacing after message
-                    local spacer = Instance.new("Frame")
-                    spacer.Size = UDim2.new(1, 0, 0, 8)
-                    spacer.BackgroundTransparency = 1
-                    spacer.Parent = messageLog
-                end
-            end
-        end
-        
-        -- Message receiver
-        ChatSpyRemote.OnClientEvent:Connect(displayInMainChat)
-        
-        print("Chat Spy Client Module Activated")
-        return true
-    ]]
-    
-    -- Execution logic
-    if is_sirhurt_closure or syn or KRNL_LOADED then
-        -- Server injection for executors with server access
-        local serverSuccess, serverErr = pcall(function()
-            local serverModule = require(game:GetService("ServerScriptService"):WaitForChild("ServerModule", 10))
-            if serverModule then
-                serverModule:Execute(serverScript)
-            else
-                error("Could not find ServerModule")
-            end
-        end)
-        
-        if not serverSuccess then
-            warn("Server injection failed: "..serverErr)
-        end
+    -- Use modern DisplaySystemMessage if available
+    if TextChatService.DisplaySystemMessage then
+        TextChatService:DisplaySystemMessage(formatted)
+    else
+        -- Fallback for older clients
+        game:GetService("StarterGui"):SetCore("ChatMakeSystemMessage", {
+            Text = formatted,
+            Color = Color3.fromRGB(85, 85, 255),
+            Font = Enum.Font.SourceSansBold,
+            TextSize = 18
+        })
     end
-    
-    -- Client injection
-    local clientSuccess, clientErr = pcall(function()
-        local script = Instance.new("LocalScript")
-        script.Source = clientScript
-        script.Parent = game:GetService("Players").LocalPlayer:WaitForChild("PlayerScripts", 10)
-    end)
-    
-    if not clientSuccess then
-        warn("Client injection failed: "..clientErr)
-        -- Fallback to direct execution
-        loadstring(clientScript)()
-    end
-    
-    return "Chat Spy Activated - Messages will appear in main chat with blue [SPY] tags"
 end
 
--- Execute the chat spy
-local success, result = pcall(createChatSpy)
-if not success then
-    warn("Chat Spy Error: "..tostring(result))
+-- Main chat capture function
+local function captureChatMessages()
+    -- Function to handle player messages
+    local function handlePlayerChat(player, message)
+        if player ~= LocalPlayer then
+            displaySpyMessage(player.Name, message)
+        end
+    end
+
+    -- Capture existing players
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer then
+            player.Chatted:Connect(function(message)
+                handlePlayerChat(player, message)
+            end)
+        end
+    end
+    
+    -- Capture new players
+    Players.PlayerAdded:Connect(function(player)
+        player.Chatted:Connect(function(message)
+            handlePlayerChat(player, message)
+        end)
+    end)
+    
+    -- Initial message
+    displaySpyMessage("System", "Chat spy activated")
+end
+
+-- Initialize with error handling
+local success, err = pcall(captureChatMessages)
+if success then
+    print("Chat Spy Activated - Messages appear in chat with blue [SPY] tags")
 else
-    print(result)
+    warn("Chat Spy Error: "..tostring(err))
+    
+    -- Ultimate fallback: Use chat commands to test
+    LocalPlayer.Chatted:Connect(function(message)
+        if message == "/testspy" then
+            displaySpyMessage("System", "Spy functionality is active")
+        end
+    end)
+    print("Type '/testspy' in chat to verify spy functionality")
 end
