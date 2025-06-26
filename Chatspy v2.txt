@@ -1,5 +1,5 @@
 -- Universal Chat Spy Script for Roblox TextChatService
--- Original functionality with seamless chat integration
+-- Updated for new chat UI with original positioning and styling
 
 if not game:IsLoaded() then
     game.Loaded:Wait()
@@ -22,14 +22,14 @@ local function createChatSpy()
             ChatSpyRemote = ReplicatedStorage.ChatSpyRemote
         end
         
-        -- Message handler
+        -- Message handler for new TextChatService
         TextChatService.IncomingMessage:Connect(function(message)
             if message.MessageType == "Text" and message.TextSource then
                 local player = Players:GetPlayerByUserId(message.TextSource.UserId)
                 if player then
-                    -- Original blue color formatting with spacing
+                    -- Original blue color with proper spacing
                     local spyMessage = string.format(
-                        '\n<font color="#5555FF">[SPY] %s:</font> %s\n',
+                        '<font color="#5555FF">[SPY] %s:</font> %s\n ',
                         player.Name,
                         message.Text
                     )
@@ -46,6 +46,8 @@ local function createChatSpy()
     local clientScript = [[
         local ReplicatedStorage = game:GetService("ReplicatedStorage")
         local TextChatService = game:GetService("TextChatService")
+        local Players = game:GetService("Players")
+        local LocalPlayer = Players.LocalPlayer
         
         -- Wait for remote event
         local ChatSpyRemote
@@ -53,16 +55,48 @@ local function createChatSpy()
             ChatSpyRemote = ReplicatedStorage:FindFirstChild("ChatSpyRemote")
         until ChatSpyRemote
         
-        -- Wait for system channel
-        local systemChannel
-        repeat task.wait(1)
-            systemChannel = TextChatService:FindFirstChild("RBXSystem") or TextChatService.SystemChannel
-        until systemChannel
+        -- Get the main chat window
+        local function getMainChatWindow()
+            local chatWindow = TextChatService:FindFirstChild("ChatWindow")
+            if not chatWindow then
+                chatWindow = TextChatService:FindFirstChild("ChatWindowConfiguration", true)
+            end
+            return chatWindow
+        end
+        
+        -- Display message in main chat
+        local function displayInMainChat(message)
+            -- Try to use the modern DisplaySystemMessage API first
+            if TextChatService.DisplaySystemMessage then
+                TextChatService:DisplaySystemMessage(message)
+                return
+            end
+            
+            -- Fallback to inserting directly into chat UI
+            local chatWindow = getMainChatWindow()
+            if chatWindow then
+                local messageLog = chatWindow:FindFirstChild("MessageLog", true)
+                if messageLog then
+                    local textLabel = Instance.new("TextLabel")
+                    textLabel.Text = message
+                    textLabel.RichText = true
+                    textLabel.TextSize = 18
+                    textLabel.BackgroundTransparency = 1
+                    textLabel.TextXAlignment = Enum.TextXAlignment.Left
+                    textLabel.Size = UDim2.new(1, 0, 0, 24)
+                    textLabel.Parent = messageLog
+                    
+                    -- Add spacing after message
+                    local spacer = Instance.new("Frame")
+                    spacer.Size = UDim2.new(1, 0, 0, 8)
+                    spacer.BackgroundTransparency = 1
+                    spacer.Parent = messageLog
+                end
+            end
+        end
         
         -- Message receiver
-        ChatSpyRemote.OnClientEvent:Connect(function(message)
-            systemChannel:DisplaySystemMessage(message)
-        end)
+        ChatSpyRemote.OnClientEvent:Connect(displayInMainChat)
         
         print("Chat Spy Client Module Activated")
         return true
@@ -98,7 +132,7 @@ local function createChatSpy()
         loadstring(clientScript)()
     end
     
-    return "Chat Spy Activated - Messages will appear in regular chat with blue [SPY] tags"
+    return "Chat Spy Activated - Messages will appear in main chat with blue [SPY] tags"
 end
 
 -- Execute the chat spy
