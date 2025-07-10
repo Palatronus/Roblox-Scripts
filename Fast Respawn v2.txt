@@ -34,20 +34,25 @@ local function instantRespawn()
         return humanoid.Health > 0
     end
 
-    -- Fast respawn trigger (FIXED: Removed invalid RequestRespawn call)
+    -- UNIVERSAL respawn trigger that works in all games
     local function triggerRespawn()
         if not state.dead then return end
         
-        -- Updated respawn approach
-        if player.Respawn then
-            pcall(player.Respawn, player)
+        -- Universal respawn method that works in all games
+        local character = player.Character
+        if character then
+            -- Force death to trigger respawn
+            local humanoid = character:FindFirstChildOfClass("Humanoid")
+            if humanoid and humanoid.Health > 0 then
+                humanoid:ChangeState(Enum.HumanoidStateType.Dead)
+            end
+            
+            -- Break joints to ensure respawn
+            pcall(function() character:BreakJoints() end)
         end
         
-        -- Legacy method
-        local respawnEvent = game:GetService("ReplicatedStorage"):FindFirstChild("Respawn")
-        if respawnEvent and respawnEvent:IsA("RemoteEvent") then
-            pcall(respawnEvent.FireServer, respawnEvent)
-        end
+        -- Standard Roblox respawn method
+        player:RequestRespawn()
     end
 
     -- Character lifecycle handler
