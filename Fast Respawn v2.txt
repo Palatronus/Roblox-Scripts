@@ -1,41 +1,20 @@
-local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
-local player = Players.LocalPlayer
+local P=game:GetService("Players")
+local R=game:GetService("RunService")
+local p=P.LocalPlayer
 
--- Single connection management
-local respawnConnection = nil
+-- Added cooldown variable to prevent spamming
+local lastCall = 0
 
-local function setupRespawn()
-    -- Cleanup previous connection if exists
-    if respawnConnection then
-        respawnConnection:Disconnect()
-        respawnConnection = nil
-    end
-    
-    -- Core respawn functionality
-    respawnConnection = RunService.Heartbeat:Connect(function()
-        if player.Character and player.Character:FindFirstChildOfClass("Humanoid") then
-            local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
-            if humanoid:GetState() == Enum.HumanoidStateType.Dead then
-                player:RequestRespawn()
-            end
+local function c()
+    R.RenderStepped:Connect(function()
+        -- Add cooldown check before calling
+        local now = tick()
+        if now - lastCall > 0.1 then
+            replicatesignal(p.ConnectDiedSignalBackend)
+            lastCall = now
         end
     end)
 end
 
--- Initial setup
-if player.Character then
-    setupRespawn()
-end
-
--- Reconnect when new character appears
-player.CharacterAdded:Connect(function(character)
-    setupRespawn()
-end)
-
--- Cleanup when player leaves
-Players.PlayerRemoving:Connect(function(leavingPlayer)
-    if leavingPlayer == player and respawnConnection then
-        respawnConnection:Disconnect()
-    end
-end)
+if p.Character then c() end
+p.CharacterAdded:Connect(function() c() end)
