@@ -1,0 +1,43 @@
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+
+local player = Players.LocalPlayer
+local respawnConnection = nil
+
+local function fireRespawn()
+    if player:GetAttribute("IsDead") == true then
+        local respawnRemote = game:GetService("ReplicatedStorage"):FindFirstChild("RespawnRemote")
+        if respawnRemote then
+            respawnRemote:FireServer()
+        end
+    end
+end
+
+-- Set up death detection
+local function setupDeathTracking()
+    local function onCharacterAdded(character)
+        local humanoid = character:WaitForChild("Humanoid")
+        player:SetAttribute("IsDead", false)
+        
+        humanoid.Died:Connect(function()
+            player:SetAttribute("IsDead", true)
+        end)
+    end
+    
+    if player.Character then
+        onCharacterAdded(player.Character)
+    end
+    player.CharacterAdded:Connect(onCharacterAdded)
+end
+
+-- Main execution
+setupDeathTracking()
+
+respawnConnection = RunService.Stepped:Connect(fireRespawn)
+
+-- Cleanup when player leaves
+player.AncestryChanged:Connect(function()
+    if not player:IsDescendantOf(game) then
+        respawnConnection:Disconnect()
+    end
+end)
