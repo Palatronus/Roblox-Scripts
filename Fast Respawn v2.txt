@@ -61,7 +61,7 @@ local function instantRespawn()
             state.humanoidConnection = nil
         end
         
-        -- NEW: Cleanup respawn loop when character changes
+        -- Cleanup respawn loop when character changes
         if state.respawnLoop then
             state.respawnLoop:Disconnect()
             state.respawnLoop = nil
