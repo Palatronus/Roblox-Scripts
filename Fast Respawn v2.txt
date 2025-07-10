@@ -17,7 +17,8 @@ local function instantRespawn()
         dead = false,
         respawnLoop = nil,
         characterConnection = nil,
-        humanoidConnection = nil
+        humanoidConnection = nil,
+        lastRespawn = 0  -- NEW: Cooldown tracker
     }
     
     -- Modern Lua type checking
@@ -34,9 +35,13 @@ local function instantRespawn()
         return humanoid.Health > 0
     end
 
-    -- Fast respawn trigger
+    -- Fast respawn trigger with cooldown
     local function triggerRespawn()
         if not state.dead then return end
+        
+        -- Add simple cooldown (300ms)
+        if tick() - state.lastRespawn < 0.3 then return end
+        state.lastRespawn = tick()
         
         -- Triple-layer respawn approach
         pcall(player.RequestRespawn, player)
@@ -77,38 +82,20 @@ local function instantRespawn()
         -- Update state
         state.dead = humanoid:GetState() == Enum.HumanoidStateType.Dead
         
-        -- Death detection with optimized request rate
+        -- Death detection
         state.humanoidConnection = humanoid.StateChanged:Connect(function(_, newState)
             state.dead = newState == Enum.HumanoidStateType.Dead
             
             if state.dead then
-                -- Optimized respawn approach
-                if state.respawnLoop then
-                    state.respawnLoop:Disconnect()
+                -- Start rapid respawn loop
+                if not state.respawnLoop then
+                    state.respawnLoop = RunService.Heartbeat:Connect(triggerRespawn)
                 end
-                
-                -- Create a dedicated loop for respawn attempts
-                state.respawnLoop = RunService.Heartbeat:Connect(function()
-                    -- Only attempt respawn every 10 frames (approx 0.16s at 60FPS)
-                    if not state.dead then return end
-                    
-                    -- Use a counter to limit request frequency
-                    if not state.frameCounter then
-                        state.frameCounter = 0
-                    end
-                    state.frameCounter = state.frameCounter + 1
-                    
-                    if state.frameCounter >= 10 then
-                        state.frameCounter = 0
-                        triggerRespawn()
-                    end
-                end)
             else
                 -- Stop respawn loop when alive
                 if state.respawnLoop then
                     state.respawnLoop:Disconnect()
                     state.respawnLoop = nil
-                    state.frameCounter = nil
                 end
             end
         end)
