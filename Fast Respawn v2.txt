@@ -78,7 +78,7 @@ local function instantRespawn()
         state.dead = humanoid:GetState() == Enum.HumanoidStateType.Dead
         
         -- Death detection
-        state.humanoidConnection = humanoid.StateChanged:Connect(function(_, newState)
+        state.humanoidConnection = humanoid.StateChanged:Connect(function(newState)
             state.dead = newState == Enum.HumanoidStateType.Dead
             
             if state.dead then
