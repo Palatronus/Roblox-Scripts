@@ -18,7 +18,7 @@ local function instantRespawn()
         respawnLoop = nil,
         characterConnection = nil,
         humanoidConnection = nil,
-        lastRespawnAttempt = 0  -- NEW: Respawning cooldown tracker
+        lastRespawnTime = 0  -- NEW: Respawning cooldown tracker
     }
     
     -- Modern Lua type checking
@@ -39,12 +39,12 @@ local function instantRespawn()
     local function triggerRespawn()
         if not state.dead then return end
         
-        -- NEW: Respawning cooldown (500ms)
+        -- NEW: Respawning cooldown (300ms)
         local now = tick()
-        if now - state.lastRespawnAttempt < 0.5 then 
+        if now - state.lastRespawnTime < 0.3 then 
             return 
         end
-        state.lastRespawnAttempt = now
+        state.lastRespawnTime = now
         
         -- Triple-layer respawn approach
         pcall(player.RequestRespawn, player)
