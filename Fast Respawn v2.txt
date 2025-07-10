@@ -61,12 +61,6 @@ local function instantRespawn()
             state.humanoidConnection = nil
         end
         
-        -- PING FIX: Cleanup respawn loop when character changes
-        if state.respawnLoop then
-            state.respawnLoop:Disconnect()
-            state.respawnLoop = nil
-        end
-        
         -- Wait for humanoid with timeout
         local humanoid
         for _ = 1, 30 do  -- 30 attempts at 0.1s intervals = 3s timeout
