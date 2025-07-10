@@ -1,43 +1,86 @@
+-- Faster Respawn Script for Roblox Executors
+-- Works in FilteringEnabled games without remote events
+-- Place this entire script in your executor
+
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
-
 local player = Players.LocalPlayer
-local respawnConnection = nil
 
-local function fireRespawn()
-    if player:GetAttribute("IsDead") == true then
-        local respawnRemote = game:GetService("ReplicatedStorage"):FindFirstChild("RespawnRemote")
-        if respawnRemote then
-            respawnRemote:FireServer()
+-- Main respawn controller
+local function fastRespawn()
+    -- Create a bindable event to trigger respawn
+    local respawnBindable = Instance.new("BindableEvent")
+    respawnBindable.Name = "RespawnBindable"
+    
+    -- Create a folder to store the bindable
+    local respawnFolder = Instance.new("Folder")
+    respawnFolder.Name = "FastRespawnSystem"
+    respawnFolder.Parent = player
+    
+    respawnBindable.Parent = respawnFolder
+    
+    -- Track death state
+    local dead = false
+    local respawnConnection = nil
+    
+    -- Function to trigger respawn
+    local function requestRespawn()
+        if dead then
+            -- Use Roblox's internal respawn mechanism
+            player:RequestRespawn()
+            
+            -- Alternative method for games with custom respawn systems
+            pcall(function()
+                respawnBindable:Fire()
+            end)
         end
     end
-end
-
--- Set up death detection
-local function setupDeathTracking()
+    
+    -- Set up character tracking
     local function onCharacterAdded(character)
-        local humanoid = character:WaitForChild("Humanoid")
-        player:SetAttribute("IsDead", false)
+        dead = false
         
+        -- Disconnect respawn loop if active
+        if respawnConnection then
+            respawnConnection:Disconnect()
+            respawnConnection = nil
+        end
+        
+        -- Wait for humanoid
+        local humanoid = character:WaitForChild("Humanoid")
+        
+        -- Set up death detection
         humanoid.Died:Connect(function()
-            player:SetAttribute("IsDead", true)
+            dead = true
+            
+            -- Start rapid respawn loop
+            if not respawnConnection then
+                respawnConnection = RunService.Heartbeat:Connect(requestRespawn)
+            end
         end)
     end
     
+    -- Initialize with current character
     if player.Character then
-        onCharacterAdded(player.Character)
+        coroutine.wrap(onCharacterAdded)(player.Character)
     end
+    
+    -- Connect to future characters
     player.CharacterAdded:Connect(onCharacterAdded)
+    
+    -- Cleanup when player leaves
+    player.AncestryChanged:Connect(function(_, parent)
+        if not parent then
+            if respawnConnection then
+                respawnConnection:Disconnect()
+            end
+            respawnFolder:Destroy()
+        end
+    end)
+    
+    -- Notify user
+    warn("[Fast Respawn] Activated! You'll respawn instantly when dead.")
 end
 
--- Main execution
-setupDeathTracking()
-
-respawnConnection = RunService.Stepped:Connect(fireRespawn)
-
--- Cleanup when player leaves
-player.AncestryChanged:Connect(function()
-    if not player:IsDescendantOf(game) then
-        respawnConnection:Disconnect()
-    end
-end)
+-- Start the respawn system
+fastRespawn()
