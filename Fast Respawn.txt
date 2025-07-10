@@ -1,86 +1,161 @@
--- Faster Respawn Script for Roblox Executors
--- Works in FilteringEnabled games without remote events
--- Place this entire script in your executor
+-- Ultra-Fast Respawn System (2025 Lua Update)
+-- Works with all executors and FE games
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local player = Players.LocalPlayer
 
--- Main respawn controller
-local function fastRespawn()
-    -- Create a bindable event to trigger respawn
-    local respawnBindable = Instance.new("BindableEvent")
-    respawnBindable.Name = "RespawnBindable"
+-- Enhanced respawn controller with 2025 Lua features
+local function instantRespawn()
+    -- Create a hidden system container
+    local respawnSystem = Instance.new("Folder")
+    respawnSystem.Name = "UFRS_System"
+    respawnSystem.Parent = player
     
-    -- Create a folder to store the bindable
-    local respawnFolder = Instance.new("Folder")
-    respawnFolder.Name = "FastRespawnSystem"
-    respawnFolder.Parent = player
+    -- State management
+    local state = {
+        dead = false,
+        respawnLoop = nil,
+        characterConnection = nil,
+        humanoidConnection = nil
+    }
     
-    respawnBindable.Parent = respawnFolder
-    
-    -- Track death state
-    local dead = false
-    local respawnConnection = nil
-    
-    -- Function to trigger respawn
-    local function requestRespawn()
-        if dead then
-            -- Use Roblox's internal respawn mechanism
-            player:RequestRespawn()
-            
-            -- Alternative method for games with custom respawn systems
-            pcall(function()
-                respawnBindable:Fire()
-            end)
+    -- Modern Lua type checking
+    local function isAlive(character)
+        if typeof(character) ~= "Instance" or not character:IsA("Model") then
+            return false
+        end
+        
+        local humanoid = character:FindFirstChildOfClass("Humanoid")
+        if not humanoid then
+            return false
+        end
+        
+        return humanoid.Health > 0
+    end
+
+    -- Fast respawn trigger
+    local function triggerRespawn()
+        if not state.dead then return end
+        
+        -- Triple-layer respawn approach
+        pcall(player.RequestRespawn, player)
+        
+        -- 2025 direct respawn API
+        if player.Respawn then
+            pcall(player.Respawn, player)
+        end
+        
+        -- Legacy method
+        local respawnEvent = game:GetService("ReplicatedStorage"):FindFirstChild("Respawn")
+        if respawnEvent and respawnEvent:IsA("RemoteEvent") then
+            pcall(respawnEvent.FireServer, respawnEvent)
         end
     end
-    
-    -- Set up character tracking
-    local function onCharacterAdded(character)
-        dead = false
-        
-        -- Disconnect respawn loop if active
-        if respawnConnection then
-            respawnConnection:Disconnect()
-            respawnConnection = nil
+
+    -- Character lifecycle handler
+    local function handleCharacter(character)
+        -- Cleanup previous connections
+        if state.humanoidConnection then
+            state.humanoidConnection:Disconnect()
+            state.humanoidConnection = nil
         end
         
-        -- Wait for humanoid
-        local humanoid = character:WaitForChild("Humanoid")
+        -- Wait for humanoid with timeout
+        local humanoid
+        for _ = 1, 30 do  -- 30 attempts at 0.1s intervals = 3s timeout
+            humanoid = character:FindFirstChildOfClass("Humanoid")
+            if humanoid then break end
+            task.wait(0.1)
+        end
         
-        -- Set up death detection
-        humanoid.Died:Connect(function()
-            dead = true
+        if not humanoid then
+            warn("[UFRS] Humanoid not found in character")
+            return
+        end
+        
+        -- Update state
+        state.dead = humanoid:GetState() == Enum.HumanoidStateType.Dead
+        
+        -- Death detection
+        state.humanoidConnection = humanoid.StateChanged:Connect(function(_, newState)
+            state.dead = newState == Enum.HumanoidStateType.Dead
             
-            -- Start rapid respawn loop
-            if not respawnConnection then
-                respawnConnection = RunService.Heartbeat:Connect(requestRespawn)
+            if state.dead then
+                -- Start rapid respawn loop
+                if not state.respawnLoop then
+                    state.respawnLoop = RunService.Heartbeat:Connect(triggerRespawn)
+                end
+            else
+                -- Stop respawn loop when alive
+                if state.respawnLoop then
+                    state.respawnLoop:Disconnect()
+                    state.respawnLoop = nil
+                end
             end
         end)
     end
-    
-    -- Initialize with current character
+
+    -- Initialize character tracking
+    state.characterConnection = player.CharacterAdded:Connect(handleCharacter)
     if player.Character then
-        coroutine.wrap(onCharacterAdded)(player.Character)
+        task.spawn(handleCharacter, player.Character)
     end
-    
-    -- Connect to future characters
-    player.CharacterAdded:Connect(onCharacterAdded)
-    
-    -- Cleanup when player leaves
-    player.AncestryChanged:Connect(function(_, parent)
-        if not parent then
-            if respawnConnection then
-                respawnConnection:Disconnect()
-            end
-            respawnFolder:Destroy()
+
+    -- Auto-cleanup system
+    respawnSystem.AncestryChanged:Connect(function(_, parent)
+        if parent then return end
+        
+        -- Clean up all connections and state
+        if state.respawnLoop then
+            state.respawnLoop:Disconnect()
         end
+        if state.characterConnection then
+            state.characterConnection:Disconnect()
+        end
+        if state.humanoidConnection then
+            state.humanoidConnection:Disconnect()
+        end
+        
+        respawnSystem:Destroy()
     end)
-    
-    -- Notify user
-    warn("[Fast Respawn] Activated! You'll respawn instantly when dead.")
+
+    -- UI notification (executor-friendly)
+    if not game:IsLoaded() then game.Loaded:Wait() end
+    task.spawn(function()
+        local notification = Instance.new("ScreenGui")
+        notification.Name = "UFRS_Notification"
+        notification.Parent = player:WaitForChild("PlayerGui")
+        notification.ResetOnSpawn = false
+        
+        local frame = Instance.new("Frame")
+        frame.Size = UDim2.new(0, 200, 0, 50)
+        frame.Position = UDim2.new(1, -210, 1, -60)
+        frame.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+        frame.BorderSizePixel = 0
+        frame.Parent = notification
+        
+        local label = Instance.new("TextLabel")
+        label.Size = UDim2.new(1, 0, 1, 0)
+        label.BackgroundTransparency = 1
+        label.Text = "ULTRA-FAST RESPAWN ACTIVE"
+        label.TextColor3 = Color3.fromRGB(0, 255, 170)
+        label.Font = Enum.Font.GothamBold
+        label.TextSize = 14
+        label.Parent = frame
+        
+        task.wait(3)
+        notification:Destroy()
+    end)
+
+    return "Respawn system activated successfully"
 end
 
--- Start the respawn system
-fastRespawn()
+-- Execute the system with error handling
+local success, result = pcall(instantRespawn)
+if not success then
+    warn("[UFRS] Initialization failed:", result)
+    return "Error: " .. tostring(result)
+end
+
+return result
