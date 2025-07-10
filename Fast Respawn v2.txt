@@ -17,8 +17,7 @@ local function instantRespawn()
         dead = false,
         respawnLoop = nil,
         characterConnection = nil,
-        humanoidConnection = nil,
-        respawnRequested = false  -- NEW: Track respawn request status
+        humanoidConnection = nil
     }
     
     -- Modern Lua type checking
@@ -37,8 +36,7 @@ local function instantRespawn()
 
     -- Fast respawn trigger
     local function triggerRespawn()
-        if not state.dead or state.respawnRequested then return end
-        state.respawnRequested = true
+        if not state.dead then return end
         
         -- Triple-layer respawn approach
         pcall(player.RequestRespawn, player)
@@ -53,11 +51,6 @@ local function instantRespawn()
         if respawnEvent and respawnEvent:IsA("RemoteEvent") then
             pcall(respawnEvent.FireServer, respawnEvent)
         end
-        
-        -- Reset after a short delay
-        task.delay(0.3, function()
-            state.respawnRequested = false
-        end)
     end
 
     -- Character lifecycle handler
@@ -66,6 +59,12 @@ local function instantRespawn()
         if state.humanoidConnection then
             state.humanoidConnection:Disconnect()
             state.humanoidConnection = nil
+        end
+        
+        -- NEW: Cleanup respawn loop when character changes
+        if state.respawnLoop then
+            state.respawnLoop:Disconnect()
+            state.respawnLoop = nil
         end
         
         -- Wait for humanoid with timeout
@@ -83,17 +82,12 @@ local function instantRespawn()
         
         -- Update state
         state.dead = humanoid:GetState() == Enum.HumanoidStateType.Dead
-        state.respawnRequested = false
         
         -- Death detection
         state.humanoidConnection = humanoid.StateChanged:Connect(function(_, newState)
             state.dead = newState == Enum.HumanoidStateType.Dead
-            state.respawnRequested = false
             
             if state.dead then
-                -- Trigger immediate respawn
-                triggerRespawn()
-                
                 -- Start rapid respawn loop
                 if not state.respawnLoop then
                     state.respawnLoop = RunService.Heartbeat:Connect(triggerRespawn)
