@@ -18,7 +18,7 @@ local function instantRespawn()
         respawnLoop = nil,
         characterConnection = nil,
         humanoidConnection = nil,
-        lastRespawn = 0  -- NEW: Cooldown tracker
+        respawnRequested = false  -- NEW: Track respawn request status
     }
     
     -- Modern Lua type checking
@@ -35,13 +35,10 @@ local function instantRespawn()
         return humanoid.Health > 0
     end
 
-    -- Fast respawn trigger with cooldown
+    -- Fast respawn trigger
     local function triggerRespawn()
-        if not state.dead then return end
-        
-        -- Add simple cooldown (300ms)
-        if tick() - state.lastRespawn < 0.3 then return end
-        state.lastRespawn = tick()
+        if not state.dead or state.respawnRequested then return end
+        state.respawnRequested = true
         
         -- Triple-layer respawn approach
         pcall(player.RequestRespawn, player)
@@ -56,6 +53,11 @@ local function instantRespawn()
         if respawnEvent and respawnEvent:IsA("RemoteEvent") then
             pcall(respawnEvent.FireServer, respawnEvent)
         end
+        
+        -- Reset after a short delay
+        task.delay(0.3, function()
+            state.respawnRequested = false
+        end)
     end
 
     -- Character lifecycle handler
@@ -81,12 +83,17 @@ local function instantRespawn()
         
         -- Update state
         state.dead = humanoid:GetState() == Enum.HumanoidStateType.Dead
+        state.respawnRequested = false
         
         -- Death detection
         state.humanoidConnection = humanoid.StateChanged:Connect(function(_, newState)
             state.dead = newState == Enum.HumanoidStateType.Dead
+            state.respawnRequested = false
             
             if state.dead then
+                -- Trigger immediate respawn
+                triggerRespawn()
+                
                 -- Start rapid respawn loop
                 if not state.respawnLoop then
                     state.respawnLoop = RunService.Heartbeat:Connect(triggerRespawn)
