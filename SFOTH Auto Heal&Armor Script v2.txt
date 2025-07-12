@@ -10,31 +10,24 @@ local ARMOR_STAND_NAME = "BattleArmorStand"
 
 -- System State
 local Active = true
-local ArmorCache = {}
-local HealPadCache = {}
-local CharacterConnections = {}
+local ArmorParts = {}
+local HealPadParts = {}
 
--- Cache all items once on startup
+-- Find all armor and heal pad parts
 local function InitializeCache()
-    ArmorCache = {}
-    HealPadCache = {}
+    ArmorParts = {}
+    HealPadParts = {}
     
     for _, obj in ipairs(workspace:GetDescendants()) do
         if obj.Name == ARMOR_STAND_NAME and obj:IsA("Model") then
             local part = obj:FindFirstChildWhichIsA("BasePart") or obj.PrimaryPart
             if part then
-                table.insert(ArmorCache, {
-                    part = part,
-                    model = obj
-                })
+                table.insert(ArmorParts, part)
             end
         elseif obj.Name == HEAL_PAD_NAME and obj:IsA("Model") then
             local part = obj:FindFirstChild("Pad") or obj:FindFirstChildWhichIsA("BasePart") or obj.PrimaryPart
             if part then
-                table.insert(HealPadCache, {
-                    part = part,
-                    model = obj
-                })
+                table.insert(HealPadParts, part)
             end
         end
     end
@@ -42,123 +35,68 @@ end
 
 InitializeCache()
 
--- Improved armor acquisition with model reference
+-- Simple armor acquisition
 local function EquipArmor()
     if not LP.Character or LP.Character:FindFirstChild(ARMOR_NAME) then return end
     
-    -- Wait for character to fully load
-    local root = LP.Character:WaitForChild("HumanoidRootPart", 2)
+    local root = LP.Character:FindFirstChild("HumanoidRootPart")
     if not root then return end
     
-    -- Find nearest armor
-    local closest
-    local closestDist = math.huge
-    for _, armorData in ipairs(ArmorCache) do
-        if armorData.model and armorData.model.Parent and armorData.part then
-            local dist = (root.Position - armorData.part.Position).Magnitude
-            if dist < closestDist then
-                closest = armorData.part
-                closestDist = dist
-            end
+    for _, armorPart in ipairs(ArmorParts) do
+        if armorPart and armorPart.Parent then
+            firetouchinterest(root, armorPart, 0)
+            firetouchinterest(root, armorPart, 1)
         end
     end
-    
-    if closest then
-        firetouchinterest(root, closest, 0)
-        firetouchinterest(root, closest, 1)
-        return true
-    end
-    return false
 end
 
--- Healing system
+-- Simple healing system
 local function TriggerHeal()
     if not LP.Character then return end
     
     local humanoid = LP.Character:FindFirstChild("Humanoid")
-    if not humanoid or humanoid.Health >= humanoid.MaxHealth then return end
+    local root = LP.Character:FindFirstChild("HumanoidRootPart")
+    if not humanoid or not root or humanoid.Health >= humanoid.MaxHealth then return end
     
-    local root = LP.Character:WaitForChild("HumanoidRootPart", 1)
-    if not root then return end
-    
-    -- Find nearest active heal pad
-    local closestPad
-    local closestDist = math.huge
-    for _, padData in ipairs(HealPadCache) do
-        if padData.model and padData.model.Parent and padData.part and padData.part.Color == ACTIVE_HEAL_COLOR then
-            local dist = (root.Position - padData.part.Position).Magnitude
-            if dist < closestDist then
-                closestPad = padData.part
-                closestDist = dist
-            end
+    for _, padPart in ipairs(HealPadParts) do
+        if padPart and padPart.Parent and padPart.Color == ACTIVE_HEAL_COLOR then
+            firetouchinterest(root, padPart, 0)
+            firetouchinterest(root, padPart, 1)
         end
-    end
-    
-    if closestPad then
-        firetouchinterest(root, closestPad, 0)
-        firetouchinterest(root, closestPad, 1)
     end
 end
 
--- Cleanup character-specific connections
-local function CleanupCharacterEvents()
-    for _, conn in pairs(CharacterConnections) do
-        if conn.Connected then
-            conn:Disconnect()
+-- Main system
+local function MainLoop()
+    while Active do
+        -- Refresh cache periodically
+        if #ArmorParts == 0 or #HealPadParts == 0 then
+            InitializeCache()
         end
-    end
-    CharacterConnections = {}
-end
-
--- Event-based character monitoring
-local function SetupCharacterEvents(character)
-    CleanupCharacterEvents()
-    if not character then return end
-    
-    -- Wait for character to fully load
-    local humanoid = character:WaitForChild("Humanoid", 5)
-    if not humanoid then return end
-    
-    -- Auto-equip armor on spawn
-    task.spawn(function()
-        task.wait(0.5)  -- Wait for character to stabilize
-        if not EquipArmor() then
-            -- Retry if first attempt fails
-            task.wait(1)
+        
+        -- Process armor if needed
+        if LP.Character and not LP.Character:FindFirstChild(ARMOR_NAME) then
             EquipArmor()
         end
-    end)
-    
-    -- Auto-heal when damaged
-    CharacterConnections.health = humanoid.HealthChanged:Connect(function()
-        if Active then
-            TriggerHeal()
+        
+        -- Process healing if needed
+        if LP.Character and LP.Character:FindFirstChild("Humanoid") then
+            if LP.Character.Humanoid.Health < LP.Character.Humanoid.MaxHealth then
+                TriggerHeal()
+            end
         end
-    end)
-    
-    -- Re-equip armor on death
-    CharacterConnections.died = humanoid.Died:Connect(function()
-        CleanupCharacterEvents()
-        task.wait(3)  -- Wait for respawn
-        if LP.Character then
-            SetupCharacterEvents(LP.Character)
-        end
-    end)
-end
-
--- Initialization
-LP.CharacterAdded:Connect(function(character)
-    SetupCharacterEvents(character)
-end)
-
-if LP.Character then
-    SetupCharacterEvents(LP.Character)
+        
+        task.wait(0.5)
+    end
 end
 
 -- Toggle system
 UIS.InputBegan:Connect(function(input)
     if input.KeyCode == Enum.KeyCode.H then
         Active = not Active
+        if Active then
+            task.spawn(MainLoop)
+        end
         game:GetService("StarterGui"):SetCore("SendNotification", {
             Title = "SYSTEM: "..(Active and "ON" or "OFF"),
             Duration = 1
@@ -166,17 +104,17 @@ UIS.InputBegan:Connect(function(input)
     end
 end)
 
--- Auto-armor maintenance
-task.spawn(function()
-    while task.wait(2) do
-        if Active and LP.Character and not LP.Character:FindFirstChild(ARMOR_NAME) then
-            EquipArmor()
-        end
-    end
+-- Start the system
+task.spawn(MainLoop)
+
+-- Handle respawns
+LP.CharacterAdded:Connect(function(character)
+    task.wait(0.5) -- Wait for character to stabilize
+    EquipArmor() -- Always equip armor on respawn
 end)
 
 game:GetService("StarterGui"):SetCore("SendNotification", {
-    Title = "RESPAWN-FIXED SYSTEM ACTIVE",
-    Text = "Reliable armor after death\nPress H to toggle",
+    Title = "SIMPLIFIED SYSTEM ACTIVE",
+    Text = "Guaranteed armor acquisition\nPress H to toggle",
     Duration = 5
 })
