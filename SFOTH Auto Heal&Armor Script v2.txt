@@ -12,6 +12,7 @@ local ARMOR_STAND_NAME = "BattleArmorStand"
 local Active = true
 local ArmorCache = {}
 local HealPadCache = {}
+local CharacterConnections = {}
 
 -- Cache all items once on startup
 local function InitializeCache()
@@ -45,7 +46,8 @@ InitializeCache()
 local function EquipArmor()
     if not LP.Character or LP.Character:FindFirstChild(ARMOR_NAME) then return end
     
-    local root = LP.Character:FindFirstChild("HumanoidRootPart")
+    -- Wait for character to fully load
+    local root = LP.Character:WaitForChild("HumanoidRootPart", 2)
     if not root then return end
     
     -- Find nearest armor
@@ -64,7 +66,9 @@ local function EquipArmor()
     if closest then
         firetouchinterest(root, closest, 0)
         firetouchinterest(root, closest, 1)
+        return true
     end
+    return false
 end
 
 -- Healing system
@@ -72,8 +76,10 @@ local function TriggerHeal()
     if not LP.Character then return end
     
     local humanoid = LP.Character:FindFirstChild("Humanoid")
-    local root = LP.Character:FindFirstChild("HumanoidRootPart")
-    if not humanoid or not root or humanoid.Health >= humanoid.MaxHealth then return end
+    if not humanoid or humanoid.Health >= humanoid.MaxHealth then return end
+    
+    local root = LP.Character:WaitForChild("HumanoidRootPart", 1)
+    if not root then return end
     
     -- Find nearest active heal pad
     local closestPad
@@ -94,29 +100,46 @@ local function TriggerHeal()
     end
 end
 
+-- Cleanup character-specific connections
+local function CleanupCharacterEvents()
+    for _, conn in pairs(CharacterConnections) do
+        if conn.Connected then
+            conn:Disconnect()
+        end
+    end
+    CharacterConnections = {}
+end
+
 -- Event-based character monitoring
 local function SetupCharacterEvents(character)
+    CleanupCharacterEvents()
     if not character then return end
     
-    local humanoid = character:WaitForChild("Humanoid")
+    -- Wait for character to fully load
+    local humanoid = character:WaitForChild("Humanoid", 5)
+    if not humanoid then return end
     
     -- Auto-equip armor on spawn
-    EquipArmor()
+    task.spawn(function()
+        task.wait(0.5)  -- Wait for character to stabilize
+        if not EquipArmor() then
+            -- Retry if first attempt fails
+            task.wait(1)
+            EquipArmor()
+        end
+    end)
     
     -- Auto-heal when damaged
-    local healthConn
-    healthConn = humanoid.HealthChanged:Connect(function()
-        if Active and humanoid.Health < humanoid.MaxHealth then
+    CharacterConnections.health = humanoid.HealthChanged:Connect(function()
+        if Active then
             TriggerHeal()
         end
     end)
     
     -- Re-equip armor on death
-    local diedConn
-    diedConn = humanoid.Died:Connect(function()
-        healthConn:Disconnect()
-        diedConn:Disconnect()
-        task.wait(2)  -- Wait for respawn
+    CharacterConnections.died = humanoid.Died:Connect(function()
+        CleanupCharacterEvents()
+        task.wait(3)  -- Wait for respawn
         if LP.Character then
             SetupCharacterEvents(LP.Character)
         end
@@ -143,16 +166,9 @@ UIS.InputBegan:Connect(function(input)
     end
 end)
 
--- Cache refresh system
-task.spawn(function()
-    while task.wait(10) do
-        InitializeCache()
-    end
-end)
-
 -- Auto-armor maintenance
 task.spawn(function()
-    while task.wait(1) do
+    while task.wait(2) do
         if Active and LP.Character and not LP.Character:FindFirstChild(ARMOR_NAME) then
             EquipArmor()
         end
@@ -160,7 +176,7 @@ task.spawn(function()
 end)
 
 game:GetService("StarterGui"):SetCore("SendNotification", {
-    Title = "PERFORMANCE SYSTEM ACTIVE",
-    Text = "Armor acquisition fixed\nZero FPS impact\nCache refresh every 10s",
+    Title = "RESPAWN-FIXED SYSTEM ACTIVE",
+    Text = "Reliable armor after death\nPress H to toggle",
     Duration = 5
 })
