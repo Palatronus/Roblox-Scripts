@@ -1,5 +1,6 @@
 local Players = game:GetService("Players")
 local UIS = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
 local LP = Players.LocalPlayer
 
 -- Verified Configuration
@@ -10,141 +11,150 @@ local ARMOR_STAND_NAME = "BattleArmorStand"
 
 -- System State
 local Active = true
-local ArmorCache = {}
-local HealPadCache = {}
-local CharacterConnections = {}
+local Connections = {}
 
--- Cache all items once on startup
-local function InitializeCache()
-    ArmorCache = {}
-    HealPadCache = {}
-    
-    for _, obj in ipairs(workspace:GetDescendants()) do
-        if obj.Name == ARMOR_STAND_NAME and obj:IsA("Model") then
-            local part = obj:FindFirstChildWhichIsA("BasePart") or obj.PrimaryPart
-            if part then
-                table.insert(ArmorCache, part)
-            end
-        elseif obj.Name == HEAL_PAD_NAME and obj:IsA("Model") then
-            local part = obj:FindFirstChild("Pad") or obj:FindFirstChildWhichIsA("BasePart") or obj.PrimaryPart
-            if part then
-                table.insert(HealPadCache, part)
-            end
-        end
+-- Core Protection System
+local function SafeCall(func)
+    local success, err = pcall(func)
+    if not success then
+        warn("System Auto-Repair: "..tostring(err))
+        task.wait(1)
+        return true
     end
+    return false
 end
 
-InitializeCache()
-
--- ARMOR SYSTEM: Works exactly as you wanted
-local function EquipArmor()
-    if not LP.Character or LP.Character:FindFirstChild(ARMOR_NAME) then return end
-    
-    local root = LP.Character:FindFirstChild("HumanoidRootPart")
-    if not root then return end
-    
-    for _, armorPart in ipairs(ArmorCache) do
-        if armorPart and armorPart.Parent then
-            firetouchinterest(root, armorPart, 0)
-            firetouchinterest(root, armorPart, 1)
+-- Memory Management
+local function Cleanup()
+    for _, conn in pairs(Connections) do
+        if conn.Connected then
+            conn:Disconnect()
         end
     end
+    Connections = {}
 end
 
--- HEALING SYSTEM: Works exactly as you wanted
-local function TriggerHeal()
-    if not LP.Character then return end
-    
-    local humanoid = LP.Character:FindFirstChild("Humanoid")
-    local root = LP.Character:FindFirstChild("HumanoidRootPart")
-    if not humanoid or not root or humanoid.Health >= humanoid.MaxHealth then return end
-    
-    for _, padPart in ipairs(HealPadCache) do
-        if padPart and padPart.Parent and padPart.Color == ACTIVE_HEAL_COLOR then
-            firetouchinterest(root, padPart, 0)
-            firetouchinterest(root, padPart, 1)
-        end
-    end
-end
-
--- ARMOR ACQUISITION SYSTEM: Simple and reliable
-local function ArmorMonitor()
+-- ARMOR SYSTEM: Modified to be event-based like healing
+local function ArmorSystem()
     while Active do
-        EquipArmor()
-        task.wait(1)  -- Check once per second
-    end
-end
-
--- HEALING SYSTEM: Event-based for instant response
-local function SetupHealingEvents()
-    if not LP.Character then return end
-    
-    local humanoid = LP.Character:FindFirstChild("Humanoid")
-    if not humanoid then return end
-    
-    -- Cleanup previous connections
-    if CharacterConnections.health then
-        CharacterConnections.health:Disconnect()
-    end
-    
-    -- HealthChanged event triggers instant healing
-    CharacterConnections.health = humanoid.HealthChanged:Connect(function()
-        if Active and humanoid.Health < humanoid.MaxHealth then
-            TriggerHeal()
-        end
-    end)
-end
-
--- Respawn handling
-local function HandleRespawn()
-    if LP.Character then
-        -- Set up healing events for new character
-        SetupHealingEvents()
-        
-        -- Equip armor immediately
-        task.spawn(EquipArmor)
-        
-        -- Setup death handler
-        local humanoid = LP.Character:FindFirstChild("Humanoid")
-        if humanoid then
-            if CharacterConnections.died then
-                CharacterConnections.died:Disconnect()
+        if SafeCall(function()
+            -- Only run if player doesn't have armor
+            if LP.Character and not LP.Character:FindFirstChild(ARMOR_NAME) then
+                local root = LP.Character:FindFirstChild("HumanoidRootPart")
+                if root then
+                    -- Find and activate nearest armor stands
+                    local armors = {}
+                    for _, obj in ipairs(workspace:GetDescendants()) do
+                        if obj.Name == ARMOR_STAND_NAME and obj:IsA("Model") then
+                            local part = obj:FindFirstChildWhichIsA("BasePart")
+                            if part then
+                                table.insert(armors, {
+                                    part = part,
+                                    distance = (root.Position - part.Position).Magnitude
+                                })
+                            end
+                        end
+                    end
+                    
+                    table.sort(armors, function(a,b) return a.distance < b.distance end)
+                    
+                    for i = 1, math.min(1, #armors) do
+                        -- Instant single activation
+                        firetouchinterest(root, armors[i].part, 0)
+                        firetouchinterest(root, armors[i].part, 1)
+                        
+                        if LP.Character:FindFirstChild(ARMOR_NAME) then break end
+                    end
+                end
             end
-            CharacterConnections.died = humanoid.Died:Connect(function()
-                task.wait(2)  -- Wait for respawn
-                HandleRespawn()
-            end)
+        end) then
+            task.wait(2)
+        else
+            task.wait(1)
         end
     end
 end
 
--- Toggle system
-UIS.InputBegan:Connect(function(input)
+-- HEALING SYSTEM: Reverted to your original working version
+local function HealSystem()
+    while Active do
+        if SafeCall(function()
+            -- Only run if player is damaged
+            if LP.Character and LP.Character:FindFirstChild("Humanoid") then
+                local humanoid = LP.Character.Humanoid
+                local root = LP.Character:FindFirstChild("HumanoidRootPart")
+                
+                if humanoid.Health < humanoid.MaxHealth and root then
+                    -- Find all active heal pads
+                    local activePads = {}
+                    for _, pad in ipairs(workspace:GetDescendants()) do
+                        if pad.Name == HEAL_PAD_NAME and pad:IsA("Model") then
+                            local padPart = pad:FindFirstChild("Pad") or pad:FindFirstChildWhichIsA("BasePart")
+                            if padPart and padPart.Color == ACTIVE_HEAL_COLOR then
+                                table.insert(activePads, {
+                                    part = padPart,
+                                    distance = (root.Position - padPart.Position).Magnitude
+                                })
+                            end
+                        end
+                    end
+                    
+                    -- Activate nearest available pad
+                    if #activePads > 0 then
+                        table.sort(activePads, function(a,b) return a.distance < b.distance end)
+                        local targetPad = activePads[1].part
+                        
+                        -- Instant single activation
+                        firetouchinterest(root, targetPad, 0)
+                        firetouchinterest(root, targetPad, 1)
+                    end
+                end
+            end
+        end) then
+            task.wait(1)
+        else
+            task.wait(0.25)
+        end
+    end
+end
+
+-- Toggle System
+Connections.toggle = UIS.InputBegan:Connect(function(input)
     if input.KeyCode == Enum.KeyCode.H then
         Active = not Active
-        game:GetService("StarterGui"):SetCore("SendNotification", {
-            Title = "SYSTEM: "..(Active and "ON" or "OFF"),
-            Duration = 1
-        })
+        if Active then
+            Cleanup()
+            Connections.armor = task.spawn(ArmorSystem)
+            Connections.heal = task.spawn(HealSystem)
+        else
+            Cleanup()
+        end
     end
 end)
 
 -- Initialization
-task.spawn(ArmorMonitor)  -- Start armor monitoring
-HandleRespawn()  -- Initial setup
+task.spawn(ArmorSystem)
+task.spawn(HealSystem)
 
--- Handle character changes
-LP.CharacterAdded:Connect(HandleRespawn)
-
--- Periodic cache refresh
+-- Auto-Repair System
 task.spawn(function()
-    while task.wait(30) do
-        InitializeCache()
+    while true do
+        task.wait(10)
+        if Active then
+            if not Connections.armor or coroutine.status(Connections.armor) == "dead" then
+                warn("Armor System Restarting...")
+                Connections.armor = task.spawn(ArmorSystem)
+            end
+            if not Connections.heal or coroutine.status(Connections.heal) == "dead" then
+                warn("Heal System Restarting...")
+                Connections.heal = task.spawn(HealSystem)
+            end
+        end
     end
 end)
 
 game:GetService("StarterGui"):SetCore("SendNotification", {
-    Title = "RELIABLE SYSTEM ACTIVE",
-    Text = "Armor: Constant monitoring\nHealing: Event-based\nPress H to toggle",
+    Title = "ARMOR-OPTIMIZED SYSTEM ACTIVE",
+    Text = "Healing: Original Working Version\nArmor: Event-Based Acquisition\nPress H to toggle",
     Duration = 5
 })
