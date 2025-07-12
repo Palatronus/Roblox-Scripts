@@ -34,7 +34,7 @@ local function Cleanup()
     Connections = {}
 end
 
--- ARMOR SYSTEM: Modified to be event-based like healing
+-- Armor System: Modified to activate ALL armor stands
 local function ArmorSystem()
     while Active do
         if SafeCall(function()
@@ -42,28 +42,16 @@ local function ArmorSystem()
             if LP.Character and not LP.Character:FindFirstChild(ARMOR_NAME) then
                 local root = LP.Character:FindFirstChild("HumanoidRootPart")
                 if root then
-                    -- Find and activate nearest armor stands
-                    local armors = {}
+                    -- Activate ALL armor stands (no distance sorting)
                     for _, obj in ipairs(workspace:GetDescendants()) do
                         if obj.Name == ARMOR_STAND_NAME and obj:IsA("Model") then
                             local part = obj:FindFirstChildWhichIsA("BasePart")
                             if part then
-                                table.insert(armors, {
-                                    part = part,
-                                    distance = (root.Position - part.Position).Magnitude
-                                })
+                                -- Instant activation for each armor stand
+                                firetouchinterest(root, part, 0)
+                                firetouchinterest(root, part, 1)
                             end
                         end
-                    end
-                    
-                    table.sort(armors, function(a,b) return a.distance < b.distance end)
-                    
-                    for i = 1, math.min(1, #armors) do
-                        -- Instant single activation
-                        firetouchinterest(root, armors[i].part, 0)
-                        firetouchinterest(root, armors[i].part, 1)
-                        
-                        if LP.Character:FindFirstChild(ARMOR_NAME) then break end
                     end
                 end
             end
@@ -75,7 +63,7 @@ local function ArmorSystem()
     end
 end
 
--- HEALING SYSTEM: Reverted to your original working version
+-- Healing System: UNCHANGED (works as you like)
 local function HealSystem()
     while Active do
         if SafeCall(function()
@@ -154,7 +142,7 @@ task.spawn(function()
 end)
 
 game:GetService("StarterGui"):SetCore("SendNotification", {
-    Title = "ARMOR-OPTIMIZED SYSTEM ACTIVE",
-    Text = "Healing: Original Working Version\nArmor: Event-Based Acquisition\nPress H to toggle",
+    Title = "ARMOR SYSTEM UPDATED",
+    Text = "Healing: Original Working Version\nArmor: Activates ALL stands\nPress H to toggle",
     Duration = 5
 })
