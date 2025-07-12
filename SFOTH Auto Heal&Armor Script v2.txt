@@ -15,16 +15,25 @@ local HealPadCache = {}
 
 -- Cache all items once on startup
 local function InitializeCache()
+    ArmorCache = {}
+    HealPadCache = {}
+    
     for _, obj in ipairs(workspace:GetDescendants()) do
         if obj.Name == ARMOR_STAND_NAME and obj:IsA("Model") then
-            local part = obj:FindFirstChildWhichIsA("BasePart")
+            local part = obj:FindFirstChildWhichIsA("BasePart") or obj.PrimaryPart
             if part then
-                table.insert(ArmorCache, part)
+                table.insert(ArmorCache, {
+                    part = part,
+                    model = obj
+                })
             end
         elseif obj.Name == HEAL_PAD_NAME and obj:IsA("Model") then
-            local part = obj:FindFirstChild("Pad") or obj:FindFirstChildWhichIsA("BasePart")
+            local part = obj:FindFirstChild("Pad") or obj:FindFirstChildWhichIsA("BasePart") or obj.PrimaryPart
             if part then
-                table.insert(HealPadCache, part)
+                table.insert(HealPadCache, {
+                    part = part,
+                    model = obj
+                })
             end
         end
     end
@@ -32,7 +41,7 @@ end
 
 InitializeCache()
 
--- Event-based armor system
+-- Improved armor acquisition with model reference
 local function EquipArmor()
     if not LP.Character or LP.Character:FindFirstChild(ARMOR_NAME) then return end
     
@@ -42,11 +51,11 @@ local function EquipArmor()
     -- Find nearest armor
     local closest
     local closestDist = math.huge
-    for _, armor in ipairs(ArmorCache) do
-        if armor and armor.Parent then
-            local dist = (root.Position - armor.Position).Magnitude
+    for _, armorData in ipairs(ArmorCache) do
+        if armorData.model and armorData.model.Parent and armorData.part then
+            local dist = (root.Position - armorData.part.Position).Magnitude
             if dist < closestDist then
-                closest = armor
+                closest = armorData.part
                 closestDist = dist
             end
         end
@@ -58,7 +67,7 @@ local function EquipArmor()
     end
 end
 
--- Event-based healing system
+-- Healing system
 local function TriggerHeal()
     if not LP.Character then return end
     
@@ -69,11 +78,11 @@ local function TriggerHeal()
     -- Find nearest active heal pad
     local closestPad
     local closestDist = math.huge
-    for _, pad in ipairs(HealPadCache) do
-        if pad and pad.Parent and pad.Color == ACTIVE_HEAL_COLOR then
-            local dist = (root.Position - pad.Position).Magnitude
+    for _, padData in ipairs(HealPadCache) do
+        if padData.model and padData.model.Parent and padData.part and padData.part.Color == ACTIVE_HEAL_COLOR then
+            local dist = (root.Position - padData.part.Position).Magnitude
             if dist < closestDist then
-                closestPad = pad
+                closestPad = padData.part
                 closestDist = dist
             end
         end
@@ -86,10 +95,10 @@ local function TriggerHeal()
 end
 
 -- Event-based character monitoring
-local function SetupCharacterEvents()
-    if not LP.Character then return end
+local function SetupCharacterEvents(character)
+    if not character then return end
     
-    local humanoid = LP.Character:WaitForChild("Humanoid")
+    local humanoid = character:WaitForChild("Humanoid")
     
     -- Auto-equip armor on spawn
     EquipArmor()
@@ -108,13 +117,20 @@ local function SetupCharacterEvents()
         healthConn:Disconnect()
         diedConn:Disconnect()
         task.wait(2)  -- Wait for respawn
-        SetupCharacterEvents()
+        if LP.Character then
+            SetupCharacterEvents(LP.Character)
+        end
     end)
 end
 
 -- Initialization
-SetupCharacterEvents()
-LP.CharacterAdded:Connect(SetupCharacterEvents)
+LP.CharacterAdded:Connect(function(character)
+    SetupCharacterEvents(character)
+end)
+
+if LP.Character then
+    SetupCharacterEvents(LP.Character)
+end
 
 -- Toggle system
 UIS.InputBegan:Connect(function(input)
@@ -127,9 +143,16 @@ UIS.InputBegan:Connect(function(input)
     end
 end)
 
+-- Cache refresh system
+task.spawn(function()
+    while task.wait(10) do
+        InitializeCache()
+    end
+end)
+
 -- Auto-armor maintenance
 task.spawn(function()
-    while task.wait(5) do
+    while task.wait(1) do
         if Active and LP.Character and not LP.Character:FindFirstChild(ARMOR_NAME) then
             EquipArmor()
         end
@@ -137,7 +160,7 @@ task.spawn(function()
 end)
 
 game:GetService("StarterGui"):SetCore("SendNotification", {
-    Title = "EVENT-BASED SYSTEM ACTIVE",
-    Text = "Zero FPS Impact\nInstant Response\nPress H to toggle",
+    Title = "PERFORMANCE SYSTEM ACTIVE",
+    Text = "Armor acquisition fixed\nZero FPS impact\nCache refresh every 10s",
     Duration = 5
 })
