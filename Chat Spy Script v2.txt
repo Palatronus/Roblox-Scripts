@@ -1,77 +1,81 @@
 print("-- Chat Spy Executed --")
 print("Type \"spy\" to enable or disable the chat spy.")
-print("Only tested if this works executed with Synapse (should work with other exploits though)")
 print("https://github.com/dehoisted/Chat-Spy")
 
 -- Config
 Config = {
-	enabled = true,
-	spyOnMyself = true,
-	public = false,
-	publicItalics = true
+    enabled = true,
+    spyOnMyself = true,
+    public = false,
+    publicItalics = true
 }
 
 -- Customizing Log Output
 PrivateProperties = {
-	Color = Color3.fromRGB(0,255,255); 
-	Font = Enum.Font.SourceSansBold;
-	TextSize = 18;
+    Color = Color3.fromRGB(0,255,255); 
+    Font = Enum.Font.SourceSansBold;
+    TextSize = 18;
 }
 
-local StarterGui = game:GetService("StarterGui")
 local Players = game:GetService("Players")
+local StarterGui = game:GetService("StarterGui")
 local player = Players.LocalPlayer
-local TextChatService = game:GetService("TextChatService")
 local instance = (_G.chatSpyInstance or 0) + 1
 _G.chatSpyInstance = instance
 
--- Main message processing function
-local function processMessage(speaker, message, channelName)
-	if not Config.enabled then return end
-	if speaker == player and not Config.spyOnMyself then return end
-	
-	-- Skip public messages unless we're configured to show them publicly
-	if channelName == "RBXGeneral" and not Config.public then return end
-	
-	if Config.public then
-		local text = (Config.publicItalics and "/me " or '').."{SPY} [".. speaker.Name .."]: "..message
-		TextChatService.TextChannels.RBXGeneral:SendAsync(text)
-	else
-		PrivateProperties.Text = "{SPY} [".. speaker.Name .."]: "..message
-		StarterGui:SetCore("ChatMakeSystemMessage", PrivateProperties)
-	end
+-- Get chat events
+local chatEvents = game:GetService("ReplicatedStorage"):FindFirstChild("DefaultChatSystemChatEvents")
+if not chatEvents then
+    warn("Chat system not found - script may not work")
+    return
 end
 
--- Create message received handler
-local function createMessageHandler()
-	TextChatService.MessageReceived:Connect(function(message)
-		if _G.chatSpyInstance ~= instance then return end
-		if not message.TextSource then return end
-		
-		local speaker = Players:GetPlayerByUserId(message.TextSource.UserId)
-		if not speaker then return end
-		
-		local channelName = "Unknown"
-		if message.TextChannel then
-			channelName = message.TextChannel.Name
-		end
-		
-		processMessage(speaker, message.Text, channelName)
-	end)
+local sayMessageRequest = chatEvents:WaitForChild("SayMessageRequest")
+local onMessageDone = chatEvents:WaitForChild("OnMessageDoneFiltering")
+
+-- Main processing function
+local function processMessage(speaker, message, channel)
+    if _G.chatSpyInstance ~= instance then return end
+    if not Config.enabled then return end
+    if not Config.spyOnMyself and speaker == player then return end
+    
+    -- Skip public messages if they're already visible
+    if channel == "All" and not Config.public then return end
+    
+    -- Clean message
+    message = message:gsub("[\n\r]",''):gsub("\t",' '):gsub("[ ]+",' ')
+    
+    if Config.public then
+        local text = (Config.publicItalics and "/me " or '').."{SPY} [".. speaker.Name .."]: "..message
+        sayMessageRequest:FireServer(text, "All")
+    else
+        PrivateProperties.Text = "{SPY} [".. speaker.Name .."]: "..message
+        StarterGui:SetCore("ChatMakeSystemMessage", PrivateProperties)
+    end
 end
 
--- Spy toggle command
-player.Chatted:Connect(function(msg)
-	if _G.chatSpyInstance ~= instance then return end
-	if msg:lower():sub(1,4) == "/spy" then
-		Config.enabled = not Config.enabled
-		wait(0.3)
-		PrivateProperties.Text = "{SPY "..(Config.enabled and "EN" or "DIS").."ABLED}"
-		StarterGui:SetCore("ChatMakeSystemMessage", PrivateProperties)
-	end
+-- Message handler
+onMessageDone.OnClientEvent:Connect(function(messageData)
+    if _G.chatSpyInstance ~= instance then return end
+    if messageData.FromSpeaker and messageData.Message then
+        local speaker = Players:GetPlayerByUserId(messageData.FromSpeaker)
+        if speaker then
+            processMessage(speaker, messageData.Message, messageData.OriginalChannel)
+        end
+    end
 end)
 
--- Initialize
-createMessageHandler()
+-- Spy toggle command
+player.Chatted:Connect(function(message)
+    if _G.chatSpyInstance ~= instance then return end
+    if message:lower():sub(1,4) == "/spy" then
+        Config.enabled = not Config.enabled
+        task.wait(0.3)
+        PrivateProperties.Text = "{SPY "..(Config.enabled and "EN" or "DIS").."ABLED}"
+        StarterGui:SetCore("ChatMakeSystemMessage", PrivateProperties)
+    end
+end)
+
+-- Initial status
 PrivateProperties.Text = "{SPY "..(Config.enabled and "EN" or "DIS").."ABLED}"
 StarterGui:SetCore("ChatMakeSystemMessage", PrivateProperties)
