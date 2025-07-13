@@ -5,7 +5,7 @@ print("https://github.com/dehoisted/Chat-Spy")
 -- Config
 Config = {
     enabled = true,
-    spyOnMyself = false,
+    spyOnMyself = true,
     public = false,
     publicItalics = true
 }
@@ -27,7 +27,7 @@ local function displaySystemMessage(text)
     )
 end
 
--- Core message processing (FIXED FOR REQUIREMENT 1)
+-- Core message processing
 local function processMessage(speaker, message, channel)
     if not Config.enabled then return end
     
@@ -63,12 +63,19 @@ local function setupInfiniteYieldHook()
         local speaker = Players:GetPlayerByUserId(messageData.FromSpeaker)
         if not speaker then return end
         
-        -- REQUIREMENT 1: Skip private messages involving local player
+        -- REQUIREMENT 1: Skip all private messages involving local player
         if messageData.OriginalChannel == "Whisper" then
             -- Skip if local player is sender or receiver
-            if speaker == player or 
-               (messageData.ToSpeaker and Players:GetPlayerByUserId(messageData.ToSpeaker) == player) then
-                return
+            if speaker == player then
+                return  -- Skip outgoing private messages
+            end
+            
+            -- Check if local player is recipient
+            if messageData.ToSpeaker then
+                local recipient = Players:GetPlayerByUserId(messageData.ToSpeaker)
+                if recipient and recipient == player then
+                    return  -- Skip incoming private messages
+                end
             end
         end
         
@@ -89,11 +96,14 @@ local function setupOwnMessageHook()
         if not Config.enabled then return end
         if not Config.spyOnMyself then return end
         
-        -- Determine channel from message content
-        local channel = "All"
+        -- Skip private messages
         if rawMessage:sub(1,3):lower() == "/w " then
-            channel = "Whisper"
-        elseif rawMessage:sub(1,1) == "/" then
+            return
+        end
+        
+        -- Determine channel for non-private messages
+        local channel = "All"
+        if rawMessage:sub(1,1) == "/" then
             channel = "Command"
         end
         
@@ -127,6 +137,15 @@ else
         local speaker = Players:GetPlayerByUserId(message.TextSource.UserId)
         if speaker and speaker ~= player then
             local channel = message.TextChannel and message.TextChannel.Name or "Unknown"
+            
+            -- Skip private messages to local player in fallback
+            if channel == "RBXWhisper" and message.TextSource.UserId ~= player.UserId then
+                -- Check if message is addressed to local player
+                if message.Text:find(player.Name, 1, true) then
+                    return
+                end
+            end
+            
             processMessage(speaker, message.Text, channel)
         end
     end)
@@ -144,6 +163,10 @@ for _, otherPlayer in ipairs(Players:GetPlayers()) do
     if otherPlayer ~= player then
         otherPlayer.Chatted:Connect(function(message)
             if _G.chatSpyInstance ~= instance then return end
+            -- Skip private messages to local player
+            if message:sub(1,3):lower() == "/w " and message:find(player.Name, 1, true) then
+                return
+            end
             processMessage(otherPlayer, message, "All")
         end)
     end
@@ -152,6 +175,10 @@ end
 Players.PlayerAdded:Connect(function(newPlayer)
     newPlayer.Chatted:Connect(function(message)
         if _G.chatSpyInstance ~= instance then return end
+        -- Skip private messages to local player
+        if message:sub(1,3):lower() == "/w " and message:find(player.Name, 1, true) then
+            return
+        end
         processMessage(newPlayer, message, "All")
     end)
 end)
