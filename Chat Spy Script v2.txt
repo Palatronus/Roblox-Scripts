@@ -24,26 +24,32 @@ local StarterGui = game:GetService("StarterGui")
 local instance = (_G.chatSpyInstance or 0) + 1
 _G.chatSpyInstance = instance
 
-local function processMessage(text, source, status)
+local function processMessage(message)
 	if not Config.enabled then return end
-	if status ~= Enum.TextChatMessageStatus.Success then return end
+	if not message.TextSource then return end  -- Skip system messages
 	
-	local speaker = Players:GetPlayerByUserId(source.UserId)
+	local speaker = Players:GetPlayerByUserId(message.TextSource.UserId)
 	if not speaker then return end
 	if speaker == player and not Config.spyOnMyself then return end
 	
+	local msg = message.Text
+	local channel = message.TextChannel and message.TextChannel.Name or "Unknown"
+	
+	-- Skip public messages if they're already visible
+	if channel == "RBXGeneral" and not Config.public then return end
+	
 	if Config.public then
-		local formatted = (Config.publicItalics and "/me " or '').."{SPY} [".. speaker.Name .."]: "..text
-		TextChatService.TextChannels.RBXGeneral:SendAsync(formatted)
+		local text = (Config.publicItalics and "/me " or '').."{SPY} [".. speaker.Name .."]: "..msg
+		TextChatService.TextChannels.RBXGeneral:SendAsync(text)
 	else
-		PrivateProperties.Text = "{SPY} [".. speaker.Name .."]: "..text
+		PrivateProperties.Text = "{SPY} [".. speaker.Name .."]: "..msg
 		StarterGui:SetCore("ChatMakeSystemMessage", PrivateProperties)
 	end
 end
 
 TextChatService.MessageReceived:Connect(function(message)
 	if _G.chatSpyInstance ~= instance then return end
-	processMessage(message.Text, message.TextSource, message.Status)
+	processMessage(message)
 end)
 
 TextChatService.SendingMessage:Connect(function(message)
