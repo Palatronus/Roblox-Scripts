@@ -4,87 +4,69 @@ print("https://github.com/dehoisted/Chat-Spy")
 
 -- Config
 Config = {
-	enabled = true,
-	spyOnMyself = true,
-	public = false,
-	publicItalics = true
+    enabled = true,
+    spyOnMyself = true,
+    public = false,
+    publicItalics = true
 }
 
 -- Customizing Log Output
 PrivateProperties = {
-	Color = Color3.fromRGB(0,255,255); 
-	Font = Enum.Font.SourceSansBold;
-	TextSize = 18;
+    Color = Color3.fromRGB(0,255,255); 
+    Font = Enum.Font.SourceSansBold;
+    TextSize = 18;
 }
 
 local Players = game:GetService("Players")
-local player = Players.LocalPlayer
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local StarterGui = game:GetService("StarterGui")
+local player = Players.LocalPlayer
 local instance = (_G.chatSpyInstance or 0) + 1
 _G.chatSpyInstance = instance
 
--- Main chat hook
-local function onChatted(speaker, message, channel)
-	if _G.chatSpyInstance ~= instance then return end
-	
-	-- Handle /spy command
-	if speaker == player and message:lower():sub(1,4) == "/spy" then
-		Config.enabled = not Config.enabled
-		task.wait(0.3)
-		PrivateProperties.Text = "{SPY "..(Config.enabled and "EN" or "DIS").."ABLED}"
-		StarterGui:SetCore("ChatMakeSystemMessage", PrivateProperties)
-		return
-	end
-	
-	-- Process messages
-	if Config.enabled and (Config.spyOnMyself or speaker ~= player) then
-		if channel ~= "All" then  -- Non-public messages
-			local cleanMessage = message:gsub("[\n\r]",''):gsub("\t",' '):gsub("[ ]+",' ')
-			
-			if Config.public then
-				local text = (Config.publicItalics and "/me " or '').."{SPY} [".. speaker.Name .."]: "..cleanMessage
-				game:GetService("TextChatService").TextChannels.RBXGeneral:SendAsync(text)
-			else
-				PrivateProperties.Text = "{SPY} [".. speaker.Name .."]: "..cleanMessage
-				StarterGui:SetCore("ChatMakeSystemMessage", PrivateProperties)
-			end
-		end
-	end
+-- Get chat events
+local chatEvents = ReplicatedStorage:WaitForChild("DefaultChatSystemChatEvents")
+local sayMessageRequest = chatEvents:WaitForChild("SayMessageRequest")
+local onMessageDone = chatEvents:WaitForChild("OnMessageDoneFiltering")
+
+local function processMessage(speaker, message, channel)
+    if _G.chatSpyInstance ~= instance then return end
+    if not Config.enabled then return end
+    if not Config.spyOnMyself and speaker == player then return end
+    
+    -- Skip public messages if they're already visible
+    if channel == "All" and not Config.public then return end
+    
+    if Config.public then
+        local text = (Config.publicItalics and "/me " or '').."{SPY} [".. speaker.Name .."]: "..message
+        sayMessageRequest:FireServer(text, "All")
+    else
+        PrivateProperties.Text = "{SPY} [".. speaker.Name .."]: "..message
+        StarterGui:SetCore("ChatMakeSystemMessage", PrivateProperties)
+    end
 end
 
--- Hook into chat system
-local function setupChatHook()
-	local chatEvents = game:GetService("ReplicatedStorage"):FindFirstChild("DefaultChatSystemChatEvents")
-	if not chatEvents then return end
-	
-	local onMessageDone = chatEvents:FindFirstChild("OnMessageDoneFiltering")
-	if onMessageDone then
-		onMessageDone.OnClientEvent:Connect(function(messageData)
-			if messageData.FromSpeaker and messageData.Message then
-				local speaker = Players:GetPlayerByUserId(messageData.FromSpeaker)
-				if speaker then
-					onChatted(speaker, messageData.Message, messageData.OriginalChannel)
-				end
-			end
-		end)
-	end
-end
-
--- Initialize
-setupChatHook()
-PrivateProperties.Text = "{SPY "..(Config.enabled and "EN" or "DIS").."ABLED}"
-StarterGui:SetCore("ChatMakeSystemMessage", PrivateProperties)
-
--- Add connection for new players
-Players.PlayerAdded:Connect(function(player)
-	player.Chatted:Connect(function(message)
-		onChatted(player, message, "All")
-	end)
+-- Handle new messages
+onMessageDone.OnClientEvent:Connect(function(messageData)
+    if messageData.FromSpeaker and messageData.Message then
+        local speaker = Players:GetPlayerByUserId(messageData.FromSpeaker)
+        if speaker then
+            processMessage(speaker, messageData.Message, messageData.OriginalChannel)
+        end
+    end
 end)
 
--- Add connection for existing players
-for _, player in ipairs(Players:GetPlayers()) do
-	player.Chatted:Connect(function(message)
-		onChatted(player, message, "All")
-	end)
-end
+-- Handle /spy command
+player.Chatted:Connect(function(message)
+    if _G.chatSpyInstance ~= instance then return end
+    if message:lower():sub(1,4) == "/spy" then
+        Config.enabled = not Config.enabled
+        task.wait(0.3)
+        PrivateProperties.Text = "{SPY "..(Config.enabled and "EN" or "DIS").."ABLED}"
+        StarterGui:SetCore("ChatMakeSystemMessage", PrivateProperties)
+    end
+end)
+
+-- Initial setup
+PrivateProperties.Text = "{SPY "..(Config.enabled and "EN" or "DIS").."ABLED}"
+StarterGui:SetCore("ChatMakeSystemMessage", PrivateProperties)
