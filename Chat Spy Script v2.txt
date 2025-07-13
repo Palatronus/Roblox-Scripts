@@ -24,41 +24,37 @@ local StarterGui = game:GetService("StarterGui")
 local instance = (_G.chatSpyInstance or 0) + 1
 _G.chatSpyInstance = instance
 
-local function processMessage(message)
+local function processMessage(text, source, status)
 	if not Config.enabled then return end
-	if message.Status ~= Enum.TextChatMessageStatus.Success then return end
-	
-	local source = message.TextSource
-	if not source then return end
+	if status ~= Enum.TextChatMessageStatus.Success then return end
 	
 	local speaker = Players:GetPlayerByUserId(source.UserId)
 	if not speaker then return end
 	if speaker == player and not Config.spyOnMyself then return end
 	
-	local msg = message.Text
 	if Config.public then
-		local text = (Config.publicItalics and "/me " or '').."{SPY} [".. speaker.Name .."]: "..msg
-		TextChatService.TextChannels.RBXGeneral:SendAsync(text)
+		local formatted = (Config.publicItalics and "/me " or '').."{SPY} [".. speaker.Name .."]: "..text
+		TextChatService.TextChannels.RBXGeneral:SendAsync(formatted)
 	else
-		PrivateProperties.Text = "{SPY} [".. speaker.Name .."]: "..msg
+		PrivateProperties.Text = "{SPY} [".. speaker.Name .."]: "..text
 		StarterGui:SetCore("ChatMakeSystemMessage", PrivateProperties)
 	end
 end
 
 TextChatService.MessageReceived:Connect(function(message)
 	if _G.chatSpyInstance ~= instance then return end
-	task.spawn(processMessage, message)
+	processMessage(message.Text, message.TextSource, message.Status)
 end)
 
 TextChatService.SendingMessage:Connect(function(message)
 	if _G.chatSpyInstance ~= instance then return end
-	if string.sub(message.Text:lower(), 1, 4) == "/spy" then
+	local text = message.Text
+	if string.sub(text:lower(), 1, 4) == "/spy" then
 		Config.enabled = not Config.enabled
 		task.wait(0.3)
 		PrivateProperties.Text = "{SPY "..(Config.enabled and "EN" or "DIS").."ABLED}"
 		StarterGui:SetCore("ChatMakeSystemMessage", PrivateProperties)
 		message.Text = ""
-		return
 	end
 end)
 
