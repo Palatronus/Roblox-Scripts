@@ -1,0 +1,69 @@
+print("-- Chat Spy Executed --")
+print("Type \"spy\" to enable or disable the chat spy.")
+print("https://github.com/dehoisted/Chat-Spy")
+
+-- Config
+Config = {
+	enabled = true,
+	spyOnMyself = true,
+	public = false,
+	publicItalics = true
+}
+
+-- Customizing Log Output
+PrivateProperties = {
+	Color = Color3.fromRGB(0,255,255); 
+	Font = Enum.Font.SourceSansBold;
+	TextSize = 18;
+}
+
+local TextChatService = game:GetService("TextChatService")
+local Players = game:GetService("Players")
+local player = Players.LocalPlayer
+local StarterGui = game:GetService("StarterGui")
+local instance = (_G.chatSpyInstance or 0) + 1
+_G.chatSpyInstance = instance
+
+local function processMessage(message)
+	if not Config.enabled then return end
+	if message.Status ~= Enum.TextChatMessageStatus.Success then return end
+	
+	local source = message.TextSource
+	if not source then return end
+	
+	local speaker = Players:GetPlayerByUserId(source.UserId)
+	if not speaker then return end
+	if speaker == player and not Config.spyOnMyself then return end
+	
+	local msg = message.Text
+	if Config.public then
+		local text = (Config.publicItalics and "/me " or '').."{SPY} [".. speaker.Name .."]: "..msg
+		TextChatService.TextChannels.RBXGeneral:SendAsync(text)
+	else
+		PrivateProperties.Text = "{SPY} [".. speaker.Name .."]: "..msg
+		StarterGui:SetCore("ChatMakeSystemMessage", PrivateProperties)
+	end
+end
+
+TextChatService.OnIncomingMessage = (TextChatService.OnIncomingMessage or function() end):Connect(function(message)
+	if _G.chatSpyInstance ~= instance then return end
+	if message.MessageType == Enum.TextChatMessageType.System then return end
+	
+	task.spawn(function()
+		processMessage(message)
+	end)
+end)
+
+TextChatService.SendingMessage:Connect(function(message)
+	if _G.chatSpyInstance ~= instance then return end
+	if string.sub(message.Text:lower(), 1, 4) == "/spy" then
+		Config.enabled = not Config.enabled
+		task.wait(0.3)
+		PrivateProperties.Text = "{SPY "..(Config.enabled and "EN" or "DIS").."ABLED}"
+		StarterGui:SetCore("ChatMakeSystemMessage", PrivateProperties)
+		return Enum.TextChatMessageStatus.NotSent
+	end
+end)
+
+PrivateProperties.Text = "{SPY "..(Config.enabled and "EN" or "DIS").."ABLED}"
+StarterGui:SetCore("ChatMakeSystemMessage", PrivateProperties)
