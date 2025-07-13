@@ -11,7 +11,7 @@ Config = {
 }
 
 local Players = game:GetService("Players")
-local player = Players.LocalPlayer
+local player = Players.LocalPlayer  -- Correct local player reference :cite[4]:cite[6]
 local TextChatService = game:GetService("TextChatService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local instance = (_G.chatSpyInstance or 0) + 1
@@ -27,12 +27,16 @@ local function displaySystemMessage(text)
     )
 end
 
--- Core message processing
+-- Core message processing (MODIFIED FOR REQUIREMENT 1)
 local function processMessage(speaker, message, channel)
     if not Config.enabled then return end
-    if speaker == player and not Config.spyOnMyself then return end
     
-    -- Skip public messages if they're already visible
+    -- Requirement 1: Skip all private messages involving local player
+    if (speaker == player or channel == "RBXWhisper") then
+        return
+    end
+    
+    if speaker == player and not Config.spyOnMyself then return end
     if channel == "RBXGeneral" and not Config.public then return end
     
     -- Clean message
@@ -78,7 +82,7 @@ local function setupOwnMessageHook()
         if not Config.enabled then return end
         if not Config.spyOnMyself then return end
         
-        -- Determine channel from message content
+        -- Determine channel
         local channel = "All"
         if rawMessage:sub(1,3):lower() == "/w " then
             channel = "RBXWhisper"
@@ -108,7 +112,6 @@ end)
 if setupInfiniteYieldHook() then
     displaySystemMessage("{SPY MESSAGE HOOK ACTIVE}")
 else
-    -- Fallback to TextChatService for other players
     TextChatService.MessageReceived:Connect(function(message)
         if _G.chatSpyInstance ~= instance then return end
         if not message.TextSource then return end
@@ -128,7 +131,7 @@ setupOwnMessageHook()
 -- Initial status
 displaySystemMessage("{SPY " .. (Config.enabled and "EN" or "DIS") .. "ABLED}")
 
--- Add player connections for Chatted event as additional fallback
+-- Player connections
 for _, otherPlayer in ipairs(Players:GetPlayers()) do
     if otherPlayer ~= player then
         otherPlayer.Chatted:Connect(function(message)
