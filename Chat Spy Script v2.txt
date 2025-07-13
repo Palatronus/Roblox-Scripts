@@ -1,102 +1,80 @@
 print("-- Chat Spy Executed --")
-print("Type \"spy\" to toggle chat spy")
+print("Type \"spy\" to enable or disable the chat spy.")
+print("Only tested if this works executed with Synapse (should work with other exploits though)")
 print("https://github.com/dehoisted/Chat-Spy")
 
 -- Config
 Config = {
-    enabled = true,
-    spyOnMyself = true,
-    public = false,
-    publicItalics = true
+	enabled = true,
+	spyOnMyself = true,
+	public = false,
+	publicItalics = true
 }
 
--- Chat formatting
+-- Customizing Log Output
 PrivateProperties = {
-    Color = Color3.fromRGB(0,255,255),
-    Font = Enum.Font.SourceSansBold,
-    TextSize = 18
+	Color = Color3.fromRGB(0,255,255); 
+	Font = Enum.Font.SourceSansBold;
+	TextSize = 18;
 }
 
-local Players = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
+local Players = game:GetService("Players")
 local player = Players.LocalPlayer
+local TextChatService = game:GetService("TextChatService")
 local instance = (_G.chatSpyInstance or 0) + 1
 _G.chatSpyInstance = instance
 
--- Core chat monitoring function
-local function processMessage(speaker, message, channel)
-    if _G.chatSpyInstance ~= instance then return end
-    if not Config.enabled then return end
-    if speaker == player and not Config.spyOnMyself then return end
-    
-    -- Format message based on configuration
-    local cleanMessage = message:gsub("[\n\r]",''):gsub("\t",' '):gsub("[ ]+",' ')
-    
-    if Config.public then
-        local text = (Config.publicItalics and "/me " or '').."{SPY} [".. speaker.Name .."]: "..cleanMessage
-        game:GetService("TextChatService").TextChannels.RBXGeneral:SendAsync(text)
-    else
-        PrivateProperties.Text = "{SPY} [".. speaker.Name .."]: "..cleanMessage
-        StarterGui:SetCore("ChatMakeSystemMessage", PrivateProperties)
-    end
+-- Create a hidden TextChannel for message interception
+local spyChannel = Instance.new("TextChannel")
+spyChannel.Name = "SpyChannel"
+spyChannel.Parent = TextChatService
+
+local function processMessage(speaker, message)
+	if not Config.enabled then return end
+	if speaker == player and not Config.spyOnMyself then return end
+	
+	if Config.public then
+		local text = (Config.publicItalics and "/me " or '').."{SPY} [".. speaker.Name .."]: "..message
+		TextChatService.TextChannels.RBXGeneral:SendAsync(text)
+	else
+		PrivateProperties.Text = "{SPY} [".. speaker.Name .."]: "..message
+		StarterGui:SetCore("ChatMakeSystemMessage", PrivateProperties)
+	end
 end
 
--- Hook into legacy chat system (works for private/team messages)
-local function setupLegacyHook()
-    local chatEvents = game:GetService("ReplicatedStorage"):FindFirstChild("DefaultChatSystemChatEvents")
-    if not chatEvents then return false end
-    
-    local onMessageDone = chatEvents:FindFirstChild("OnMessageDoneFiltering")
-    if onMessageDone then
-        onMessageDone.OnClientEvent:Connect(function(messageData)
-            if messageData.FromSpeaker and messageData.Message then
-                local speaker = Players:GetPlayerByUserId(messageData.FromSpeaker)
-                if speaker then
-                    processMessage(speaker, messageData.Message, messageData.OriginalChannel)
-                end
-            end
-        end)
-        return true
-    end
-    return false
+-- Message interception
+spyChannel.OnIncomingMessage = function(message)
+	if _G.chatSpyInstance ~= instance then return end
+	if message.TextSource then
+		local speaker = Players:GetPlayerByUserId(message.TextSource.UserId)
+		if speaker then
+			processMessage(speaker, message.Text)
+		end
+	end
+	return message
 end
 
--- Hook into TextChatService (fallback)
-local function setupTextChatHook()
-    local success, event = pcall(function()
-        return game:GetService("TextChatService").MessageReceived
-    end)
-    
-    if success and event then
-        event:Connect(function(message)
-            if message.TextSource then
-                local speaker = Players:GetPlayerByUserId(message.TextSource.UserId)
-                if speaker then
-                    processMessage(speaker, message.Text, message.TextChannel and message.TextChannel.Name or "Unknown")
-                end
-            end
-        end)
-        return true
-    end
-    return false
+-- Hook into all channels
+for _, channel in pairs(TextChatService.TextChannels:GetChildren()) do
+	channel:AddToChannel(spyChannel)
 end
 
--- Main toggle handler
-player.Chatted:Connect(function(message)
-    if _G.chatSpyInstance ~= instance then return end
-    if message:lower():sub(1,4) == "/spy" then
-        Config.enabled = not Config.enabled
-        task.wait(0.3)
-        PrivateProperties.Text = "{SPY "..(Config.enabled and "EN" or "DIS").."ABLED}"
-        StarterGui:SetCore("ChatMakeSystemMessage", PrivateProperties)
-    end
+TextChatService.TextChannelAdded:Connect(function(channel)
+	channel:AddToChannel(spyChannel)
 end)
 
--- Initialize chat hooks
-if not setupLegacyHook() then
-    setupTextChatHook()
-end
+-- Spy toggle command
+player.Chatted:Connect(function(msg)
+	if _G.chatSpyInstance ~= instance then return end
+	if msg:lower():sub(1,4) == "/spy" then
+		Config.enabled = not Config.enabled
+		wait(0.3)
+		PrivateProperties.Text = "{SPY "..(Config.enabled and "EN" or "DIS").."ABLED}"
+		StarterGui:SetCore("ChatMakeSystemMessage", PrivateProperties)
+	end
+end)
 
--- Initial status message
+-- Initial status
 PrivateProperties.Text = "{SPY "..(Config.enabled and "EN" or "DIS").."ABLED}"
 StarterGui:SetCore("ChatMakeSystemMessage", PrivateProperties)
