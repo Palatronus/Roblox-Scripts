@@ -17,6 +17,9 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local instance = (_G.chatSpyInstance or 0) + 1
 _G.chatSpyInstance = instance
 
+-- Track whisper recipients
+local whisperRecipients = {}
+
 -- System message formatting
 local function displaySystemMessage(text)
     TextChatService.TextChannels.RBXSystem:DisplaySystemMessage(
@@ -31,8 +34,8 @@ end
 local function processMessage(speaker, message, channel)
     if not Config.enabled then return end
     
-    -- Skip public messages if they're already visible
-    if channel == "RBXGeneral" and not Config.public then return end
+    -- Skip public messages
+    if channel == "RBXGeneral" or channel == "All" then return end
     
     -- Skip own messages if configured
     if speaker == player and not Config.spyOnMyself then return end
@@ -65,14 +68,19 @@ local function setupInfiniteYieldHook()
         
         -- Skip all private messages involving local player
         if messageData.OriginalChannel == "Whisper" then
-            -- Skip if local player is sender
+            -- Track whisper recipients
             if speaker == player then
+                -- Extract recipient from outgoing whisper
+                local recipientName = messageData.Message:match("^/w%s+([^%s]+)")
+                if recipientName then
+                    whisperRecipients[recipientName:lower()] = true
+                end
                 return
-            end
-            
-            -- Skip if local player is recipient
-            if messageData.Message:lower():find(player.Name:lower(), 1, true) then
-                return
+            else
+                -- Check if we're the recipient of an incoming whisper
+                if whisperRecipients[speaker.Name:lower()] then
+                    return
+                end
             end
         end
         
@@ -134,12 +142,6 @@ else
         local speaker = Players:GetPlayerByUserId(message.TextSource.UserId)
         if speaker and speaker ~= player then
             local channel = message.TextChannel and message.TextChannel.Name or "Unknown"
-            
-            -- Skip private messages to local player in fallback
-            if channel == "RBXWhisper" and message.Text:lower():find(player.Name:lower(), 1, true) then
-                return
-            end
-            
             processMessage(speaker, message.Text, channel)
         end
     end)
