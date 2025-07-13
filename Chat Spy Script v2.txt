@@ -19,9 +19,6 @@ _G.chatSpyInstance = instance
 
 -- Track whisper initiations
 local whisperInitiations = {}
-local messageQueue = {}
-local MESSAGE_RETRIES = 3
-local RETRY_DELAY = 0.1
 
 -- System message formatting
 local function displaySystemMessage(text)
@@ -41,34 +38,25 @@ local function processMessage(speaker, message, channel)
     -- Skip public chat messages (requirement #3)
     if channel == "RBXGeneral" or channel == "All" then return end
     
-    -- Skip private messages involving the local player (requirement #1)
-    if channel == "RBXWhisper" or channel == "Whisper" then
-        -- Check if this is a new whisper conversation (requirement #2)
-        if speaker == player then
-            -- Parse recipient from whisper command
-            local recipientName = message:match("^/w%s+([^%s]+)")
-            if recipientName then
-                local recipient = Players:FindFirstChild(recipientName) or Players:GetPlayerByUserId(tonumber(recipientName))
-                if recipient then
-                    local initKey = player.UserId .. recipient.UserId
-                    if not whisperInitiations[initKey] then
-                        displaySystemMessage("{SPY} Started whisper with " .. recipient.Name)
-                        whisperInitiations[initKey] = true
-                    end
-                end
-            end
-        else
-            -- For incoming whispers
-            local initKey = speaker.UserId .. player.UserId
-            if not whisperInitiations[initKey] then
-                displaySystemMessage("{SPY} " .. speaker.Name .. " started whisper")
-                whisperInitiations[initKey] = true
-            end
+    -- Handle whisper initiation (requirement #2)
+    if channel == "Whisper" or channel == "RBXWhisper" then
+        -- Create unique conversation key
+        local otherParty = speaker == player and message:match("^/w%s+([^%s]+)") or speaker.Name
+        local convKey = player.Name.."-"..otherParty
+        
+        if not whisperInitiations[convKey] then
+            displaySystemMessage("{SPY} Whisper started: " .. otherParty)
+            whisperInitiations[convKey] = true
         end
         return
     end
     
-    -- Process other messages
+    -- Skip private messages involving local player (requirement #1)
+    if channel == "RBXWhisper" and (speaker == player or message:find(player.Name, 1, true)) then
+        return
+    end
+    
+    -- Clean message
     local cleanMsg = message:gsub("[\n\r]", ""):gsub("\t", " "):gsub(" +", " ")
     
     if Config.public then
@@ -77,39 +65,6 @@ local function processMessage(speaker, message, channel)
     else
         displaySystemMessage("{SPY} [" .. speaker.Name .. "]: " .. cleanMsg)
     end
-end
-
--- Message processing with retry mechanism (requirement #4)
-local function safeProcessMessage(speaker, message, channel)
-    local messageId = speaker.UserId .. "_" .. tostring(os.clock())
-    messageQueue[messageId] = {
-        speaker = speaker,
-        message = message,
-        channel = channel,
-        attempts = 0
-    }
-    
-    local function processAttempt()
-        if not messageQueue[messageId] then return end
-        messageQueue[messageId].attempts = messageQueue[messageId].attempts + 1
-        
-        if Config.enabled then
-            processMessage(
-                messageQueue[messageId].speaker,
-                messageQueue[messageId].message,
-                messageQueue[messageId].channel
-            )
-        end
-        
-        if messageQueue[messageId].attempts >= MESSAGE_RETRIES then
-            messageQueue[messageId] = nil
-        else
-            task.wait(RETRY_DELAY)
-            processAttempt()
-        end
-    end
-    
-    task.spawn(processAttempt)
 end
 
 -- Infinite Yield-style message hook
@@ -127,7 +82,7 @@ local function setupInfiniteYieldHook()
         local speaker = Players:GetPlayerByUserId(messageData.FromSpeaker)
         if not speaker then return end
         
-        safeProcessMessage(
+        processMessage(
             speaker,
             messageData.Message,
             messageData.OriginalChannel
@@ -152,7 +107,7 @@ local function setupOwnMessageHook()
             channel = "Command"
         end
         
-        safeProcessMessage(player, rawMessage, channel)
+        processMessage(player, rawMessage, channel)
     end)
 end
 
@@ -182,7 +137,7 @@ else
         local speaker = Players:GetPlayerByUserId(message.TextSource.UserId)
         if speaker and speaker ~= player then
             local channel = message.TextChannel and message.TextChannel.Name or "Unknown"
-            safeProcessMessage(speaker, message.Text, channel)
+            processMessage(speaker, message.Text, channel)
         end
     end)
     displaySystemMessage("{SPY} USING FALLBACK HOOK")
@@ -191,12 +146,15 @@ end
 -- Setup own message hook
 setupOwnMessageHook()
 
+-- Initial status
+displaySystemMessage("{SPY} " .. (Config.enabled and "ENABLED" or "DISABLED"))
+
 -- Add player connections for Chatted event as additional fallback
 for _, otherPlayer in ipairs(Players:GetPlayers()) do
     if otherPlayer ~= player then
         otherPlayer.Chatted:Connect(function(message)
             if _G.chatSpyInstance ~= instance then return end
-            safeProcessMessage(otherPlayer, message, "All")
+            processMessage(otherPlayer, message, "All")
         end)
     end
 end
@@ -204,9 +162,6 @@ end
 Players.PlayerAdded:Connect(function(newPlayer)
     newPlayer.Chatted:Connect(function(message)
         if _G.chatSpyInstance ~= instance then return end
-        safeProcessMessage(newPlayer, message, "All")
+        processMessage(newPlayer, message, "All")
     end)
 end)
-
--- Initial status
-displaySystemMessage("{SPY} " .. (Config.enabled and "ENABLED" or "DISABLED"))
