@@ -5,7 +5,7 @@ print("https://github.com/dehoisted/Chat-Spy")
 -- Config
 Config = {
     enabled = true,
-    spyOnMyself = false,
+    spyOnMyself = true,
     public = false,
     publicItalics = true
 }
@@ -63,19 +63,16 @@ local function setupInfiniteYieldHook()
         local speaker = Players:GetPlayerByUserId(messageData.FromSpeaker)
         if not speaker then return end
         
-        -- REQUIREMENT 1: Skip all private messages involving local player
+        -- Skip all private messages involving local player
         if messageData.OriginalChannel == "Whisper" then
-            -- Skip if local player is sender or receiver
+            -- Skip if local player is sender
             if speaker == player then
-                return  -- Skip outgoing private messages
+                return
             end
             
-            -- Check if local player is recipient
-            if messageData.ToSpeaker then
-                local recipient = Players:GetPlayerByUserId(messageData.ToSpeaker)
-                if recipient and recipient == player then
-                    return  -- Skip incoming private messages
-                end
+            -- Skip if local player is recipient
+            if messageData.Message:lower():find(player.Name:lower(), 1, true) then
+                return
             end
         end
         
@@ -139,11 +136,8 @@ else
             local channel = message.TextChannel and message.TextChannel.Name or "Unknown"
             
             -- Skip private messages to local player in fallback
-            if channel == "RBXWhisper" and message.TextSource.UserId ~= player.UserId then
-                -- Check if message is addressed to local player
-                if message.Text:find(player.Name, 1, true) then
-                    return
-                end
+            if channel == "RBXWhisper" and message.Text:lower():find(player.Name:lower(), 1, true) then
+                return
             end
             
             processMessage(speaker, message.Text, channel)
@@ -164,7 +158,7 @@ for _, otherPlayer in ipairs(Players:GetPlayers()) do
         otherPlayer.Chatted:Connect(function(message)
             if _G.chatSpyInstance ~= instance then return end
             -- Skip private messages to local player
-            if message:sub(1,3):lower() == "/w " and message:find(player.Name, 1, true) then
+            if message:sub(1,3):lower() == "/w " and message:lower():find(player.Name:lower(), 1, true) then
                 return
             end
             processMessage(otherPlayer, message, "All")
@@ -176,7 +170,7 @@ Players.PlayerAdded:Connect(function(newPlayer)
     newPlayer.Chatted:Connect(function(message)
         if _G.chatSpyInstance ~= instance then return end
         -- Skip private messages to local player
-        if message:sub(1,3):lower() == "/w " and message:find(player.Name, 1, true) then
+        if message:sub(1,3):lower() == "/w " and message:lower():find(player.Name:lower(), 1, true) then
             return
         end
         processMessage(newPlayer, message, "All")
