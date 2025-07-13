@@ -25,14 +25,13 @@ local TextChatService = game:GetService("TextChatService")
 local instance = (_G.chatSpyInstance or 0) + 1
 _G.chatSpyInstance = instance
 
--- Create a hidden TextChannel for message interception
-local spyChannel = Instance.new("TextChannel")
-spyChannel.Name = "SpyChannel"
-spyChannel.Parent = TextChatService
-
-local function processMessage(speaker, message)
+-- Main message processing function
+local function processMessage(speaker, message, channelName)
 	if not Config.enabled then return end
 	if speaker == player and not Config.spyOnMyself then return end
+	
+	-- Skip public messages unless we're configured to show them publicly
+	if channelName == "RBXGeneral" and not Config.public then return end
 	
 	if Config.public then
 		local text = (Config.publicItalics and "/me " or '').."{SPY} [".. speaker.Name .."]: "..message
@@ -43,26 +42,23 @@ local function processMessage(speaker, message)
 	end
 end
 
--- Message interception
-spyChannel.OnIncomingMessage = function(message)
-	if _G.chatSpyInstance ~= instance then return end
-	if message.TextSource then
+-- Create message received handler
+local function createMessageHandler()
+	TextChatService.MessageReceived:Connect(function(message)
+		if _G.chatSpyInstance ~= instance then return end
+		if not message.TextSource then return end
+		
 		local speaker = Players:GetPlayerByUserId(message.TextSource.UserId)
-		if speaker then
-			processMessage(speaker, message.Text)
+		if not speaker then return end
+		
+		local channelName = "Unknown"
+		if message.TextChannel then
+			channelName = message.TextChannel.Name
 		end
-	end
-	return message
+		
+		processMessage(speaker, message.Text, channelName)
+	end)
 end
-
--- Hook into all channels
-for _, channel in pairs(TextChatService.TextChannels:GetChildren()) do
-	channel:AddToChannel(spyChannel)
-end
-
-TextChatService.TextChannelAdded:Connect(function(channel)
-	channel:AddToChannel(spyChannel)
-end)
 
 -- Spy toggle command
 player.Chatted:Connect(function(msg)
@@ -75,6 +71,7 @@ player.Chatted:Connect(function(msg)
 	end
 end)
 
--- Initial status
+-- Initialize
+createMessageHandler()
 PrivateProperties.Text = "{SPY "..(Config.enabled and "EN" or "DIS").."ABLED}"
 StarterGui:SetCore("ChatMakeSystemMessage", PrivateProperties)
