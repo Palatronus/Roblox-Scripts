@@ -27,6 +27,7 @@ _G.chatSpyInstance = instance
 local function processMessage(message)
 	if not Config.enabled then return end
 	if message.Status ~= Enum.TextChatMessageStatus.Success then return end
+	if message.MessageType == Enum.TextChatMessageType.System then return end
 	
 	local source = message.TextSource
 	if not source then return end
@@ -45,13 +46,9 @@ local function processMessage(message)
 	end
 end
 
-TextChatService.OnIncomingMessage = (TextChatService.OnIncomingMessage or function() end):Connect(function(message)
+TextChatService.MessageReceived:Connect(function(message)
 	if _G.chatSpyInstance ~= instance then return end
-	if message.MessageType == Enum.TextChatMessageType.System then return end
-	
-	task.spawn(function()
-		processMessage(message)
-	end)
+	task.spawn(processMessage, message)
 end)
 
 TextChatService.SendingMessage:Connect(function(message)
@@ -61,7 +58,8 @@ TextChatService.SendingMessage:Connect(function(message)
 		task.wait(0.3)
 		PrivateProperties.Text = "{SPY "..(Config.enabled and "EN" or "DIS").."ABLED}"
 		StarterGui:SetCore("ChatMakeSystemMessage", PrivateProperties)
-		return Enum.TextChatMessageStatus.NotSent
+		message.Text = ""
+		return
 	end
 end)
 
