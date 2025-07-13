@@ -13,6 +13,7 @@ Config = {
 local Players = game:GetService("Players")
 local player = Players.LocalPlayer
 local TextChatService = game:GetService("TextChatService")
+local Chat = game:GetService("Chat")
 local instance = (_G.chatSpyInstance or 0) + 1
 _G.chatSpyInstance = instance
 
@@ -27,18 +28,13 @@ local function displaySystemMessage(text)
 end
 
 -- Core message processing
-local function processMessage(message)
+local function processMessage(speaker, rawMessage, channel)
     if not Config.enabled then return end
-    if not message.TextSource then return end
-    
-    local speaker = Players:GetPlayerByUserId(message.TextSource.UserId)
-    if not speaker then return end
     if speaker == player and not Config.spyOnMyself then return end
-    
-    local channel = message.TextChannel and message.TextChannel.Name or "Unknown"
     if channel == "RBXGeneral" and not Config.public then return end
     
-    local cleanMsg = message.Text:gsub("[\n\r]", ""):gsub("\t", " "):gsub(" +", " ")
+    -- Clean and format message
+    local cleanMsg = rawMessage:gsub("[\n\r]", ""):gsub("\t", " "):gsub(" +", " ")
     
     if Config.public then
         local formatted = (Config.publicItalics and "/me " or "") .. "{SPY} [" .. speaker.Name .. "]: " .. cleanMsg
@@ -48,15 +44,30 @@ local function processMessage(message)
     end
 end
 
--- Message interception
-TextChatService.MessageReceived:Connect(function(message)
-    if _G.chatSpyInstance ~= instance then return end
-    if message.Status ~= Enum.TextChatMessageStatus.Success then return end
+-- Hook into pre-filter message pipeline
+local function createChatHook()
+    local chatEvents = game:GetService("ReplicatedStorage"):FindFirstChild("DefaultChatSystemChatEvents")
+    if not chatEvents then return end
     
-    task.spawn(function()
-        processMessage(message)
-    end)
-end)
+    local onMessageDone = chatEvents:FindFirstChild("OnMessageDoneFiltering")
+    if onMessageDone then
+        onMessageDone.OnClientEvent:Connect(function(messageData)
+            if _G.chatSpyInstance ~= instance then return end
+            if not messageData.FromSpeaker then return end
+            
+            local speaker = Players:GetPlayerByUserId(messageData.FromSpeaker)
+            if speaker then
+                processMessage(
+                    speaker,
+                    messageData.Message,
+                    messageData.OriginalChannel
+                )
+            end
+        end)
+        return true
+    end
+    return false
+end
 
 -- Command handling
 TextChatService.SendingMessage:Connect(function(params)
@@ -68,8 +79,32 @@ TextChatService.SendingMessage:Connect(function(params)
         task.wait(0.3)
         displaySystemMessage("{SPY " .. (Config.enabled and "EN" or "DIS") .. "ABLED}")
         params.Text = ""
+        return
+    end
+    
+    -- Process own messages through legacy system
+    if Config.enabled and Config.spyOnMyself then
+        processMessage(player, message, "All")
     end
 end)
+
+-- Initialize chat hooks
+if createChatHook() then
+    displaySystemMessage("{SPY SYSTEM HOOKED}")
+else
+    -- Fallback to TextChatService
+    TextChatService.MessageReceived:Connect(function(message)
+        if _G.chatSpyInstance ~= instance then return end
+        if not message.TextSource then return end
+        
+        local speaker = Players:GetPlayerByUserId(message.TextSource.UserId)
+        if speaker then
+            local channel = message.TextChannel and message.TextChannel.Name or "Unknown"
+            processMessage(speaker, message.Text, channel)
+        end
+    end)
+    displaySystemMessage("{SPY USING FALLBACK}")
+end
 
 -- Initial status
 displaySystemMessage("{SPY " .. (Config.enabled and "EN" or "DIS") .. "ABLED}")
