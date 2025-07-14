@@ -13,7 +13,6 @@ Config = {
 local Players = game:GetService("Players")
 local player = Players.LocalPlayer
 local TextChatService = game:GetService("TextChatService")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local instance = (_G.chatSpyInstance or 0) + 1
 _G.chatSpyInstance = instance
 
@@ -27,149 +26,53 @@ local function displaySystemMessage(text)
     )
 end
 
--- Message processing with triple verification
-local function processMessage(speaker, rawMessage, channel, isPrivateCheck)
+-- Core message processing with Roblox's metadata
+local function processMessage(messageObject)
     if not Config.enabled then return end
-    if speaker == player and not Config.spyOnMyself then return end
+    if not messageObject.TextSource then return end
     
-    -- Skip public channels with 100% certainty
-    if channel == "RBXGeneral" or channel == "All" then return end
-    
-    -- Skip system messages
-    if channel == "RBXSystem" then return end
-    
-    -- Private message verification flags
-    local isPrivateMessage = false
-    local isCommand = false
-    
-    -- Check 1: Channel-based verification
-    if channel == "RBXWhisper" or (type(channel) == "string" and channel:find("Team$")) then
-        isPrivateMessage = true
-    end
-    
-    -- Check 2: Content-based verification
-    if not isPrivateMessage then
-        if rawMessage:sub(1,3):lower() == "/w " or  -- Whisper command
-           rawMessage:sub(1,1) == "/" then          -- Any command
-            isPrivateMessage = true
-            isCommand = true
-        end
-    end
-    
-    -- Check 3: Explicit private flag from detection system
-    if not isPrivateMessage and isPrivateCheck then
-        isPrivateMessage = true
-    end
-    
-    -- Only process verified private messages
-    if not isPrivateMessage then return end
-    
-    -- Clean message
-    local cleanMsg = rawMessage:gsub("[\n\r]", ""):gsub("\t", " "):gsub(" +", " ")
-    
-    if Config.public then
-        local prefix = Config.publicItalics and "/me " or ""
-        local spyTag = "{SPY}"
-        local formatted = prefix .. spyTag .. " [" .. speaker.Name .. "]: " .. cleanMsg
-        TextChatService.TextChannels.RBXGeneral:SendAsync(formatted)
-    else
-        displaySystemMessage("{SPY} [" .. speaker.Name .. "]: " .. cleanMsg)
-    end
-end
-
--- Private message detection system
-local privateMessageDetection = {
-    activeWhispers = {},
-    lastMessageTimes = {}
-}
-
-local function isLikelyPrivate(speaker, message)
-    -- Detect whisper commands
-    if message:sub(1,3):lower() == "/w " then
-        -- Extract recipient name
-        local recipient = message:match("^/w%s+([^%s]+)")
-        if recipient then
-            -- Store active whisper conversation
-            privateMessageDetection.activeWhispers[speaker.Name] = recipient
-            privateMessageDetection.activeWhispers[recipient] = speaker.Name
-            return true
-        end
-    end
-    
-    -- Check if part of active whisper conversation
-    if privateMessageDetection.activeWhispers[speaker.Name] then
-        -- Reset conversation timer
-        privateMessageDetection.lastMessageTimes[speaker.Name] = os.time()
-        return true
-    end
-    
-    -- Detect team chat indicators
-    if message:find("^%[Team%]") or message:find("^Team:") then
-        return true
-    end
-    
-    -- Detect command messages
-    if message:sub(1,1) == "/" and not message:find("^%s*$") then
-        return true
-    end
-    
-    -- Time-based conversation tracking
-    if privateMessageDetection.lastMessageTimes[speaker.Name] then
-        local lastTime = privateMessageDetection.lastMessageTimes[speaker.Name]
-        if os.time() - lastTime < 20 then -- 20 second conversation window
-            return true
-        else
-            -- Clear expired conversation
-            privateMessageDetection.activeWhispers[speaker.Name] = nil
-            privateMessageDetection.lastMessageTimes[speaker.Name] = nil
-        end
-    end
-    
-    return false
-end
-
--- Main message handler
-local function handleIncomingMessage(speaker, rawMessage, channel)
-    if _G.chatSpyInstance ~= instance then return end
+    local speaker = Players:GetPlayerByUserId(messageObject.TextSource.UserId)
     if not speaker then return end
     if speaker == player and not Config.spyOnMyself then return end
     
-    -- Run private message detection
-    local isPrivate = isLikelyPrivate(speaker, rawMessage)
-    
-    -- Process message with verification
-    processMessage(speaker, rawMessage, channel, isPrivate)
-end
-
--- Modern chat handler
-TextChatService.MessageReceived:Connect(function(message)
-    if not message.TextSource then return end
-    local speaker = Players:GetPlayerByUserId(message.TextSource.UserId)
-    if speaker then
-        local channel = message.TextChannel and message.TextChannel.Name or "Unknown"
-        handleIncomingMessage(speaker, message.Text, channel)
+    -- Skip messages that are visible in public chat
+    if messageObject.Status == Enum.TextChatMessageStatus.Success then
+        return
     end
-end)
-
--- Legacy chat support
-local function setupLegacyHook()
-    local chatEvents = ReplicatedStorage:FindFirstChild("DefaultChatSystemChatEvents")
-    if not chatEvents then return false end
     
-    local onMessageDone = chatEvents:FindFirstChild("OnMessageDoneFiltering")
-    if not onMessageDone then return false end
+    -- Get clean message content
+    local rawMessage = messageObject.Text
+    local cleanMsg = rawMessage:gsub("[\n\r]", ""):gsub("\t", " "):gsub(" +", " ")
     
-    onMessageDone.OnClientEvent:Connect(function(messageData)
-        if not messageData.FromSpeaker then return end
-        local speaker = Players:GetPlayerByUserId(messageData.FromSpeaker)
-        if speaker then
-            handleIncomingMessage(speaker, messageData.Message, messageData.OriginalChannel)
-        end
-    end)
-    return true
+    -- Determine if it's a team message
+    local isTeamMessage = messageObject.TextChannel and 
+                          messageObject.TextChannel.Name:find("^Team:") ~= nil
+    
+    if Config.public then
+        local prefix = Config.publicItalics and "/me " or ""
+        local spyTag = isTeamMessage and "{TEAM SPY}" or "{SPY}"
+        local formatted = prefix .. spyTag .. " [" .. speaker.Name .. "]: " .. cleanMsg
+        TextChatService.TextChannels.RBXGeneral:SendAsync(formatted)
+    else
+        local spyTag = isTeamMessage and "{TEAM SPY}" or "{SPY}"
+        displaySystemMessage(spyTag .. " [" .. speaker.Name .. "]: " .. cleanMsg)
+    end
 end
 
-setupLegacyHook()
+-- Main message interception using Roblox's API
+local function setupMessageHook()
+    TextChatService.OnIncomingMessage = function(messageObject)
+        -- Allow default message processing first
+        local shouldDeliver = true
+        
+        -- Process message through our system
+        pcall(function()
+            processMessage(messageObject)
+        end)
+        
+        return shouldDeliver
+    end
+end
 
 -- Command handling
 TextChatService.SendingMessage:Connect(function(params)
@@ -185,44 +88,30 @@ TextChatService.SendingMessage:Connect(function(params)
     end
 end)
 
--- Handle all player messages with enhanced detection
-for _, otherPlayer in ipairs(Players:GetPlayers()) do
-    if otherPlayer ~= player then
-        otherPlayer.Chatted:Connect(function(message)
-            if _G.chatSpyInstance ~= instance then return end
-            handleIncomingMessage(otherPlayer, message, "All")
-        end)
-    end
-end
-
-Players.PlayerAdded:Connect(function(newPlayer)
-    newPlayer.Chatted:Connect(function(message)
-        if _G.chatSpyInstance ~= instance then return end
-        handleIncomingMessage(newPlayer, message, "All")
-    end)
-end)
-
--- Handle own messages
+-- Handle own messages separately
 player.Chatted:Connect(function(rawMessage)
     if _G.chatSpyInstance ~= instance then return end
     if not Config.enabled then return end
     if not Config.spyOnMyself then return end
-    handleIncomingMessage(player, rawMessage, "All")
-end)
-
--- Cleanup expired conversations periodically
-task.spawn(function()
-    while task.wait(30) do
-        if _G.chatSpyInstance ~= instance then break end
-        local currentTime = os.time()
-        for playerName, lastTime in pairs(privateMessageDetection.lastMessageTimes) do
-            if currentTime - lastTime > 60 then -- 60 second expiration
-                privateMessageDetection.activeWhispers[playerName] = nil
-                privateMessageDetection.lastMessageTimes[playerName] = nil
-            end
-        end
+    
+    -- Only process commands/whispers 
+    if rawMessage:sub(1,3):lower() == "/w " or rawMessage:sub(1,1) == "/" then
+        -- Create mock message object
+        local mockMessage = {
+            Text = rawMessage,
+            TextSource = {
+                UserId = player.UserId
+            },
+            Status = Enum.TextChatMessageStatus.Private,
+            TextChannel = {
+                Name = rawMessage:sub(1,3):lower() == "/w " and "RBXWhisper" or "Command"
+            }
+        }
+        processMessage(mockMessage)
     end
 end)
 
--- Initial status
+-- Initialize the system
+setupMessageHook()
+displaySystemMessage("{SPY SYSTEM ACTIVE}")
 displaySystemMessage("{SPY " .. (Config.enabled and "EN" or "DIS") .. "ABLED}")
