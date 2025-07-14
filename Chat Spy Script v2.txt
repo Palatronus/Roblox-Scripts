@@ -27,15 +27,13 @@ local function displaySystemMessage(text)
     )
 end
 
--- Core message processing (enhanced public message skipping)
+-- Core message processing
 local function processMessage(speaker, message, channel)
     if not Config.enabled then return end
     if speaker == player and not Config.spyOnMyself then return end
     
-    -- Skip public chat messages
-    if channel == "RBXGeneral" or channel == "All" then
-        return
-    end
+    -- Skip all public messages and system channels
+    if channel == "RBXGeneral" or channel == "All" then return end
     
     -- Clean message
     local cleanMsg = message:gsub("[\n\r]", ""):gsub("\t", " "):gsub(" +", " ")
@@ -48,8 +46,8 @@ local function processMessage(speaker, message, channel)
     end
 end
 
--- Infinite Yield-style message hook with public message filtering
-local function setupInfiniteYieldHook()
+-- Infinite Yield-style message hook
+local function setupInfiniteYieldHook() {
     local chatEvents = ReplicatedStorage:FindFirstChild("DefaultChatSystemChatEvents")
     if not chatEvents then return false end
     
@@ -59,11 +57,6 @@ local function setupInfiniteYieldHook()
     onMessageDone.OnClientEvent:Connect(function(messageData)
         if _G.chatSpyInstance ~= instance then return end
         if not messageData.FromSpeaker then return end
-        
-        -- Skip public messages at source
-        if messageData.OriginalChannel == "All" then
-            return
-        end
         
         local speaker = Players:GetPlayerByUserId(messageData.FromSpeaker)
         if not speaker then return end
@@ -93,9 +86,6 @@ local function setupOwnMessageHook()
             channel = "Command"
         end
         
-        -- Skip public messages
-        if channel == "All" then return end
-        
         processMessage(player, rawMessage, channel)
     end)
 end
@@ -118,7 +108,7 @@ end)
 if setupInfiniteYieldHook() then
     displaySystemMessage("{SPY MESSAGE HOOK ACTIVE}")
 else
-    -- Fallback to TextChatService for other players with public message filtering
+    -- Fallback to TextChatService for other players
     TextChatService.MessageReceived:Connect(function(message)
         if _G.chatSpyInstance ~= instance then return end
         if not message.TextSource then return end
@@ -126,10 +116,6 @@ else
         local speaker = Players:GetPlayerByUserId(message.TextSource.UserId)
         if speaker and speaker ~= player then
             local channel = message.TextChannel and message.TextChannel.Name or "Unknown"
-            
-            -- Skip public messages
-            if channel == "RBXGeneral" then return end
-            
             processMessage(speaker, message.Text, channel)
         end
     end)
@@ -142,17 +128,11 @@ setupOwnMessageHook()
 -- Initial status
 displaySystemMessage("{SPY " .. (Config.enabled and "EN" or "DIS") .. "ABLED}")
 
--- Add player connections for Chatted event with public message filtering
+-- Add player connections for Chatted event as additional fallback
 for _, otherPlayer in ipairs(Players:GetPlayers()) do
     if otherPlayer ~= player then
         otherPlayer.Chatted:Connect(function(message)
             if _G.chatSpyInstance ~= instance then return end
-            
-            -- Skip public messages (no channel info, so skip all non-command messages)
-            if not message:sub(1,1) == "/" then
-                return
-            end
-            
             processMessage(otherPlayer, message, "All")
         end)
     end
@@ -161,12 +141,6 @@ end
 Players.PlayerAdded:Connect(function(newPlayer)
     newPlayer.Chatted:Connect(function(message)
         if _G.chatSpyInstance ~= instance then return end
-        
-        -- Skip public messages (no channel info, so skip all non-command messages)
-        if not message:sub(1,1) == "/" then
-            return
-        end
-        
         processMessage(newPlayer, message, "All")
     end)
-end)
+end
