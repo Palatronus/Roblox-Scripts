@@ -28,12 +28,12 @@ local function displaySystemMessage(text)
 end
 
 -- Core message processing
-local function processMessage(speaker, message, channel)
+local function processMessage(speaker, message, channel, isSpyGenerated)
     if not Config.enabled then return end
     if speaker == player and not Config.spyOnMyself then return end
     
-    -- Skip public messages (only modification from original)
-    if channel == "RBXGeneral" then return end
+    -- Skip public messages unless they're spy-generated
+    if channel == "RBXGeneral" and not isSpyGenerated then return end
     
     -- Clean message
     local cleanMsg = message:gsub("[\n\r]", ""):gsub("\t", " "):gsub(" +", " ")
@@ -64,7 +64,8 @@ local function setupInfiniteYieldHook()
         processMessage(
             speaker,
             messageData.Message,
-            messageData.OriginalChannel
+            messageData.OriginalChannel,
+            false
         )
     end)
     
@@ -86,7 +87,7 @@ local function setupOwnMessageHook()
             channel = "Command"
         end
         
-        processMessage(player, rawMessage, channel)
+        processMessage(player, rawMessage, channel, false)
     end)
 end
 
@@ -116,7 +117,7 @@ else
         local speaker = Players:GetPlayerByUserId(message.TextSource.UserId)
         if speaker and speaker ~= player then
             local channel = message.TextChannel and message.TextChannel.Name or "Unknown"
-            processMessage(speaker, message.Text, channel)
+            processMessage(speaker, message.Text, channel, false)
         end
     end)
     displaySystemMessage("{SPY USING FALLBACK HOOK}")
@@ -133,7 +134,7 @@ for _, otherPlayer in ipairs(Players:GetPlayers()) do
     if otherPlayer ~= player then
         otherPlayer.Chatted:Connect(function(message)
             if _G.chatSpyInstance ~= instance then return end
-            processMessage(otherPlayer, message, "All")
+            processMessage(otherPlayer, message, "All", false)
         end)
     end
 end
@@ -141,6 +142,6 @@ end
 Players.PlayerAdded:Connect(function(newPlayer)
     newPlayer.Chatted:Connect(function(message)
         if _G.chatSpyInstance ~= instance then return end
-        processMessage(newPlayer, message, "All")
+        processMessage(newPlayer, message, "All", false)
     end)
 end
