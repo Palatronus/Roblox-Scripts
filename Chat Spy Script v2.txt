@@ -32,7 +32,7 @@ local function processMessage(speaker, message, channel)
     if not Config.enabled then return end
     if speaker == player and not Config.spyOnMyself then return end
     
-    -- Only skip public channel messages (RBXGeneral)
+    -- Skip public messages (RBXGeneral channel)
     if channel == "RBXGeneral" then return end
     
     -- Clean message
@@ -116,7 +116,7 @@ else
         local speaker = Players:GetPlayerByUserId(message.TextSource.UserId)
         if speaker and speaker ~= player then
             local channel = message.TextChannel and message.TextChannel.Name or "Unknown"
-            -- Only skip public channel messages
+            -- Skip public messages in fallback
             if channel ~= "RBXGeneral" then
                 processMessage(speaker, message.Text, channel)
             end
@@ -136,7 +136,6 @@ for _, otherPlayer in ipairs(Players:GetPlayers()) do
     if otherPlayer ~= player then
         otherPlayer.Chatted:Connect(function(message)
             if _G.chatSpyInstance ~= instance then return end
-            -- Process all messages except public ones
             processMessage(otherPlayer, message, "All")
         end)
     end
@@ -145,7 +144,6 @@ end
 Players.PlayerAdded:Connect(function(newPlayer)
     newPlayer.Chatted:Connect(function(message)
         if _G.chatSpyInstance ~= instance then return end
-        -- Process all messages except public ones
         processMessage(newPlayer, message, "All")
     end)
 end
