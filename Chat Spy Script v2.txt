@@ -32,8 +32,8 @@ local function processMessage(speaker, message, channel)
     if not Config.enabled then return end
     if speaker == player and not Config.spyOnMyself then return end
     
-    -- Skip public messages entirely
-    if channel == "RBXGeneral" then return end
+    -- Skip public messages if they're already visible
+    if channel == "RBXGeneral" and not Config.public then return end
     
     -- Clean message
     local cleanMsg = message:gsub("[\n\r]", ""):gsub("\t", " "):gsub(" +", " ")
