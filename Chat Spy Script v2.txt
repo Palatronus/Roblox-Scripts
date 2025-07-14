@@ -32,7 +32,7 @@ local function processMessage(speaker, message, channel)
     if not Config.enabled then return end
     if speaker == player and not Config.spyOnMyself then return end
     
-    -- Skip public messages (safe implementation)
+    -- ONLY MODIFICATION: Skip all public messages
     if channel == "RBXGeneral" then return end
     
     -- Clean message
@@ -116,10 +116,7 @@ else
         local speaker = Players:GetPlayerByUserId(message.TextSource.UserId)
         if speaker and speaker ~= player then
             local channel = message.TextChannel and message.TextChannel.Name or "Unknown"
-            -- Skip public messages in fallback
-            if channel ~= "RBXGeneral" then
-                processMessage(speaker, message.Text, channel)
-            end
+            processMessage(speaker, message.Text, channel)
         end
     end)
     displaySystemMessage("{SPY USING FALLBACK HOOK}")
