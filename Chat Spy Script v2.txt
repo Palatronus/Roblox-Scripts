@@ -32,7 +32,7 @@ local function processMessage(speaker, message, channel)
     if not Config.enabled then return end
     if speaker == player and not Config.spyOnMyself then return end
     
-    -- Skip all public messages and system channels
+    -- Skip all public channels (RBXGeneral and All)
     if channel == "RBXGeneral" or channel == "All" then return end
     
     -- Clean message
@@ -47,7 +47,7 @@ local function processMessage(speaker, message, channel)
 end
 
 -- Infinite Yield-style message hook
-local function setupInfiniteYieldHook() {
+local function setupInfiniteYieldHook()
     local chatEvents = ReplicatedStorage:FindFirstChild("DefaultChatSystemChatEvents")
     if not chatEvents then return false end
     
