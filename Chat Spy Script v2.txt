@@ -32,9 +32,6 @@ local function processMessage(speaker, message, channel)
     if not Config.enabled then return end
     if speaker == player and not Config.spyOnMyself then return end
     
-    -- Skip public messages (only modification made)
-    if channel == "RBXGeneral" then return end
-    
     -- Clean message
     local cleanMsg = message:gsub("[\n\r]", ""):gsub("\t", " "):gsub(" +", " ")
     
@@ -44,6 +41,11 @@ local function processMessage(speaker, message, channel)
     else
         displaySystemMessage("{SPY} [" .. speaker.Name .. "]: " .. cleanMsg)
     end
+end
+
+-- Identify public messages by prefix
+local function isPublicMessage(message)
+    return not (message:sub(1,1) == "/" or message:sub(1,1) == "!")
 end
 
 -- Infinite Yield-style message hook
@@ -61,6 +63,9 @@ local function setupInfiniteYieldHook()
         local speaker = Players:GetPlayerByUserId(messageData.FromSpeaker)
         if not speaker then return end
         
+        -- Skip public messages before processing
+        if isPublicMessage(messageData.Message) then return end
+        
         processMessage(
             speaker,
             messageData.Message,
@@ -77,6 +82,9 @@ local function setupOwnMessageHook()
         if _G.chatSpyInstance ~= instance then return end
         if not Config.enabled then return end
         if not Config.spyOnMyself then return end
+        
+        -- Skip public messages before processing
+        if isPublicMessage(rawMessage) then return end
         
         -- Determine channel from message content
         local channel = "All"
@@ -115,6 +123,9 @@ else
         
         local speaker = Players:GetPlayerByUserId(message.TextSource.UserId)
         if speaker and speaker ~= player then
+            -- Skip public messages before processing
+            if isPublicMessage(message.Text) then return end
+            
             local channel = message.TextChannel and message.TextChannel.Name or "Unknown"
             processMessage(speaker, message.Text, channel)
         end
@@ -133,6 +144,8 @@ for _, otherPlayer in ipairs(Players:GetPlayers()) do
     if otherPlayer ~= player then
         otherPlayer.Chatted:Connect(function(message)
             if _G.chatSpyInstance ~= instance then return end
+            -- Skip public messages before processing
+            if isPublicMessage(message) then return end
             processMessage(otherPlayer, message, "All")
         end)
     end
@@ -141,6 +154,8 @@ end
 Players.PlayerAdded:Connect(function(newPlayer)
     newPlayer.Chatted:Connect(function(message)
         if _G.chatSpyInstance ~= instance then return end
+        -- Skip public messages before processing
+        if isPublicMessage(message) then return end
         processMessage(newPlayer, message, "All")
     end)
 end
