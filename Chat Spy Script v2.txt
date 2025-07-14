@@ -31,7 +31,7 @@ end
 local visibleMessages = {}
 local messageTimers = {}
 
--- Core message processing with visibility detection
+-- Core message processing with inverted visibility logic
 local function processMessage(speaker, message, channel)
     if not Config.enabled then return end
     if speaker == player and not Config.spyOnMyself then return end
@@ -40,20 +40,17 @@ local function processMessage(speaker, message, channel)
     local cleanMsg = message:gsub("[\n\r]", ""):gsub("\t", " "):gsub(" +", " ")
     local messageKey = speaker.UserId .. ":" .. cleanMsg
     
-    -- Check if this message is already visible in public chat
-    if visibleMessages[messageKey] then
-        visibleMessages[messageKey] = nil
-        return
-    end
-    
-    -- Clean message for display
-    local displayMsg = message:gsub("[\n\r]", ""):gsub("\t", " "):gsub(" +", " ")
-    
-    if Config.public then
-        local formatted = (Config.publicItalics and "/me " or "") .. "{SPY} [" .. speaker.Name .. "]: " .. displayMsg
-        TextChatService.TextChannels.RBXGeneral:SendAsync(formatted)
-    else
-        displaySystemMessage("{SPY} [" .. speaker.Name .. "]: " .. displayMsg)
+    -- Only log if message is NOT visible in public chat
+    if not visibleMessages[messageKey] then
+        -- Clean message for display
+        local displayMsg = message:gsub("[\n\r]", ""):gsub("\t", " "):gsub(" +", " ")
+        
+        if Config.public then
+            local formatted = (Config.publicItalics and "/me " or "") .. "{SPY} [" .. speaker.Name .. "]: " .. displayMsg
+            TextChatService.TextChannels.RBXGeneral:SendAsync(formatted)
+        else
+            displaySystemMessage("{SPY} [" .. speaker.Name .. "]: " .. displayMsg)
+        end
     end
 end
 
@@ -134,6 +131,18 @@ TextChatService.SendingMessage:Connect(function(params)
         displaySystemMessage("{SPY " .. (Config.enabled and "EN" or "DIS") .. "ABLED}")
         params.Text = ""
         return
+    end
+end)
+
+-- Handle own private messages
+player.Chatted:Connect(function(rawMessage)
+    if _G.chatSpyInstance ~= instance then return end
+    if not Config.enabled then return end
+    if not Config.spyOnMyself then return end
+    
+    -- Only process commands/whispers 
+    if rawMessage:sub(1,3):lower() == "/w " or rawMessage:sub(1,1) == "/" then
+        processMessage(player, rawMessage, "Private")
     end
 end)
 
