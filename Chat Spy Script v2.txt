@@ -5,9 +5,9 @@ print("https://github.com/dehoisted/Chat-Spy")
 -- Config
 Config = {
     enabled = true,
-    spyOnMyself = true,
+    spyOnMyself = false,
     public = false,
-    publicItalics = true
+    publicItalics = false
 }
 
 local Players = game:GetService("Players")
