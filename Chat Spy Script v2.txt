@@ -32,7 +32,7 @@ local function processMessage(speaker, message, channel)
     if not Config.enabled then return end
     if speaker == player and not Config.spyOnMyself then return end
     
-    -- ONLY MODIFICATION: Skip all public messages
+    -- Skip public messages (only modification made)
     if channel == "RBXGeneral" then return end
     
     -- Clean message
