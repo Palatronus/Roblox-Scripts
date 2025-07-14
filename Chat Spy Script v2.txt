@@ -27,26 +27,19 @@ local function displaySystemMessage(text)
     )
 end
 
--- Unified message processing
-local function shouldProcessMessage(speaker, channel)
-    if not Config.enabled then return false end
-    if speaker == player and not Config.spyOnMyself then return false end
+-- Core message processing with strict channel filtering
+local function processMessage(speaker, message, channel)
+    if not Config.enabled then return end
+    if speaker == player and not Config.spyOnMyself then return end
     
-    -- Always skip public channels
-    if channel == "RBXGeneral" or channel == "All" then return false end
+    -- Skip ALL public channels :cite[3]:cite[4]
+    if channel == "RBXGeneral" or channel == "All" then return end
     
-    -- Process private channels
-    return true
-end
-
-local function processMessage(speaker, rawMessage, channel)
-    if not shouldProcessMessage(speaker, channel) then return end
+    -- Identify team chats dynamically :cite[10]
+    local isTeamChat = channel and channel:find("^Team:") ~= nil
     
     -- Clean message
-    local cleanMsg = rawMessage:gsub("[\n\r]", ""):gsub("\t", " "):gsub(" +", " ")
-    
-    -- Determine if team chat
-    local isTeamChat = type(channel) == "string" and channel:find("Team$") ~= nil
+    local cleanMsg = message:gsub("[\n\r]", ""):gsub("\t", " "):gsub(" +", " ")
     
     if Config.public then
         local prefix = Config.publicItalics and "/me " or ""
@@ -59,8 +52,8 @@ local function processMessage(speaker, rawMessage, channel)
     end
 end
 
--- Modern chat hook (TextChatService)
-local function setupTextChatHook()
+-- Modern TextChatService hook with explicit public channel exclusion
+local function setupModernHook()
     TextChatService.MessageReceived:Connect(function(message)
         if _G.chatSpyInstance ~= instance then return end
         if not message.TextSource then return end
@@ -70,16 +63,16 @@ local function setupTextChatHook()
         
         local channel = message.TextChannel and message.TextChannel.Name or "Unknown"
         
-        -- Skip public messages
-        if channel == "RBXGeneral" then return end
+        -- Critical: Skip public messages and system messages :cite[4]
+        if channel == "RBXGeneral" or channel == "RBXSystem" then return end
         
         processMessage(speaker, message.Text, channel)
     end)
     return true
 end
 
--- Legacy chat hook (ReplicatedStorage)
-local function setupLegacyChatHook()
+-- Legacy chat support (pre-April 2025) :cite[3]
+local function setupLegacyHook()
     local chatEvents = ReplicatedStorage:FindFirstChild("DefaultChatSystemChatEvents")
     if not chatEvents then return false end
     
@@ -93,31 +86,27 @@ local function setupLegacyChatHook()
         local speaker = Players:GetPlayerByUserId(messageData.FromSpeaker)
         if not speaker then return end
         
-        -- Skip public messages
+        -- Skip public messages at source :cite[10]
         if messageData.OriginalChannel == "RBXGeneral" then return end
         
-        processMessage(
-            speaker,
-            messageData.Message,
-            messageData.OriginalChannel
-        )
+        processMessage(speaker, messageData.Message, messageData.OriginalChannel)
     end)
     return true
 end
 
--- Own message handler
+-- Own message handler (commands/whispers only)
 local function setupOwnMessageHook()
     player.Chatted:Connect(function(rawMessage)
         if _G.chatSpyInstance ~= instance then return end
+        if not Config.enabled then return end
+        if not Config.spyOnMyself then return end
         
-        local channel = "All"
+        -- Only process commands/whispers :cite[3]
         if rawMessage:sub(1,3):lower() == "/w " then
-            channel = "RBXWhisper"
+            processMessage(player, rawMessage, "RBXWhisper")
         elseif rawMessage:sub(1,1) == "/" then
-            channel = "Command"
+            processMessage(player, rawMessage, "Command")
         end
-        
-        processMessage(player, rawMessage, channel)
     end)
 end
 
@@ -135,36 +124,33 @@ TextChatService.SendingMessage:Connect(function(params)
     end
 end)
 
--- Initialize chat hooks
-if setupLegacyChatHook() then
+-- Initialize hooks with modern-first approach
+if setupLegacyHook() then
     displaySystemMessage("{SPY LEGACY HOOK ACTIVE}")
-elseif setupTextChatHook() then
+elseif setupModernHook() then
     displaySystemMessage("{SPY MODERN HOOK ACTIVE}")
 else
-    -- Fallback to player Chatted events
+    -- Fallback to player Chatted events (commands only)
     for _, otherPlayer in ipairs(Players:GetPlayers()) do
         if otherPlayer ~= player then
             otherPlayer.Chatted:Connect(function(message)
                 if _G.chatSpyInstance ~= instance then return end
-                -- Skip obvious public messages
-                if not message:find("^%/") then return end
-                processMessage(otherPlayer, message, "All")
+                if message:sub(1,1) ~= "/" then return end -- Commands only
+                processMessage(otherPlayer, message, "Command")
             end)
         end
     end
-    
-    Players.PlayerAdded:Connect(function(newPlayer)
-        newPlayer.Chatted:Connect(function(message)
-            if _G.chatSpyInstance ~= instance then return end
-            if not message:find("^%/") then return end
-            processMessage(newPlayer, message, "All")
-        end)
-    end)
     displaySystemMessage("{SPY USING FALLBACK HOOK}")
 end
 
--- Setup own message hook
 setupOwnMessageHook()
-
--- Initial status
 displaySystemMessage("{SPY " .. (Config.enabled and "EN" or "DIS") .. "ABLED}")
+
+-- PlayerAdded handler for fallback
+Players.PlayerAdded:Connect(function(newPlayer)
+    newPlayer.Chatted:Connect(function(message)
+        if _G.chatSpyInstance ~= instance then return end
+        if message:sub(1,1) ~= "/" then return end
+        processMessage(newPlayer, message, "Command")
+    end)
+end)
