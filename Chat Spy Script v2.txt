@@ -1,179 +1,146 @@
--- Safe initialization check
-local function safeStart()
-    -- Check if essential services are available
-    if not game:IsLoaded() then
-        game.Loaded:Wait()
-    end
-    
-    local Players = game:GetService("Players")
-    local TextChatService = game:GetService("TextChatService")
-    local ReplicatedStorage = game:GetService("ReplicatedStorage")
-    
-    -- Wait for player to be valid
-    while not Players.LocalPlayer do
-        Players.PlayerAdded:Wait()
-        task.wait(0.1)
-    end
-    local player = Players.LocalPlayer
-    
-    -- Wait for chat system to initialize
-    local maxWait = 10  -- 10 second timeout
-    local startTime = os.clock()
-    while not TextChatService:FindFirstChild("TextChannels") do
-        if os.clock() - startTime > maxWait then
-            warn("[SPY] TextChatService initialization timeout")
-            return
-        end
-        task.wait(0.1)
-    end
-    
-    -- Original script content
-    print("-- Chat Spy Executed --")
-    print("Type \"/spy\" to toggle chat spy")
-    print("https://github.com/dehoisted/Chat-Spy")
+print("-- Chat Spy Executed --")
+print("Type \"/spy\" to toggle chat spy")
+print("https://github.com/dehoisted/Chat-Spy")
 
-    -- Config
-    Config = {
-        enabled = true,
-        spyOnMyself = true,
-        public = false,
-        publicItalics = true
-    }
+-- Config
+Config = {
+    enabled = true,
+    spyOnMyself = true,
+    public = false,
+    publicItalics = true
+}
 
-    local instance = (_G.chatSpyInstance or 0) + 1
-    _G.chatSpyInstance = instance
+local Players = game:GetService("Players")
+local player = Players.LocalPlayer
+local TextChatService = game:GetService("TextChatService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local instance = (_G.chatSpyInstance or 0) + 1
+_G.chatSpyInstance = instance
 
-    -- System message formatting
-    local function displaySystemMessage(text)
-        TextChatService.TextChannels.RBXSystem:DisplaySystemMessage(
-            string.format(
-                '<font color="#00FFFF"><b>%s</b></font>',
-                text
-            )
+-- System message formatting
+local function displaySystemMessage(text)
+    TextChatService.TextChannels.RBXSystem:DisplaySystemMessage(
+        string.format(
+            '<font color="#00FFFF"><b>%s</b></font>',
+            text
         )
-    end
+    )
+end
 
-    -- Core message processing
-    local function processMessage(speaker, message, channel)
-        if not Config.enabled then return end
-        if speaker == player and not Config.spyOnMyself then return end
-        
-        -- Skip public messages if they're already visible
-        if channel == "RBXGeneral" and not Config.public then return end
-        
-        -- Clean message
-        local cleanMsg = message:gsub("[\n\r]", ""):gsub("\t", " "):gsub(" +", " ")
-        
-        if Config.public then
-            local formatted = (Config.publicItalics and "/me " or "") .. "{SPY} [" .. speaker.Name .. "]: " .. cleanMsg
-            TextChatService.TextChannels.RBXGeneral:SendAsync(formatted)
-        else
-            displaySystemMessage("{SPY} [" .. speaker.Name .. "]: " .. cleanMsg)
-        end
+-- Core message processing
+local function processMessage(speaker, message, channel)
+    if not Config.enabled then return end
+    if speaker == player and not Config.spyOnMyself then return end
+    
+    -- Skip public messages entirely
+    if channel == "RBXGeneral" then return end
+    
+    -- Clean message
+    local cleanMsg = message:gsub("[\n\r]", ""):gsub("\t", " "):gsub(" +", " ")
+    
+    if Config.public then
+        local formatted = (Config.publicItalics and "/me " or "") .. "{SPY} [" .. speaker.Name .. "]: " .. cleanMsg
+        TextChatService.TextChannels.RBXGeneral:SendAsync(formatted)
+    else
+        displaySystemMessage("{SPY} [" .. speaker.Name .. "]: " .. cleanMsg)
     end
+end
 
-    -- Infinite Yield-style message hook
-    local function setupInfiniteYieldHook()
-        local chatEvents = ReplicatedStorage:FindFirstChild("DefaultChatSystemChatEvents")
-        if not chatEvents then return false end
-        
-        local onMessageDone = chatEvents:FindFirstChild("OnMessageDoneFiltering")
-        if not onMessageDone then return false end
-        
-        onMessageDone.OnClientEvent:Connect(function(messageData)
-            if _G.chatSpyInstance ~= instance then return end
-            if not messageData.FromSpeaker then return end
-            
-            local speaker = Players:GetPlayerByUserId(messageData.FromSpeaker)
-            if not speaker then return end
-            
-            processMessage(
-                speaker,
-                messageData.Message,
-                messageData.OriginalChannel
-            )
-        end)
-        
-        return true
-    end
-
-    -- Handle own messages
-    local function setupOwnMessageHook()
-        player.Chatted:Connect(function(rawMessage)
-            if _G.chatSpyInstance ~= instance then return end
-            if not Config.enabled then return end
-            if not Config.spyOnMyself then return end
-            
-            -- Determine channel from message content
-            local channel = "All"
-            if rawMessage:sub(1,3):lower() == "/w " then
-                channel = "RBXWhisper"
-            elseif rawMessage:sub(1,1) == "/" then
-                channel = "Command"
-            end
-            
-            processMessage(player, rawMessage, channel)
-        end)
-    end
-
-    -- Command handling
-    TextChatService.SendingMessage:Connect(function(params)
+-- Infinite Yield-style message hook
+local function setupInfiniteYieldHook()
+    local chatEvents = ReplicatedStorage:FindFirstChild("DefaultChatSystemChatEvents")
+    if not chatEvents then return false end
+    
+    local onMessageDone = chatEvents:FindFirstChild("OnMessageDoneFiltering")
+    if not onMessageDone then return false end
+    
+    onMessageDone.OnClientEvent:Connect(function(messageData)
         if _G.chatSpyInstance ~= instance then return end
+        if not messageData.FromSpeaker then return end
         
-        local message = params.Text
-        if string.sub(message:lower(), 1, 4) == "/spy" then
-            Config.enabled = not Config.enabled
-            task.wait(0.3)
-            displaySystemMessage("{SPY " .. (Config.enabled and "EN" or "DIS") .. "ABLED}")
-            params.Text = ""
-            return
+        local speaker = Players:GetPlayerByUserId(messageData.FromSpeaker)
+        if not speaker then return end
+        
+        processMessage(
+            speaker,
+            messageData.Message,
+            messageData.OriginalChannel
+        )
+    end)
+    
+    return true
+end
+
+-- Handle own messages
+local function setupOwnMessageHook()
+    player.Chatted:Connect(function(rawMessage)
+        if _G.chatSpyInstance ~= instance then return end
+        if not Config.enabled then return end
+        if not Config.spyOnMyself then return end
+        
+        -- Determine channel from message content
+        local channel = "All"
+        if rawMessage:sub(1,3):lower() == "/w " then
+            channel = "RBXWhisper"
+        elseif rawMessage:sub(1,1) == "/" then
+            channel = "Command"
+        end
+        
+        processMessage(player, rawMessage, channel)
+    end)
+end
+
+-- Command handling
+TextChatService.SendingMessage:Connect(function(params)
+    if _G.chatSpyInstance ~= instance then return end
+    
+    local message = params.Text
+    if string.sub(message:lower(), 1, 4) == "/spy" then
+        Config.enabled = not Config.enabled
+        task.wait(0.3)
+        displaySystemMessage("{SPY " .. (Config.enabled and "EN" or "DIS") .. "ABLED}")
+        params.Text = ""
+        return
+    end
+end)
+
+-- Initialize chat hooks
+if setupInfiniteYieldHook() then
+    displaySystemMessage("{SPY MESSAGE HOOK ACTIVE}")
+else
+    -- Fallback to TextChatService for other players
+    TextChatService.MessageReceived:Connect(function(message)
+        if _G.chatSpyInstance ~= instance then return end
+        if not message.TextSource then return end
+        
+        local speaker = Players:GetPlayerByUserId(message.TextSource.UserId)
+        if speaker and speaker ~= player then
+            local channel = message.TextChannel and message.TextChannel.Name or "Unknown"
+            processMessage(speaker, message.Text, channel)
         end
     end)
+    displaySystemMessage("{SPY USING FALLBACK HOOK}")
+end
 
-    -- Initialize chat hooks
-    if setupInfiniteYieldHook() then
-        displaySystemMessage("{SPY MESSAGE HOOK ACTIVE}")
-    else
-        -- Fallback to TextChatService for other players
-        TextChatService.MessageReceived:Connect(function(message)
+-- Setup own message hook
+setupOwnMessageHook()
+
+-- Initial status
+displaySystemMessage("{SPY " .. (Config.enabled and "EN" or "DIS") .. "ABLED}")
+
+-- Add player connections for Chatted event as additional fallback
+for _, otherPlayer in ipairs(Players:GetPlayers()) do
+    if otherPlayer ~= player then
+        otherPlayer.Chatted:Connect(function(message)
             if _G.chatSpyInstance ~= instance then return end
-            if not message.TextSource then return end
-            
-            local speaker = Players:GetPlayerByUserId(message.TextSource.UserId)
-            if speaker and speaker ~= player then
-                local channel = message.TextChannel and message.TextChannel.Name or "Unknown"
-                processMessage(speaker, message.Text, channel)
-            end
-        end)
-        displaySystemMessage("{SPY USING FALLBACK HOOK}")
-    end
-
-    -- Setup own message hook
-    setupOwnMessageHook()
-
-    -- Initial status
-    displaySystemMessage("{SPY " .. (Config.enabled and "EN" or "DIS") .. "ABLED}")
-
-    -- Add player connections for Chatted event as additional fallback
-    for _, otherPlayer in ipairs(Players:GetPlayers()) do
-        if otherPlayer ~= player then
-            otherPlayer.Chatted:Connect(function(message)
-                if _G.chatSpyInstance ~= instance then return end
-                processMessage(otherPlayer, message, "All")
-            end)
-        end
-    end
-
-    Players.PlayerAdded:Connect(function(newPlayer)
-        newPlayer.Chatted:Connect(function(message)
-            if _G.chatSpyInstance ~= instance then return end
-            processMessage(newPlayer, message, "All")
+            processMessage(otherPlayer, message, "All")
         end)
     end
 end
 
--- Protected execution with error handling
-local success, err = pcall(safeStart)
-if not success then
-    warn("[SPY INIT ERROR] " .. tostring(err))
-end
+Players.PlayerAdded:Connect(function(newPlayer)
+    newPlayer.Chatted:Connect(function(message)
+        if _G.chatSpyInstance ~= instance then return end
+        processMessage(newPlayer, message, "All")
+    end)
+end)
