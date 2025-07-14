@@ -27,15 +27,13 @@ local function displaySystemMessage(text)
     )
 end
 
--- Core message processing (MODIFIED FOR REQUIREMENT #3)
+-- Core message processing
 local function processMessage(speaker, message, channel)
     if not Config.enabled then return end
     if speaker == player and not Config.spyOnMyself then return end
     
-    -- REQUIREMENT #3: Skip all public chat messages
-    if channel == "RBXGeneral" or channel == "All" then
-        return
-    end
+    -- Skip public messages if they're already visible
+    if channel == "RBXGeneral" and not Config.public then return end
     
     -- Clean message
     local cleanMsg = message:gsub("[\n\r]", ""):gsub("\t", " "):gsub(" +", " ")
@@ -145,4 +143,4 @@ Players.PlayerAdded:Connect(function(newPlayer)
         if _G.chatSpyInstance ~= instance then return end
         processMessage(newPlayer, message, "All")
     end)
-end
+end)
