@@ -31,6 +31,8 @@ end
 local function processPrivateMessage(speaker, rawMessage, channel)
     if not Config.enabled then return end
     if not speaker then return end
+    
+    -- Skip local player messages if configured
     if speaker == player and not Config.spyOnMyself then return end
     
     -- Clean message
@@ -50,8 +52,8 @@ local function processPrivateMessage(speaker, rawMessage, channel)
     end
 end
 
--- Main message handler
-local function handleIncomingMessage(speaker, rawMessage, channel)
+-- Improved message handler with private message detection
+local function handleIncomingMessage(speaker, rawMessage, channel, isPrivate)
     if _G.chatSpyInstance ~= instance then return end
     if not Config.enabled then return end
     if not speaker then return end
@@ -61,7 +63,17 @@ local function handleIncomingMessage(speaker, rawMessage, channel)
         return 
     end
     
-    -- Process private messages
+    -- Special handling for private messages
+    if isPrivate then
+        -- Skip if it's a private message TO the local player but FROM someone else
+        if not Config.spyOnMyself and speaker ~= player then
+            return
+        end
+        processPrivateMessage(speaker, rawMessage, "Private")
+        return
+    end
+    
+    -- Process other private channels
     processPrivateMessage(speaker, rawMessage, channel)
 end
 
@@ -71,7 +83,7 @@ TextChatService.MessageReceived:Connect(function(message)
     local speaker = Players:GetPlayerByUserId(message.TextSource.UserId)
     if speaker then
         local channel = message.TextChannel and message.TextChannel.Name or "Unknown"
-        handleIncomingMessage(speaker, message.Text, channel)
+        handleIncomingMessage(speaker, message.Text, channel, message.Private)
     end
 end)
 
@@ -87,7 +99,9 @@ local function setupLegacyHook()
         if not messageData.FromSpeaker then return end
         local speaker = Players:GetPlayerByUserId(messageData.FromSpeaker)
         if speaker then
-            handleIncomingMessage(speaker, messageData.Message, messageData.OriginalChannel)
+            -- Detect private messages in legacy system
+            local isPrivate = messageData.MessageType == "Whisper"
+            handleIncomingMessage(speaker, messageData.Message, messageData.OriginalChannel, isPrivate)
         end
     end)
     return true
@@ -113,46 +127,51 @@ end)
 for _, otherPlayer in ipairs(Players:GetPlayers()) do
     if otherPlayer ~= player then
         otherPlayer.Chatted:Connect(function(message)
-            -- Determine channel for Chatted events
+            -- Detect private messages in Chatted events
+            local isPrivate = message:sub(1,3):lower() == "/w "
             local channel = "All"
-            if message:sub(1,3):lower() == "/w " then
+            if isPrivate then
                 channel = "RBXWhisper"
             elseif message:sub(1,1) == "/" then
                 channel = "Command"
             end
-            handleIncomingMessage(otherPlayer, message, channel)
+            handleIncomingMessage(otherPlayer, message, channel, isPrivate)
         end)
     end
 end
 
 Players.PlayerAdded:Connect(function(newPlayer)
     newPlayer.Chatted:Connect(function(message)
-        -- Determine channel for Chatted events
+        local isPrivate = message:sub(1,3):lower() == "/w "
         local channel = "All"
-        if message:sub(1,3):lower() == "/w " then
+        if isPrivate then
             channel = "RBXWhisper"
         elseif message:sub(1,1) == "/" then
             channel = "Command"
         end
-        handleIncomingMessage(newPlayer, message, channel)
+        handleIncomingMessage(newPlayer, message, channel, isPrivate)
     end)
 end)
 
 -- Handle own messages
 player.Chatted:Connect(function(rawMessage)
     if not Config.enabled then return end
-    if not Config.spyOnMyself then return end
     
-    -- Skip public messages from local player
-    if not (rawMessage:sub(1,3):lower() == "/w " or rawMessage:sub(1,1) == "/") then
+    local isPrivate = rawMessage:sub(1,3):lower() == "/w "
+    local isCommand = rawMessage:sub(1,1) == "/"
+    
+    -- Skip non-private, non-command messages
+    if not (isPrivate or isCommand) then
         return
     end
     
-    -- Determine channel
+    -- Skip own messages if configured
+    if not Config.spyOnMyself then return end
+    
     local channel = "All"
-    if rawMessage:sub(1,3):lower() == "/w " then
+    if isPrivate then
         channel = "RBXWhisper"
-    elseif rawMessage:sub(1,1) == "/" then
+    elseif isCommand then
         channel = "Command"
     end
     processPrivateMessage(player, rawMessage, channel)
