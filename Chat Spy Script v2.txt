@@ -37,7 +37,7 @@ local function processPrivateMessage(speaker, rawMessage, channel)
     local cleanMsg = rawMessage:gsub("[\n\r]", ""):gsub("\t", " "):gsub(" +", " ")
     
     -- Determine if it's a team message
-    local isTeamMessage = type(channel) == "string" and channel:find("Team$") ~= nil
+    local isTeamMessage = type(channel) == "string" and (channel:find("Team$") or channel:find("Team:"))
     
     if Config.public then
         local prefix = Config.publicItalics and "/me " or ""
@@ -50,15 +50,16 @@ local function processPrivateMessage(speaker, rawMessage, channel)
     end
 end
 
--- Main message handler using supported events
+-- Main message handler
 local function handleIncomingMessage(speaker, rawMessage, channel)
     if _G.chatSpyInstance ~= instance then return end
     if not Config.enabled then return end
     if not speaker then return end
-    if speaker == player and not Config.spyOnMyself then return end
     
-    -- Skip public messages
-    if channel == "RBXGeneral" or channel == "All" then return end
+    -- Skip public messages and system messages
+    if channel == "RBXGeneral" or channel == "All" or channel == "RBXSystem" then 
+        return 
+    end
     
     -- Process private messages
     processPrivateMessage(speaker, rawMessage, channel)
@@ -141,6 +142,11 @@ end)
 player.Chatted:Connect(function(rawMessage)
     if not Config.enabled then return end
     if not Config.spyOnMyself then return end
+    
+    -- Skip public messages from local player
+    if not (rawMessage:sub(1,3):lower() == "/w " or rawMessage:sub(1,1) == "/") then
+        return
+    end
     
     -- Determine channel
     local channel = "All"
