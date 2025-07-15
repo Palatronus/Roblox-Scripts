@@ -5,7 +5,7 @@ print("https://github.com/dehoisted/Chat-Spy")
 -- Config
 Config = {
     enabled = true,
-    spyOnMyself = true,
+    spyOnMyself = false,
     public = false,
     publicItalics = true
 }
@@ -27,16 +27,13 @@ local function displaySystemMessage(text)
     )
 end
 
--- Core message processing with public messages excluded
+-- Core message processing with precise filtering
 local function processMessage(speaker, message, channel)
     if not Config.enabled then return end
     if speaker == player and not Config.spyOnMyself then return end
     
     -- Skip all public messages completely
     if channel == "RBXGeneral" then return end
-    
-    -- Skip redundant private message logging for received whispers
-    if channel == "RBXWhisper" and speaker ~= player then return end
     
     -- Clean message
     local cleanMsg = message:gsub("[\n\r]", ""):gsub("\t", " "):gsub(" +", " ")
@@ -49,7 +46,26 @@ local function processMessage(speaker, message, channel)
     end
 end
 
--- Infinite Yield-style message hook
+-- Message processing with accurate private detection
+local function processPrivateMessage(speaker, message, channel)
+    if not Config.enabled then return end
+    if speaker == player and not Config.spyOnMyself then return end
+    
+    -- Skip public messages
+    if channel == "RBXGeneral" then return end
+    
+    -- Clean message
+    local cleanMsg = message:gsub("[\n\r]", ""):gsub("\t", " "):gsub(" +", " ")
+    
+    if Config.public then
+        local formatted = (Config.publicItalics and "/me " or "") .. "{SPY} [" .. speaker.Name .. "]: " .. cleanMsg
+        TextChatService.TextChannels.RBXGeneral:SendAsync(formatted)
+    else
+        displaySystemMessage("{SPY} [" .. speaker.Name .. "]: " .. cleanMsg)
+    end
+end
+
+-- Infinite Yield-style message hook with reliable private detection
 local function setupInfiniteYieldHook()
     local chatEvents = ReplicatedStorage:FindFirstChild("DefaultChatSystemChatEvents")
     if not chatEvents then return false end
@@ -64,13 +80,10 @@ local function setupInfiniteYieldHook()
         local speaker = Players:GetPlayerByUserId(messageData.FromSpeaker)
         if not speaker then return end
         
-        -- RESTORE: Process private messages sent by other players
+        -- Reliably detect private messages
         if messageData.MessageType == "Whisper" then
-            -- Extract recipient from message
-            local recipient = messageData.Message:match("^/w%s+([^%s]+)")
-            if recipient and recipient ~= player.Name then
-                processMessage(speaker, messageData.Message, messageData.OriginalChannel)
-            end
+            -- Process all whispers (both sent and received)
+            processPrivateMessage(speaker, messageData.Message, "RBXWhisper")
         else
             processMessage(speaker, messageData.Message, messageData.OriginalChannel)
         end
@@ -79,7 +92,7 @@ local function setupInfiniteYieldHook()
     return true
 end
 
--- Handle own messages
+-- Handle own messages with precise filtering
 local function setupOwnMessageHook()
     player.Chatted:Connect(function(rawMessage)
         if _G.chatSpyInstance ~= instance then return end
@@ -90,11 +103,11 @@ local function setupOwnMessageHook()
         local channel = "All"
         if rawMessage:sub(1,3):lower() == "/w " then
             channel = "RBXWhisper"
+            processPrivateMessage(player, rawMessage, channel)
         elseif rawMessage:sub(1,1) == "/" then
             channel = "Command"
+            processMessage(player, rawMessage, channel)
         end
-        
-        processMessage(player, rawMessage, channel)
     end)
 end
 
@@ -125,13 +138,9 @@ else
         if speaker and speaker ~= player then
             local channel = message.TextChannel and message.TextChannel.Name or "Unknown"
             
-            -- RESTORE: Process private messages from other players
+            -- Reliable private detection in fallback
             if channel == "RBXWhisper" then
-                -- Extract recipient from message
-                local recipient = message.Text:match("^/w%s+([^%s]+)")
-                if recipient and recipient ~= player.Name then
-                    processMessage(speaker, message.Text, channel)
-                end
+                processPrivateMessage(speaker, message.Text, channel)
             else
                 processMessage(speaker, message.Text, channel)
             end
@@ -146,18 +155,15 @@ setupOwnMessageHook()
 -- Initial status
 displaySystemMessage("{SPY " .. (Config.enabled and "EN" or "DIS") .. "ABLED}")
 
--- Add player connections for Chatted event as additional fallback
+-- Player connections with reliable private detection
 for _, otherPlayer in ipairs(Players:GetPlayers()) do
     if otherPlayer ~= player then
         otherPlayer.Chatted:Connect(function(message)
             if _G.chatSpyInstance ~= instance then return end
-            -- RESTORE: Process private messages from other players
+            
+            -- Accurate private message detection
             if message:sub(1,3):lower() == "/w " then
-                -- Extract recipient from message
-                local recipient = message:match("^/w%s+([^%s]+)")
-                if recipient and recipient ~= player.Name then
-                    processMessage(otherPlayer, message, "RBXWhisper")
-                end
+                processPrivateMessage(otherPlayer, message, "RBXWhisper")
             elseif message:sub(1,1) == "/" then
                 processMessage(otherPlayer, message, "Command")
             end
@@ -168,13 +174,10 @@ end
 Players.PlayerAdded:Connect(function(newPlayer)
     newPlayer.Chatted:Connect(function(message)
         if _G.chatSpyInstance ~= instance then return end
-        -- RESTORE: Process private messages from new players
+        
+        -- Accurate private message detection
         if message:sub(1,3):lower() == "/w " then
-            -- Extract recipient from message
-            local recipient = message:match("^/w%s+([^%s]+)")
-            if recipient and recipient ~= player.Name then
-                processMessage(newPlayer, message, "RBXWhisper")
-            end
+            processPrivateMessage(newPlayer, message, "RBXWhisper")
         elseif message:sub(1,1) == "/" then
             processMessage(newPlayer, message, "Command")
         end
