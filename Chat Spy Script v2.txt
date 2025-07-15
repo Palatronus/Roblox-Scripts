@@ -17,9 +17,9 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local instance = (_G.chatSpyInstance or 0) + 1
 _G.chatSpyInstance = instance
 
--- Message tracking to prevent duplicates
+-- Track processed messages to prevent duplicates
 local processedMessages = {}
-local MESSAGE_TTL = 10  -- seconds
+local MESSAGE_TTL = 5  -- Reduced TTL for better spam handling
 
 -- System message formatting
 local function displaySystemMessage(text)
@@ -37,12 +37,12 @@ local function isWhisperToLocalPlayer(message)
 end
 
 -- Core message processing
-local function processMessage(speaker, message, channel)
+local function processMessage(speaker, message, channel, messageId)
     if not Config.enabled then return end
     if speaker == player and not Config.spyOnMyself then return end
     
-    -- Skip public messages
-    if channel == "RBXGeneral" then return end
+    -- Skip ALL public messages and commands
+    if channel == "RBXGeneral" or channel == "Command" then return end
     
     -- Skip whispers TO local player
     if channel == "RBXWhisper" and isWhisperToLocalPlayer(message) then 
@@ -72,42 +72,35 @@ local function processMessage(speaker, message, channel)
     end
 end
 
--- Unified message handling system
-local function setupMessageHook()
-    -- Try InfiniteYield method first
+-- Infinite Yield-style message hook
+local function setupInfiniteYieldHook()
     local chatEvents = ReplicatedStorage:FindFirstChild("DefaultChatSystemChatEvents")
-    if chatEvents then
-        local onMessageDone = chatEvents:FindFirstChild("OnMessageDoneFiltering")
-        if onMessageDone then
-            onMessageDone.OnClientEvent:Connect(function(messageData)
-                if _G.chatSpyInstance ~= instance then return end
-                if not messageData.FromSpeaker then return end
-                
-                local speaker = Players:GetPlayerByUserId(messageData.FromSpeaker)
-                if not speaker then return end
-                
-                processMessage(
-                    speaker,
-                    messageData.Message,
-                    messageData.OriginalChannel
-                )
-            end)
-            return "INFINITE_YIELD"
-        end
-    end
+    if not chatEvents then return false end
     
-    -- Try TextChatService method
-    TextChatService.MessageReceived:Connect(function(message)
+    local onMessageDone = chatEvents:FindFirstChild("OnMessageDoneFiltering")
+    if not onMessageDone then return false end
+    
+    onMessageDone.OnClientEvent:Connect(function(messageData)
         if _G.chatSpyInstance ~= instance then return end
-        if not message.TextSource then return end
+        if not messageData.FromSpeaker then return end
         
-        local speaker = Players:GetPlayerByUserId(message.TextSource.UserId)
-        if speaker then
-            local channel = message.TextChannel and message.TextChannel.Name or "Unknown"
-            processMessage(speaker, message.Text, channel)
-        end
+        local speaker = Players:GetPlayerByUserId(messageData.FromSpeaker)
+        if not speaker then return end
+        
+        -- Skip public messages early
+        if messageData.OriginalChannel == "RBXGeneral" then return end
+        
+        -- Use unique message ID for tracking
+        local messageId = tostring(messageData.MessageId or tick())
+        processMessage(
+            speaker,
+            messageData.Message,
+            messageData.OriginalChannel,
+            messageId
+        )
     end)
-    return "TEXT_CHAT_SERVICE"
+    
+    return true
 end
 
 -- Handle own messages
@@ -125,7 +118,12 @@ local function setupOwnMessageHook()
             channel = "Command"
         end
         
-        processMessage(player, rawMessage, channel)
+        -- Skip public messages
+        if channel == "All" then return end
+        
+        -- Generate unique ID for local messages
+        local messageId = "local_" .. tostring(tick())
+        processMessage(player, rawMessage, channel, messageId)
     end)
 end
 
@@ -143,12 +141,63 @@ TextChatService.SendingMessage:Connect(function(params)
     end
 end)
 
--- Initialize unified chat hook
-local hookType = setupMessageHook()
-displaySystemMessage("{SPY HOOK ACTIVE: " .. hookType .. "}")
+-- Initialize chat hooks
+if setupInfiniteYieldHook() then
+    displaySystemMessage("{SPY MESSAGE HOOK ACTIVE}")
+else
+    -- Fallback to TextChatService for other players
+    TextChatService.MessageReceived:Connect(function(message)
+        if _G.chatSpyInstance ~= instance then return end
+        if not message.TextSource then return end
+        
+        local speaker = Players:GetPlayerByUserId(message.TextSource.UserId)
+        if speaker and speaker ~= player then
+            local channel = message.TextChannel and message.TextChannel.Name or "Unknown"
+            
+            -- Skip public messages early
+            if channel == "RBXGeneral" then return end
+            
+            -- Use message ID for tracking
+            local messageId = tostring(message.MessageId or tick())
+            processMessage(speaker, message.Text, channel, messageId)
+        end
+    end)
+    displaySystemMessage("{SPY USING FALLBACK HOOK}")
+end
 
 -- Setup own message hook
 setupOwnMessageHook()
 
 -- Initial status
 displaySystemMessage("{SPY " .. (Config.enabled and "EN" or "DIS") .. "ABLED}")
+
+-- Optimized player connections
+local function handlePlayerChatted(speaker, message)
+    if _G.chatSpyInstance ~= instance then return end
+    
+    -- Early skip for public-like messages
+    if not message:find("^/") then return end
+    
+    -- Explicit whisper detection
+    if message:sub(1,3):lower() == "/w " then
+        processMessage(speaker, message, "RBXWhisper", "chatted_" .. tostring(tick()))
+    elseif message:sub(1,1) == "/" then
+        processMessage(speaker, message, "Command", "chatted_" .. tostring(tick()))
+    end
+end
+
+-- Connect to existing players
+for _, otherPlayer in ipairs(Players:GetPlayers()) do
+    if otherPlayer ~= player then
+        otherPlayer.Chatted:Connect(function(msg)
+            handlePlayerChatted(otherPlayer, msg)
+        end)
+    end
+end
+
+-- Connect to new players
+Players.PlayerAdded:Connect(function(newPlayer)
+    newPlayer.Chatted:Connect(function(msg)
+        handlePlayerChatted(newPlayer, msg)
+    end)
+end)
