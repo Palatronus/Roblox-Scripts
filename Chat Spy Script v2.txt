@@ -14,6 +14,10 @@ local TextChatService = game:GetService("TextChatService")
 local instance = (_G.chatSpyInstance or 0) + 1
 _G.chatSpyInstance = instance
 
+-- Track processed whispers
+local whisperTracker = {}
+local TRACKER_TTL = 0.05  -- 50ms for high-volume spam
+
 -- System message formatting
 local function displaySystemMessage(text)
     TextChatService.TextChannels.RBXSystem:DisplaySystemMessage(
@@ -62,42 +66,57 @@ TextChatService.SendingMessage:Connect(function(params)
     end
 end)
 
--- Monitor private messages
-TextChatService.MessageReceived:Connect(function(message)
+-- Dedicated whisper handler
+local function handleWhisper(speaker, message)
     if _G.chatSpyInstance ~= instance then return end
     if not Config.enabled then return end
-    if not message.TextSource then return end
+    if speaker == player and not Config.spyOnMyself then return end
     
-    local channel = message.TextChannel and message.TextChannel.Name or "Unknown"
-    if channel == "RBXWhisper" or channel == "RBXTeam" then
-        local speaker = Players:GetPlayerByUserId(message.TextSource.UserId)
-        if speaker then
-            processPrivateMessage(speaker, message.Text)
-        end
+    -- Create unique signature for spam prevention
+    local signature = speaker.UserId .. ":" .. message
+    local now = tick()
+    
+    -- Prevent duplicate processing
+    if whisperTracker[signature] and (now - whisperTracker[signature] < TRACKER_TTL) then
+        return
     end
-end)
+    whisperTracker[signature] = now
+    
+    -- Clean message
+    local cleanMsg = message:gsub("[\n\r]", ""):gsub("\t", " "):gsub(" +", " ")
+    displaySystemMessage("{SPY} [" .. speaker.Name .. "]: " .. cleanMsg)
+end
 
--- Monitor other players' commands
+-- Monitor all player messages for whispers
 for _, otherPlayer in ipairs(Players:GetPlayers()) do
-    if otherPlayer ~= player then
-        otherPlayer.Chatted:Connect(function(msg)
-            if _G.chatSpyInstance ~= instance then return end
-            if not Config.enabled then return end
-            if msg:sub(1,1) == "/" and msg:sub(1,4):lower() ~= "/spy" then
-                processPrivateMessage(otherPlayer, msg)
-            end
-        end)
-    end
+    otherPlayer.Chatted:Connect(function(message)
+        if message:sub(1,3):lower() == "/w " then
+            handleWhisper(otherPlayer, message)
+        end
+    end)
 end
 
 Players.PlayerAdded:Connect(function(newPlayer)
-    newPlayer.Chatted:Connect(function(msg)
-        if _G.chatSpyInstance ~= instance then return end
-        if not Config.enabled then return end
-        if msg:sub(1,1) == "/" and msg:sub(1,4):lower() ~= "/spy" then
-            processPrivateMessage(newPlayer, msg)
+    newPlayer.Chatted:Connect(function(message)
+        if message:sub(1,3):lower() == "/w " then
+            handleWhisper(newPlayer, message)
         end
     end)
+end)
+
+-- Monitor team chat
+TextChatService.MessageReceived:Connect(function(msg)
+    if _G.chatSpyInstance ~= instance then return end
+    if not Config.enabled then return end
+    if not msg.TextSource then return end
+    
+    local channel = msg.TextChannel and msg.TextChannel.Name or "Unknown"
+    if channel == "RBXTeam" then
+        local speaker = Players:GetPlayerByUserId(msg.TextSource.UserId)
+        if speaker then
+            processPrivateMessage(speaker, msg.Text)
+        end
+    end
 end)
 
 -- Initial status
