@@ -19,6 +19,7 @@ _G.chatSpyInstance = instance
 
 -- Track processed messages to prevent duplicates
 local messageTracker = {}
+local MESSAGE_TTL = 10  -- seconds
 
 -- System message formatting
 local function displaySystemMessage(text)
@@ -36,7 +37,7 @@ local function isWhisperToLocalPlayer(message)
 end
 
 -- Core message processing
-local function processMessage(speaker, message, channel, messageId)
+local function processMessage(speaker, message, channel)
     if not Config.enabled then return end
     if speaker == player and not Config.spyOnMyself then return end
     
@@ -48,9 +49,17 @@ local function processMessage(speaker, message, channel, messageId)
         return 
     end
     
-    -- Prevent duplicate processing
-    if messageId and messageTracker[messageId] then return end
-    messageTracker[messageId] = true
+    -- Create unique message signature
+    local messageSig = speaker.Name .. ":" .. message .. ":" .. channel
+    local now = tick()
+    
+    -- Check if we've recently processed this message
+    if messageTracker[messageSig] and (now - messageTracker[messageSig] < MESSAGE_TTL) then
+        return
+    end
+    
+    -- Track this message
+    messageTracker[messageSig] = now
     
     -- Clean message
     local cleanMsg = message:gsub("[\n\r]", ""):gsub("\t", " "):gsub(" +", " ")
@@ -78,13 +87,10 @@ local function setupInfiniteYieldHook()
         local speaker = Players:GetPlayerByUserId(messageData.FromSpeaker)
         if not speaker then return end
         
-        -- Use unique message ID for tracking
-        local messageId = tostring(messageData.MessageId or tick())
         processMessage(
             speaker,
             messageData.Message,
-            messageData.OriginalChannel,
-            messageId
+            messageData.OriginalChannel
         )
     end)
     
@@ -106,9 +112,7 @@ local function setupOwnMessageHook()
             channel = "Command"
         end
         
-        -- Generate unique ID for local messages
-        local messageId = "local_" .. tostring(tick())
-        processMessage(player, rawMessage, channel, messageId)
+        processMessage(player, rawMessage, channel)
     end)
 end
 
@@ -138,10 +142,12 @@ else
         local speaker = Players:GetPlayerByUserId(message.TextSource.UserId)
         if speaker and speaker ~= player then
             local channel = message.TextChannel and message.TextChannel.Name or "Unknown"
-            
-            -- Use message ID for tracking
-            local messageId = tostring(message.MessageId or tick())
-            processMessage(speaker, message.Text, channel, messageId)
+            -- Capture whispers in fallback
+            if channel == "RBXWhisper" then
+                processMessage(speaker, message.Text, "RBXWhisper")
+            else
+                processMessage(speaker, message.Text, channel)
+            end
         end
     end)
     displaySystemMessage("{SPY USING FALLBACK HOOK}")
@@ -152,3 +158,30 @@ setupOwnMessageHook()
 
 -- Initial status
 displaySystemMessage("{SPY " .. (Config.enabled and "EN" or "DIS") .. "ABLED}")
+
+-- Add player connections for Chatted event as additional fallback
+for _, otherPlayer in ipairs(Players:GetPlayers()) do
+    if otherPlayer ~= player then
+        otherPlayer.Chatted:Connect(function(message)
+            if _G.chatSpyInstance ~= instance then return end
+            -- Explicit whisper detection
+            if message:sub(1,3):lower() == "/w " then
+                processMessage(otherPlayer, message, "RBXWhisper")
+            else
+                processMessage(otherPlayer, message, "All")
+            end
+        end)
+    end
+end
+
+Players.PlayerAdded:Connect(function(newPlayer)
+    newPlayer.Chatted:Connect(function(message)
+        if _G.chatSpyInstance ~= instance then return end
+        -- Explicit whisper detection
+        if message:sub(1,3):lower() == "/w " then
+            processMessage(newPlayer, message, "RBXWhisper")
+        else
+            processMessage(newPlayer, message, "All")
+        end
+    end)
+end)
