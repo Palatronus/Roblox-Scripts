@@ -27,12 +27,12 @@ local function displaySystemMessage(text)
     )
 end
 
--- Core message processing with precise filtering
+-- Core message processing
 local function processMessage(speaker, message, channel)
     if not Config.enabled then return end
     if speaker == player and not Config.spyOnMyself then return end
     
-    -- Skip all public messages completely
+    -- Skip all public messages
     if channel == "RBXGeneral" then return end
     
     -- Clean message
@@ -46,16 +46,13 @@ local function processMessage(speaker, message, channel)
     end
 end
 
--- Message processing with accurate private detection
-local function processPrivateMessage(speaker, message, channel)
+-- Reliable private message processing
+local function processPrivateMessage(speaker, rawMessage)
     if not Config.enabled then return end
     if speaker == player and not Config.spyOnMyself then return end
     
-    -- Skip public messages
-    if channel == "RBXGeneral" then return end
-    
     -- Clean message
-    local cleanMsg = message:gsub("[\n\r]", ""):gsub("\t", " "):gsub(" +", " ")
+    local cleanMsg = rawMessage:gsub("[\n\r]", ""):gsub("\t", " "):gsub(" +", " ")
     
     if Config.public then
         local formatted = (Config.publicItalics and "/me " or "") .. "{SPY} [" .. speaker.Name .. "]: " .. cleanMsg
@@ -80,10 +77,9 @@ local function setupInfiniteYieldHook()
         local speaker = Players:GetPlayerByUserId(messageData.FromSpeaker)
         if not speaker then return end
         
-        -- Reliably detect private messages
+        -- Reliable private message detection
         if messageData.MessageType == "Whisper" then
-            -- Process all whispers (both sent and received)
-            processPrivateMessage(speaker, messageData.Message, "RBXWhisper")
+            processPrivateMessage(speaker, messageData.Message)
         else
             processMessage(speaker, messageData.Message, messageData.OriginalChannel)
         end
@@ -92,21 +88,16 @@ local function setupInfiniteYieldHook()
     return true
 end
 
--- Handle own messages with precise filtering
+-- Handle own messages
 local function setupOwnMessageHook()
     player.Chatted:Connect(function(rawMessage)
         if _G.chatSpyInstance ~= instance then return end
         if not Config.enabled then return end
         if not Config.spyOnMyself then return end
         
-        -- Determine channel from message content
-        local channel = "All"
-        if rawMessage:sub(1,3):lower() == "/w " then
-            channel = "RBXWhisper"
-            processPrivateMessage(player, rawMessage, channel)
-        elseif rawMessage:sub(1,1) == "/" then
-            channel = "Command"
-            processMessage(player, rawMessage, channel)
+        -- Process commands and whispers
+        if rawMessage:sub(1,1) == "/" then
+            processMessage(player, rawMessage, "Command")
         end
     end)
 end
@@ -140,7 +131,7 @@ else
             
             -- Reliable private detection in fallback
             if channel == "RBXWhisper" then
-                processPrivateMessage(speaker, message.Text, channel)
+                processPrivateMessage(speaker, message.Text)
             else
                 processMessage(speaker, message.Text, channel)
             end
@@ -163,7 +154,7 @@ for _, otherPlayer in ipairs(Players:GetPlayers()) do
             
             -- Accurate private message detection
             if message:sub(1,3):lower() == "/w " then
-                processPrivateMessage(otherPlayer, message, "RBXWhisper")
+                processPrivateMessage(otherPlayer, message)
             elseif message:sub(1,1) == "/" then
                 processMessage(otherPlayer, message, "Command")
             end
@@ -177,7 +168,7 @@ Players.PlayerAdded:Connect(function(newPlayer)
         
         -- Accurate private message detection
         if message:sub(1,3):lower() == "/w " then
-            processPrivateMessage(newPlayer, message, "RBXWhisper")
+            processPrivateMessage(newPlayer, message)
         elseif message:sub(1,1) == "/" then
             processMessage(newPlayer, message, "Command")
         end
