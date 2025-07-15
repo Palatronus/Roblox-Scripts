@@ -27,24 +27,23 @@ local function displaySystemMessage(text)
     )
 end
 
--- Message tracker for spam prevention
-local messageTracker = {}
-local TRACKER_TTL = 0.5
+-- Whisper detection
+local function isWhisperToLocalPlayer(message)
+    return message:lower():match("^/w%s+" .. player.Name:lower() .. "%s")
+end
 
 -- Core message processing
 local function processMessage(speaker, message, channel)
     if not Config.enabled then return end
     if speaker == player and not Config.spyOnMyself then return end
     
-    -- Create unique signature for spam prevention
-    local signature = speaker.UserId .. ":" .. message
-    local now = tick()
+    -- ONLY CHANGE: Skip public messages by channel name
+    if channel == "RBXGeneral" then return end
     
-    -- Prevent duplicate processing
-    if messageTracker[signature] and (now - messageTracker[signature] < TRACKER_TTL) then
-        return
+    -- Skip whispers TO local player
+    if channel == "RBXWhisper" and isWhisperToLocalPlayer(message) then 
+        return 
     end
-    messageTracker[signature] = now
     
     -- Clean message
     local cleanMsg = message:gsub("[\n\r]", ""):gsub("\t", " "):gsub(" +", " ")
@@ -57,15 +56,29 @@ local function processMessage(speaker, message, channel)
     end
 end
 
--- Unified message handler with channel filtering
-local function handleMessage(speaker, message, channel)
-    -- Skip all public channels
-    if channel == "RBXGeneral" then return end
+-- Infinite Yield-style message hook
+local function setupInfiniteYieldHook()
+    local chatEvents = ReplicatedStorage:FindFirstChild("DefaultChatSystemChatEvents")
+    if not chatEvents then return false end
     
-    -- Process private messages
-    if channel == "RBXWhisper" or channel == "RBXTeam" then
-        processMessage(speaker, message, channel)
-    end
+    local onMessageDone = chatEvents:FindFirstChild("OnMessageDoneFiltering")
+    if not onMessageDone then return false end
+    
+    onMessageDone.OnClientEvent:Connect(function(messageData)
+        if _G.chatSpyInstance ~= instance then return end
+        if not messageData.FromSpeaker then return end
+        
+        local speaker = Players:GetPlayerByUserId(messageData.FromSpeaker)
+        if not speaker then return end
+        
+        processMessage(
+            speaker,
+            messageData.Message,
+            messageData.OriginalChannel
+        )
+    end)
+    
+    return true
 end
 
 -- Handle own messages
@@ -76,31 +89,16 @@ local function setupOwnMessageHook()
         if not Config.spyOnMyself then return end
         
         -- Determine channel from message content
-        local channel = "RBXGeneral"  -- Default to public
+        local channel = "All"
         if rawMessage:sub(1,3):lower() == "/w " then
             channel = "RBXWhisper"
         elseif rawMessage:sub(1,1) == "/" then
             channel = "Command"
         end
         
-        -- Only process private messages
-        if channel ~= "RBXGeneral" then
-            processMessage(player, rawMessage, channel)
-        end
+        processMessage(player, rawMessage, channel)
     end)
 end
-
--- Primary message hook using TextChatService
-TextChatService.MessageReceived:Connect(function(message)
-    if _G.chatSpyInstance ~= instance then return end
-    if not message.TextSource then return end
-    
-    local speaker = Players:GetPlayerByUserId(message.TextSource.UserId)
-    if speaker then
-        local channel = message.TextChannel and message.TextChannel.Name or "Unknown"
-        handleMessage(speaker, message.Text, channel)
-    end
-end)
 
 -- Command handling
 TextChatService.SendingMessage:Connect(function(params)
@@ -116,9 +114,55 @@ TextChatService.SendingMessage:Connect(function(params)
     end
 end)
 
+-- Initialize chat hooks
+if setupInfiniteYieldHook() then
+    displaySystemMessage("{SPY MESSAGE HOOK ACTIVE}")
+else
+    -- Fallback to TextChatService for other players
+    TextChatService.MessageReceived:Connect(function(message)
+        if _G.chatSpyInstance ~= instance then return end
+        if not message.TextSource then return end
+        
+        local speaker = Players:GetPlayerByUserId(message.TextSource.UserId)
+        if speaker and speaker ~= player then
+            local channel = message.TextChannel and message.TextChannel.Name or "Unknown"
+            -- Skip public messages in fallback
+            if channel == "RBXGeneral" then return end
+            processMessage(speaker, message.Text, channel)
+        end
+    end)
+    displaySystemMessage("{SPY USING FALLBACK HOOK}")
+end
+
 -- Setup own message hook
 setupOwnMessageHook()
 
 -- Initial status
 displaySystemMessage("{SPY " .. (Config.enabled and "EN" or "DIS") .. "ABLED}")
-displaySystemMessage("{SPY HOOK ACTIVE}")
+
+-- Add player connections for Chatted event as additional fallback
+for _, otherPlayer in ipairs(Players:GetPlayers()) do
+    if otherPlayer ~= player then
+        otherPlayer.Chatted:Connect(function(message)
+            if _G.chatSpyInstance ~= instance then return end
+            -- Only log private messages (whispers and commands)
+            if message:sub(1,3):lower() == "/w " then
+                processMessage(otherPlayer, message, "RBXWhisper")
+            elseif message:sub(1,1) == "/" then
+                processMessage(otherPlayer, message, "Command")
+            end
+        end)
+    end
+end
+
+Players.PlayerAdded:Connect(function(newPlayer)
+    newPlayer.Chatted:Connect(function(message)
+        if _G.chatSpyInstance ~= instance then return end
+        -- Only log private messages (whispers and commands)
+        if message:sub(1,3):lower() == "/w " then
+            processMessage(newPlayer, message, "RBXWhisper")
+        elseif message:sub(1,1) == "/" then
+            processMessage(newPlayer, message, "Command")
+        end
+    end)
+end)
