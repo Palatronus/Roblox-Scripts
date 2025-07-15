@@ -1,8 +1,8 @@
-print("-- Chat Spy Executed v3.1 --")
+print("-- Ultimate Chat Spy Executed --")
 print("Type \"/spy\" to toggle chat spy")
 print("https://github.com/dehoisted/Chat-Spy")
 
--- Config
+-- Simplified config
 Config = {
     enabled = true,
     spyOnMyself = false
@@ -14,6 +14,10 @@ local TextChatService = game:GetService("TextChatService")
 local instance = (_G.chatSpyInstance or 0) + 1
 _G.chatSpyInstance = instance
 
+-- Message tracking system
+local messageTracker = {}
+local TRACKER_TTL = 0.01  -- 10ms for extreme spam protection
+
 -- System message formatting
 local function displaySystemMessage(text)
     TextChatService.TextChannels.RBXSystem:DisplaySystemMessage(
@@ -24,26 +28,20 @@ local function displaySystemMessage(text)
     )
 end
 
--- Message tracker for spam prevention
-local messageTracker = {}
-local TRACKER_TTL = 0.05 -- 50ms ultra-fast spam protection
-
--- Core message processing
-local function processPrivateMessage(speaker, message, msgType)
-    if not Config.enabled then return end
-    if speaker == player and not Config.spyOnMyself then return end
-    
-    -- Spam protection
+-- Core processing with spam protection
+local function processPrivateMessage(speaker, message)
+    -- Create unique signature
     local signature = speaker.UserId .. ":" .. message
     local now = tick()
+    
+    -- Ultra-fast duplicate prevention
     if messageTracker[signature] and (now - messageTracker[signature] < TRACKER_TTL) then
         return
     end
     messageTracker[signature] = now
     
-    -- Clean and display
-    local cleanMsg = message:gsub("[\n\r]", ""):gsub("\t", " "):gsub(" +", " ")
-    displaySystemMessage("{SPY} [" .. speaker.Name .. "]: " .. cleanMsg)
+    -- Display message
+    displaySystemMessage("{SPY} [" .. speaker.Name .. "]: " .. message)
 end
 
 -- Command handling
@@ -60,53 +58,37 @@ TextChatService.SendingMessage:Connect(function(params)
     end
 end)
 
--- Primary whisper detection through player Chatted events
-local function handlePlayerChatted(speaker, message)
-    if _G.chatSpyInstance ~= instance then return end
+-- Universal message handler
+local function universalMessageHandler(speaker, message)
     if not Config.enabled then return end
+    if _G.chatSpyInstance ~= instance then return end
+    if speaker == player and not Config.spyOnMyself then return end
     
-    -- Whisper detection
+    -- Process private messages only
     if message:sub(1,3):lower() == "/w " then
-        processPrivateMessage(speaker, message, "WHISPER")
-    -- Command detection
+        processPrivateMessage(speaker, message)
     elseif message:sub(1,1) == "/" and message:sub(1,4):lower() ~= "/spy" then
-        processPrivateMessage(speaker, message, "COMMAND")
+        processPrivateMessage(speaker, message)
     end
 end
 
 -- Monitor all players
-for _, otherPlayer in ipairs(Players:GetPlayers()) do
-    otherPlayer.Chatted:Connect(function(msg)
-        handlePlayerChatted(otherPlayer, msg)
+for _, p in ipairs(Players:GetPlayers()) do
+    p.Chatted:Connect(function(msg)
+        universalMessageHandler(p, msg)
     end)
 end
 
 Players.PlayerAdded:Connect(function(newPlayer)
     newPlayer.Chatted:Connect(function(msg)
-        handlePlayerChatted(newPlayer, msg)
+        universalMessageHandler(newPlayer, msg)
     end)
 end)
 
--- Handle own messages
-player.Chatted:Connect(function(rawMessage)
-    if _G.chatSpyInstance ~= instance then return end
-    if not Config.enabled then return end
-    if not Config.spyOnMyself then return end
-    handlePlayerChatted(player, rawMessage)
-end)
-
--- Fallback for team chat via TextChatService
-TextChatService.MessageReceived:Connect(function(message)
-    if _G.chatSpyInstance ~= instance then return end
-    if not Config.enabled then return end
-    if not message.TextSource then return end
-    
-    local channel = message.TextChannel and message.TextChannel.Name
-    if channel == "RBXTeam" then
-        local speaker = Players:GetPlayerByUserId(message.TextSource.UserId)
-        if speaker then
-            processPrivateMessage(speaker, message.Text, "TEAM")
-        end
+-- Monitor own messages
+player.Chatted:Connect(function(msg)
+    if Config.spyOnMyself then
+        universalMessageHandler(player, msg)
     end
 end)
 
