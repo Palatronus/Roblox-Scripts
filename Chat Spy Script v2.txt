@@ -142,16 +142,12 @@ displaySystemMessage("{SPY " .. (Config.enabled and "EN" or "DIS") .. "ABLED}")
 for _, otherPlayer in ipairs(Players:GetPlayers()) do
     if otherPlayer ~= player then
         otherPlayer.Chatted:Connect(function(message)
-            if _G.chatSpyInstance ~= instance then return end
-            -- Only log private messages (whispers and commands)
-            if message:sub(1,3):lower() == "/w " then
-                processMessage(otherPlayer, message, "RBXWhisper")
-            elseif message:sub(1,1) == "/" then
-                processMessage(otherPlayer, message, "Command")
-            end
-        end)
+    if message:sub(1,3):lower() == "/w " then
+        processMessage(otherPlayer, message, "RBXWhisper")
+    elseif message:sub(1,1) == "/" then
+        processMessage(otherPlayer, message, "Command")
     end
-end
+end)
 
 Players.PlayerAdded:Connect(function(newPlayer)
     newPlayer.Chatted:Connect(function(message)
