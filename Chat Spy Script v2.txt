@@ -5,7 +5,7 @@ print("https://github.com/dehoisted/Chat-Spy")
 -- Config
 Config = {
     enabled = true,
-    spyOnMyself = false,
+    spyOnMyself = true,
     public = false,
     publicItalics = true
 }
@@ -17,10 +17,6 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local instance = (_G.chatSpyInstance or 0) + 1
 _G.chatSpyInstance = instance
 
--- Message tracking to prevent duplicates and overrides
-local messageHistory = {}
-local MESSAGE_TIMEOUT = 5 -- seconds
-
 -- System message formatting
 local function displaySystemMessage(text)
     TextChatService.TextChannels.RBXSystem:DisplaySystemMessage(
@@ -31,15 +27,10 @@ local function displaySystemMessage(text)
     )
 end
 
--- Core message processing with enhanced filtering
+-- Core message processing with precise public filtering
 local function processMessage(speaker, message, channel)
     if not Config.enabled then return end
     if speaker == player and not Config.spyOnMyself then return end
-    
-    -- Create message fingerprint for duplicate detection
-    local messageFingerprint = speaker.UserId..":"..message..":"..channel
-    if messageHistory[messageFingerprint] then return end
-    messageHistory[messageFingerprint] = os.time()
     
     -- Skip all public messages
     if channel == "RBXGeneral" then return end
@@ -55,25 +46,7 @@ local function processMessage(speaker, message, channel)
     end
 end
 
--- Cleanup old message history
-local function cleanupMessageHistory()
-    local currentTime = os.time()
-    for fingerprint, timestamp in pairs(messageHistory) do
-        if currentTime - timestamp > MESSAGE_TIMEOUT then
-            messageHistory[fingerprint] = nil
-        end
-    end
-end
-
--- Start cleanup task
-task.spawn(function()
-    while true do
-        cleanupMessageHistory()
-        task.wait(MESSAGE_TIMEOUT)
-    end
-end)
-
--- Infinite Yield-style message hook with stabilization
+-- Infinite Yield-style message hook
 local function setupInfiniteYieldHook()
     local chatEvents = ReplicatedStorage:FindFirstChild("DefaultChatSystemChatEvents")
     if not chatEvents then return false end
@@ -98,7 +71,7 @@ local function setupInfiniteYieldHook()
     return true
 end
 
--- Handle own messages with precise filtering
+-- Handle own messages
 local function setupOwnMessageHook()
     player.Chatted:Connect(function(rawMessage)
         if _G.chatSpyInstance ~= instance then return end
@@ -132,10 +105,8 @@ TextChatService.SendingMessage:Connect(function(params)
 end)
 
 -- Initialize chat hooks
-local mainHookActive = false
 if setupInfiniteYieldHook() then
     displaySystemMessage("{SPY MESSAGE HOOK ACTIVE}")
-    mainHookActive = true
 else
     -- Fallback to TextChatService for other players
     TextChatService.MessageReceived:Connect(function(message)
@@ -145,6 +116,10 @@ else
         local speaker = Players:GetPlayerByUserId(message.TextSource.UserId)
         if speaker and speaker ~= player then
             local channel = message.TextChannel and message.TextChannel.Name or "Unknown"
+            
+            -- Skip public messages in fallback
+            if channel == "RBXGeneral" then return end
+            
             processMessage(speaker, message.Text, channel)
         end
     end)
@@ -157,21 +132,23 @@ setupOwnMessageHook()
 -- Initial status
 displaySystemMessage("{SPY " .. (Config.enabled and "EN" or "DIS") .. "ABLED}")
 
--- Add player connections only if main hook failed
-if not mainHookActive then
-    for _, otherPlayer in ipairs(Players:GetPlayers()) do
-        if otherPlayer ~= player then
-            otherPlayer.Chatted:Connect(function(message)
-                if _G.chatSpyInstance ~= instance then return end
-                processMessage(otherPlayer, message, "All")
-            end)
-        end
-    end
-
-    Players.PlayerAdded:Connect(function(newPlayer)
-        newPlayer.Chatted:Connect(function(message)
+-- Add player connections for Chatted event as additional fallback
+for _, otherPlayer in ipairs(Players:GetPlayers()) do
+    if otherPlayer ~= player then
+        otherPlayer.Chatted:Connect(function(message)
             if _G.chatSpyInstance ~= instance then return end
-            processMessage(newPlayer, message, "All")
+            -- Skip public messages from other players
+            if message:sub(1,1) ~= "/" then return end
+            processMessage(otherPlayer, message, "All")
         end)
-    end)
+    end
 end
+
+Players.PlayerAdded:Connect(function(newPlayer)
+    newPlayer.Chatted:Connect(function(message)
+        if _G.chatSpyInstance ~= instance then return end
+        -- Skip public messages from new players
+        if message:sub(1,1) ~= "/" then return end
+        processMessage(newPlayer, message, "All")
+    end)
+end)
