@@ -13,6 +13,7 @@ Config = {
 local Players = game:GetService("Players")
 local player = Players.LocalPlayer
 local TextChatService = game:GetService("TextChatService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local instance = (_G.chatSpyInstance or 0) + 1
 _G.chatSpyInstance = instance
 
@@ -26,27 +27,17 @@ local function displaySystemMessage(text)
     )
 end
 
--- Core message processing with Roblox's metadata
-local function processMessage(messageObject)
+-- Core message processing
+local function processPrivateMessage(speaker, rawMessage, channel)
     if not Config.enabled then return end
-    if not messageObject.TextSource then return end
-    
-    local speaker = Players:GetPlayerByUserId(messageObject.TextSource.UserId)
     if not speaker then return end
     if speaker == player and not Config.spyOnMyself then return end
     
-    -- Skip messages that are visible in public chat
-    if messageObject.Status == Enum.TextChatMessageStatus.Success then
-        return
-    end
-    
-    -- Get clean message content
-    local rawMessage = messageObject.Text
+    -- Clean message
     local cleanMsg = rawMessage:gsub("[\n\r]", ""):gsub("\t", " "):gsub(" +", " ")
     
     -- Determine if it's a team message
-    local isTeamMessage = messageObject.TextChannel and 
-                          messageObject.TextChannel.Name:find("^Team:") ~= nil
+    local isTeamMessage = type(channel) == "string" and channel:find("Team$") ~= nil
     
     if Config.public then
         local prefix = Config.publicItalics and "/me " or ""
@@ -59,18 +50,30 @@ local function processMessage(messageObject)
     end
 end
 
--- Main message interception using Roblox's API
+-- Proper implementation of OnIncomingMessage
+local originalOnIncomingMessage
 local function setupMessageHook()
+    originalOnIncomingMessage = TextChatService.OnIncomingMessage
+    
     TextChatService.OnIncomingMessage = function(messageObject)
-        -- Allow default message processing first
-        local shouldDeliver = true
+        local result = originalOnIncomingMessage and originalOnIncomingMessage(messageObject)
         
-        -- Process message through our system
-        pcall(function()
-            processMessage(messageObject)
-        end)
+        if _G.chatSpyInstance == instance then
+            pcall(function()
+                if messageObject.TextSource then
+                    local speaker = Players:GetPlayerByUserId(messageObject.TextSource.UserId)
+                    if speaker then
+                        -- Identify private messages by channel
+                        local channel = messageObject.TextChannel and messageObject.TextChannel.Name
+                        if channel and channel ~= "RBXGeneral" and channel ~= "RBXSystem" then
+                            processPrivateMessage(speaker, messageObject.Text, channel)
+                        end
+                    end
+                end
+            end)
+        end
         
-        return shouldDeliver
+        return result
     end
 end
 
@@ -88,26 +91,45 @@ TextChatService.SendingMessage:Connect(function(params)
     end
 end)
 
--- Handle own messages separately
-player.Chatted:Connect(function(rawMessage)
+-- Handle all player messages (fallback)
+local function handlePlayerMessage(speaker, message, channel)
     if _G.chatSpyInstance ~= instance then return end
+    if not Config.enabled then return end
+    if not speaker then return end
+    if speaker == player and not Config.spyOnMyself then return end
+    
+    -- Only process commands/whispers/team chat
+    if message:sub(1,3):lower() == "/w " or 
+       message:sub(1,1) == "/" or 
+       channel:find("Team$") then
+        processPrivateMessage(speaker, message, channel)
+    end
+end
+
+-- Setup player chat hooks
+for _, otherPlayer in ipairs(Players:GetPlayers()) do
+    if otherPlayer ~= player then
+        otherPlayer.Chatted:Connect(function(message)
+            handlePlayerMessage(otherPlayer, message, "All")
+        end)
+    end
+end
+
+Players.PlayerAdded:Connect(function(newPlayer)
+    newPlayer.Chatted:Connect(function(message)
+        handlePlayerMessage(newPlayer, message, "All")
+    end)
+end)
+
+-- Handle own messages
+player.Chatted:Connect(function(rawMessage)
     if not Config.enabled then return end
     if not Config.spyOnMyself then return end
     
-    -- Only process commands/whispers 
+    -- Only process commands/whispers
     if rawMessage:sub(1,3):lower() == "/w " or rawMessage:sub(1,1) == "/" then
-        -- Create mock message object
-        local mockMessage = {
-            Text = rawMessage,
-            TextSource = {
-                UserId = player.UserId
-            },
-            Status = Enum.TextChatMessageStatus.Private,
-            TextChannel = {
-                Name = rawMessage:sub(1,3):lower() == "/w " and "RBXWhisper" or "Command"
-            }
-        }
-        processMessage(mockMessage)
+        local channel = rawMessage:sub(1,3):lower() == "/w " and "RBXWhisper" or "Command"
+        processPrivateMessage(player, rawMessage, channel)
     end
 end)
 
@@ -115,3 +137,16 @@ end)
 setupMessageHook()
 displaySystemMessage("{SPY SYSTEM ACTIVE}")
 displaySystemMessage("{SPY " .. (Config.enabled and "EN" or "DIS") .. "ABLED}")
+
+-- Cleanup when script is replaced
+local function cleanup()
+    if originalOnIncomingMessage then
+        TextChatService.OnIncomingMessage = originalOnIncomingMessage
+    end
+end
+
+game:GetService("ScriptContext").DescendantRemoving:Connect(function(descendant)
+    if descendant == script then
+        cleanup()
+    end
+end)
