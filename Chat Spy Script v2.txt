@@ -50,30 +50,49 @@ local function processPrivateMessage(speaker, rawMessage, channel)
     end
 end
 
--- Proper implementation of OnIncomingMessage
-local function setupMessageHook()
-    TextChatService.OnIncomingMessage = function(messageObject)
-        -- Always return message properties
-        local messageProperties = TextChatService:GetTextChatMessageProperties(messageObject)
-        
-        if _G.chatSpyInstance == instance then
-            pcall(function()
-                if messageObject.TextSource then
-                    local speaker = Players:GetPlayerByUserId(messageObject.TextSource.UserId)
-                    if speaker then
-                        -- Identify private messages by channel
-                        local channel = messageObject.TextChannel and messageObject.TextChannel.Name
-                        if channel and channel ~= "RBXGeneral" and channel ~= "RBXSystem" then
-                            processPrivateMessage(speaker, messageObject.Text, channel)
-                        end
-                    end
-                end
-            end)
-        end
-        
-        return messageProperties
-    end
+-- Main message handler using supported events
+local function handleIncomingMessage(speaker, rawMessage, channel)
+    if _G.chatSpyInstance ~= instance then return end
+    if not Config.enabled then return end
+    if not speaker then return end
+    if speaker == player and not Config.spyOnMyself then return end
+    
+    -- Skip public messages
+    if channel == "RBXGeneral" or channel == "All" then return end
+    
+    -- Process private messages
+    processPrivateMessage(speaker, rawMessage, channel)
 end
+
+-- Modern chat handler
+TextChatService.MessageReceived:Connect(function(message)
+    if not message.TextSource then return end
+    local speaker = Players:GetPlayerByUserId(message.TextSource.UserId)
+    if speaker then
+        local channel = message.TextChannel and message.TextChannel.Name or "Unknown"
+        handleIncomingMessage(speaker, message.Text, channel)
+    end
+end)
+
+-- Legacy chat support
+local function setupLegacyHook()
+    local chatEvents = ReplicatedStorage:FindFirstChild("DefaultChatSystemChatEvents")
+    if not chatEvents then return false end
+    
+    local onMessageDone = chatEvents:FindFirstChild("OnMessageDoneFiltering")
+    if not onMessageDone then return false end
+    
+    onMessageDone.OnClientEvent:Connect(function(messageData)
+        if not messageData.FromSpeaker then return end
+        local speaker = Players:GetPlayerByUserId(messageData.FromSpeaker)
+        if speaker then
+            handleIncomingMessage(speaker, messageData.Message, messageData.OriginalChannel)
+        end
+    end)
+    return true
+end
+
+setupLegacyHook()
 
 -- Command handling
 TextChatService.SendingMessage:Connect(function(params)
@@ -87,35 +106,34 @@ TextChatService.SendingMessage:Connect(function(params)
         params.Text = ""
         return
     end
-end
+end)
 
--- Handle all player messages (fallback)
-local function handlePlayerMessage(speaker, message, channel)
-    if _G.chatSpyInstance ~= instance then return end
-    if not Config.enabled then return end
-    if not speaker then return end
-    if speaker == player and not Config.spyOnMyself then return end
-    
-    -- Only process commands/whispers/team chat
-    if message:sub(1,3):lower() == "/w " or 
-       message:sub(1,1) == "/" or 
-       (channel and channel:find("Team$")) then
-        processPrivateMessage(speaker, message, channel)
-    end
-end
-
--- Setup player chat hooks
+-- Handle all player messages
 for _, otherPlayer in ipairs(Players:GetPlayers()) do
     if otherPlayer ~= player then
         otherPlayer.Chatted:Connect(function(message)
-            handlePlayerMessage(otherPlayer, message, "All")
+            -- Determine channel for Chatted events
+            local channel = "All"
+            if message:sub(1,3):lower() == "/w " then
+                channel = "RBXWhisper"
+            elseif message:sub(1,1) == "/" then
+                channel = "Command"
+            end
+            handleIncomingMessage(otherPlayer, message, channel)
         end)
     end
 end
 
 Players.PlayerAdded:Connect(function(newPlayer)
     newPlayer.Chatted:Connect(function(message)
-        handlePlayerMessage(newPlayer, message, "All")
+        -- Determine channel for Chatted events
+        local channel = "All"
+        if message:sub(1,3):lower() == "/w " then
+            channel = "RBXWhisper"
+        elseif message:sub(1,1) == "/" then
+            channel = "Command"
+        end
+        handleIncomingMessage(newPlayer, message, channel)
     end)
 end)
 
@@ -124,25 +142,16 @@ player.Chatted:Connect(function(rawMessage)
     if not Config.enabled then return end
     if not Config.spyOnMyself then return end
     
-    -- Only process commands/whispers
-    if rawMessage:sub(1,3):lower() == "/w " or rawMessage:sub(1,1) == "/" then
-        local channel = rawMessage:sub(1,3):lower() == "/w " and "RBXWhisper" or "Command"
-        processPrivateMessage(player, rawMessage, channel)
+    -- Determine channel
+    local channel = "All"
+    if rawMessage:sub(1,3):lower() == "/w " then
+        channel = "RBXWhisper"
+    elseif rawMessage:sub(1,1) == "/" then
+        channel = "Command"
     end
+    processPrivateMessage(player, rawMessage, channel)
 end)
 
--- Initialize the system
-setupMessageHook()
+-- Initial status
 displaySystemMessage("{SPY SYSTEM ACTIVE}")
 displaySystemMessage("{SPY " .. (Config.enabled and "EN" or "DIS") .. "ABLED}")
-
--- Cleanup when script is replaced
-local function cleanup()
-    TextChatService.OnIncomingMessage = nil
-end
-
-game:GetService("ScriptContext").DescendantRemoving:Connect(function(descendant)
-    if descendant == script then
-        cleanup()
-    end
-end)
