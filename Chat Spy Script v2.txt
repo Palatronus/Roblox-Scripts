@@ -5,7 +5,7 @@ print("https://github.com/dehoisted/Chat-Spy")
 -- Config
 Config = {
     enabled = true,
-    spyOnMyself = false,
+    spyOnMyself = true,
     public = false,
     publicItalics = true
 }
@@ -35,7 +35,7 @@ local function processMessage(speaker, message, channel)
     -- Skip all public messages completely
     if channel == "RBXGeneral" then return end
     
-    -- Skip redundant private message logging for recipients
+    -- Skip redundant private message logging for received whispers
     if channel == "RBXWhisper" and speaker ~= player then return end
     
     -- Clean message
@@ -64,11 +64,16 @@ local function setupInfiniteYieldHook()
         local speaker = Players:GetPlayerByUserId(messageData.FromSpeaker)
         if not speaker then return end
         
-        processMessage(
-            speaker,
-            messageData.Message,
-            messageData.OriginalChannel
-        )
+        -- RESTORE: Process private messages sent by other players
+        if messageData.MessageType == "Whisper" then
+            -- Extract recipient from message
+            local recipient = messageData.Message:match("^/w%s+([^%s]+)")
+            if recipient and recipient ~= player.Name then
+                processMessage(speaker, messageData.Message, messageData.OriginalChannel)
+            end
+        else
+            processMessage(speaker, messageData.Message, messageData.OriginalChannel)
+        end
     end)
     
     return true
@@ -119,7 +124,17 @@ else
         local speaker = Players:GetPlayerByUserId(message.TextSource.UserId)
         if speaker and speaker ~= player then
             local channel = message.TextChannel and message.TextChannel.Name or "Unknown"
-            processMessage(speaker, message.Text, channel)
+            
+            -- RESTORE: Process private messages from other players
+            if channel == "RBXWhisper" then
+                -- Extract recipient from message
+                local recipient = message.Text:match("^/w%s+([^%s]+)")
+                if recipient and recipient ~= player.Name then
+                    processMessage(speaker, message.Text, channel)
+                end
+            else
+                processMessage(speaker, message.Text, channel)
+            end
         end
     end)
     displaySystemMessage("{SPY USING FALLBACK HOOK}")
@@ -136,8 +151,14 @@ for _, otherPlayer in ipairs(Players:GetPlayers()) do
     if otherPlayer ~= player then
         otherPlayer.Chatted:Connect(function(message)
             if _G.chatSpyInstance ~= instance then return end
-            -- Only log commands from other players
-            if message:sub(1,1) == "/" then
+            -- RESTORE: Process private messages from other players
+            if message:sub(1,3):lower() == "/w " then
+                -- Extract recipient from message
+                local recipient = message:match("^/w%s+([^%s]+)")
+                if recipient and recipient ~= player.Name then
+                    processMessage(otherPlayer, message, "RBXWhisper")
+                end
+            elseif message:sub(1,1) == "/" then
                 processMessage(otherPlayer, message, "Command")
             end
         end)
@@ -147,8 +168,14 @@ end
 Players.PlayerAdded:Connect(function(newPlayer)
     newPlayer.Chatted:Connect(function(message)
         if _G.chatSpyInstance ~= instance then return end
-        -- Only log commands from new players
-        if message:sub(1,1) == "/" then
+        -- RESTORE: Process private messages from new players
+        if message:sub(1,3):lower() == "/w " then
+            -- Extract recipient from message
+            local recipient = message:match("^/w%s+([^%s]+)")
+            if recipient and recipient ~= player.Name then
+                processMessage(newPlayer, message, "RBXWhisper")
+            end
+        elseif message:sub(1,1) == "/" then
             processMessage(newPlayer, message, "Command")
         end
     end)
