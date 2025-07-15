@@ -11,12 +11,10 @@ Config = {
 local Players = game:GetService("Players")
 local player = Players.LocalPlayer
 local TextChatService = game:GetService("TextChatService")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local instance = (_G.chatSpyInstance or 0) + 1
 _G.chatSpyInstance = instance
 
--- Create private channel tracker
-local privateChannels = {}
+-- Message tracker for spam prevention
 local messageTracker = {}
 local TRACKER_TTL = 0.01  -- 10ms for extreme spam
 
@@ -30,87 +28,79 @@ local function displaySystemMessage(text)
     )
 end
 
--- Create custom private message channel
-local function setupPrivateChannel()
-    local channelName = "SpyChannel_" .. tostring(math.random(10000,99999))
-    local newChannel = Instance.new("TextChannel")
-    newChannel.Name = channelName
-    newChannel.Parent = TextChatService
+-- Core message processing
+local function processMessage(speaker, message, channel)
+    if not Config.enabled then return end
+    if speaker == player and not Config.spyOnMyself then return end
     
-    newChannel.IncomingMessage:Connect(function(message)
-        if not Config.enabled then return end
-        local speaker = Players:GetPlayerByUserId(message.TextSource.UserId)
-        if not speaker then return end
-        
-        -- Ultra-fast duplicate prevention
-        local signature = speaker.UserId .. ":" .. message.Text
-        local now = tick()
-        if messageTracker[signature] and (now - messageTracker[signature] < TRACKER_TTL) then
-            return
-        end
-        messageTracker[signature] = now
-        
-        -- Display private message
-        displaySystemMessage("{SPY} [" .. speaker.Name .. "]: " .. message.Text)
-    end)
+    -- Create unique signature for spam prevention
+    local signature = speaker.UserId .. ":" .. message
+    local now = tick()
     
-    return newChannel
+    -- Prevent duplicate processing
+    if messageTracker[signature] and (now - messageTracker[signature] < TRACKER_TTL) then
+        return
+    end
+    messageTracker[signature] = now
+    
+    -- Display in public chat with spy prefix
+    TextChatService.TextChannels.RBXGeneral:SendAsync("{SPY} [" .. speaker.Name .. "]: " .. message)
 end
 
--- Capture all private communications
-local function capturePrivateCommunications(spyChannel)
-    -- Monitor whisper channel
-    local whisperChannel = TextChatService:FindFirstChild("RBXWhisper")
-    if whisperChannel then
-        whisperChannel:AddUserAsync(player.UserId)
-        whisperChannel.IncomingMessage:Connect(function(message)
+-- Monitor private channels
+local function monitorPrivateChannel(channelName)
+    local channel = TextChatService:FindFirstChild(channelName)
+    if channel then
+        channel:AddUserAsync(player.UserId)
+        channel.MessageReceived:Connect(function(message)
             if not Config.enabled then return end
             local speaker = Players:GetPlayerByUserId(message.TextSource.UserId)
-            if speaker and (speaker ~= player or Config.spyOnMyself) then
-                spyChannel:SendAsync({
-                    Text = message.Text,
-                    TextSource = message.TextSource
-                })
+            if speaker then
+                processMessage(speaker, message.Text, channelName)
             end
         end)
     end
-
-    -- Monitor team chat
-    local teamChannel = TextChatService:FindFirstChild("RBXTeam")
-    if teamChannel then
-        teamChannel:AddUserAsync(player.UserId)
-        teamChannel.IncomingMessage:Connect(function(message)
-            if not Config.enabled then return end
-            spyChannel:SendAsync({
-                Text = message.Text,
-                TextSource = message.TextSource
-            })
-        end)
-    end
-
-    -- Monitor player commands
-    local function monitorCommands(speaker)
-        speaker.Chatted:Connect(function(message)
-            if not Config.enabled then return end
-            if speaker == player and not Config.spyOnMyself then return end
-            
-            if message:sub(1,1) == "/" and message:sub(1,4):lower() ~= "/spy" then
-                spyChannel:SendAsync({
-                    Text = message,
-                    TextSource = speaker
-                })
-            end
-        end)
-    end
-
-    -- Monitor existing players
-    for _, p in ipairs(Players:GetPlayers()) do
-        monitorCommands(p)
-    end
-
-    -- Monitor new players
-    Players.PlayerAdded:Connect(monitorCommands)
 end
+
+-- Handle commands
+local function handleCommand(speaker, message)
+    if not Config.enabled then return end
+    if speaker == player and not Config.spyOnMyself then return end
+    if string.sub(message:lower(), 1, 4) == "/spy" then return end
+    
+    processMessage(speaker, message, "Command")
+end
+
+-- Set up player monitoring
+local function monitorPlayer(p)
+    p.Chatted:Connect(function(message)
+        if _G.chatSpyInstance ~= instance then return end
+        if string.sub(message, 1, 1) == "/" then
+            handleCommand(p, message)
+        end
+    end)
+end
+
+-- Monitor existing players
+for _, p in ipairs(Players:GetPlayers()) do
+    monitorPlayer(p)
+end
+
+-- Monitor new players
+Players.PlayerAdded:Connect(monitorPlayer)
+
+-- Monitor own messages
+player.Chatted:Connect(function(message)
+    if _G.chatSpyInstance ~= instance then return end
+    if not Config.spyOnMyself then return end
+    if string.sub(message, 1, 1) == "/" then
+        handleCommand(player, message)
+    end
+end)
+
+-- Monitor private channels
+monitorPrivateChannel("RBXWhisper")
+monitorPrivateChannel("RBXTeam")
 
 -- Command handling
 TextChatService.SendingMessage:Connect(function(params)
@@ -126,10 +116,5 @@ TextChatService.SendingMessage:Connect(function(params)
     end
 end)
 
--- Main execution
-local spyChannel = setupPrivateChannel()
-capturePrivateCommunications(spyChannel)
-
 -- Initial status
 displaySystemMessage("{SPY " .. (Config.enabled and "EN" or "DIS") .. "ABLED}")
-displaySystemMessage("{PRIVATE CHANNEL ACTIVE}")
