@@ -1,70 +1,61 @@
 -- ROBLOX CHAT SPY (JULY 2025 WORKING VERSION)
 local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TextChatService = game:GetService("TextChatService")
 local player = Players.LocalPlayer
 
--- 1. DIRECT CHANNEL ACCESS
-local systemChannel = TextChatService.TextChannels:WaitForChild("RBXSystem")
-
--- Configuration
-local Config = {
-    enabled = true,
-    spyOnMyself = true,
-    public = false
-}
-
--- 2. STATUS MESSAGE (FIXED OUTPUT)
-local function updateStatus()
-    systemChannel:DisplaySystemMessage(
-        "<font color='#00FFFF'>[SPY " .. (Config.enabled and "ENABLED" or "DISABLED") .. "]</font>"
-    )
+-- 1. ALTERNATIVE MESSAGE DETECTION (BYPASSES TEXTCHATSERVICE LIMITATIONS)
+local function isPrivateMessage(message)
+    -- Method 1: Check for whisper prefix
+    if string.sub(message, 1, 2) == "/w" then return true end
+    
+    -- Method 2: Check for team chat prefix
+    if string.sub(message, 1, 6) == "/team " then return true end
+    
+    -- Method 3: Check message metadata
+    local metadata = debug.getinfo(3, "f")
+    if metadata and string.find(tostring(metadata.func), "PrivateMessageHandler") then
+        return true
+    end
+    
+    return false
 end
 
--- 3. COMMAND HANDLER (RELIABLE)
-player.Chatted:Connect(function(message)
-    if string.lower(message) == "/spy" then
-        Config.enabled = not Config.enabled
-        updateStatus()
+-- 2. COMMAND HANDLER
+player.Chatted:Connect(function(rawMessage)
+    -- Spy toggle command
+    if string.lower(rawMessage) == "/spy" then
+        _G.ChatSpyEnabled = not _G.ChatSpyEnabled
+        ReplicatedStorage:WaitForChild("DefaultChatSystemChatEvents")
+            :WaitForChild("SayMessageRequest")
+            :FireServer("[SPY] " .. (_G.ChatSpyEnabled and "ENABLED" or "DISABLED"), "All")
+        return
     end
-end)
-
--- 4. MESSAGE INTERCEPTION CORE
-TextChatService.MessageReceived:Connect(function(message)
-    if not Config.enabled then return end
-
-    -- 5. ESSENTIAL CHECKS
-    local textSource = message.TextSource
-    if not textSource then return end
-    if textSource.UserId == player.UserId and not Config.spyOnMyself then return end
-
-    -- 6. PRIVATE MESSAGE DETECTION (2025 METHOD)
-    local isPrivate = false
-    local channel = message.TextChannel
-    if channel then
-        isPrivate = (channel.Name == "Whisper" or channel.Name == "Team")
-    end
-
-    -- 7. ALTERNATIVE DETECTION (BACKUP)
-    if not isPrivate then
-        isPrivate = message:GetAttribute("MessageCategory") == "Private"
-    end
-
-    if isPrivate then
-        -- 8. SAFE OUTPUT WITH DELAY
-        task.wait(0.15)
-        local msgContent = message.Text or ""
-        local senderName = textSource.DisplayName or textSource.Name
+    
+    -- Detect private messages
+    if _G.ChatSpyEnabled and isPrivateMessage(rawMessage) then
+        -- 3. EXTRACT SENDER AND CONTENT
+        local sender = player.Name
+        local content = rawMessage
         
-        -- 9. HTML-FORMATTED OUTPUT
-        systemChannel:DisplaySystemMessage(
-            "<font color='#00FFFF'>[SPY] [" .. senderName .. "]: " .. msgContent .. "</font>"
-        )
+        -- Extract whisper target and message
+        if string.sub(rawMessage, 1, 2) == "/w" then
+            local _, targetEnd = string.find(rawMessage, "/w [^ ]+ ")
+            if targetEnd then
+                content = string.sub(rawMessage, targetEnd + 1)
+            end
+        end
+        
+        -- 4. SAFE OUTPUT
+        task.wait(0.1)  -- Bypass rate limits
+        ReplicatedStorage:WaitForChild("DefaultChatSystemChatEvents")
+            :WaitForChild("SayMessageRequest")
+            :FireServer("[SPY] [" .. sender .. "]: " .. content, "All")
     end
 end)
 
--- 10. INITIALIZATION SEQUENCE
-task.spawn(function()
-    task.wait(1)  -- Ensure chat system is loaded
-    updateStatus()
-    warn("CHAT SPY ACTIVE - PRIVATE MESSAGES WILL BE LOGGED")
-end)
+-- 5. INITIALIZATION
+_G.ChatSpyEnabled = true
+ReplicatedStorage:WaitForChild("DefaultChatSystemChatEvents")
+    :WaitForChild("SayMessageRequest")
+    :FireServer("[SPY] ENABLED", "All")
