@@ -1,67 +1,73 @@
--- ROBLOX CHAT SPY (2025 COMPLIANT)
-local Players = game:GetService("Players")
-local TextChatService = game:GetService("TextChatService")
-local player = Players.LocalPlayer
+-- ROBLOX CHAT SPY (2025 STANDARD)  
+local Players = game:GetService("Players")  
+local TextChatService = game:GetService("TextChatService")  
+local player = Players.LocalPlayer  
 
--- Configuration
-local Config = {
-    enabled = true,
-    spyOnMyself = true,
-    public = false
-}
+-- Configuration  
+local Config = {  
+    enabled = true,  
+    spyOnMyself = true,  
+    public = false,  
+    publicItalics = true  
+}  
 
--- Track active instance
-local instance = (_G.chatSpyInstance or 0) + 1
-_G.chatSpyInstance = instance
+-- Instance tracking to prevent conflicts  
+local instance = (_G.chatSpyInstance or 0) + 1  
+_G.chatSpyInstance = instance  
 
--- 2025 Status Message System
-local function displayStatus()
-    local status = Config.enabled and "ENABLED" or "DISABLED"
-    TextChatService:DisplaySystemMessage(`<font color="#00FFFF">[SPY {status}]</font>`)
-end
+-- Get channels safely  
+local textChannels = TextChatService:WaitForChild("TextChannels")  
+local systemChannel = textChannels:WaitForChild("RBXSystem")  
+local generalChannel = textChannels:WaitForChild("RBXGeneral")  
 
--- 2025 Command Handler
-player.Chatted:Connect(function(message)
-    if string.lower(message) == "/spy" then
-        Config.enabled = not Config.enabled
-        displayStatus()
-    end
-end)
+-- Status update using 2025 system messages :cite[3]:cite[4]  
+local function updateStatus()  
+    systemChannel:DisplaySystemMessage(  
+        "<font color='#00FFFF'>[SPY " .. (Config.enabled and "ENABLED" or "DISABLED") .. "]</font>"  
+    )  
+end  
 
--- 2025 Message Handling
-TextChatService.MessageReceived:Connect(function(message)
-    if not Config.enabled or _G.chatSpyInstance ~= instance then return end
-    
-    local textSource = message.TextSource
-    if not textSource then return end
-    
-    -- 2025 Channel Detection
-    local channel = message.TextChannel
-    if not channel then return end
-    
-    -- 2025 Private Message Detection
-    local isPrivate = (channel.Name == "RBXWhisper" or channel.Name == "RBXTeam")
-    local isLocalPlayer = textSource.UserId == player.UserId
-    
-    if isPrivate and (Config.spyOnMyself or not isLocalPlayer) then
-        local msgContent = message.Text or ""
-        local senderName = textSource.DisplayName or textSource.Name or "Unknown"
-        
-        -- 2025 Output Formatting
-        local spyMessage = `<font color="#00FFFF">[SPY] [{senderName}]: {msgContent}</font>`
-        
-        if Config.public then
-            -- 2025 Public Broadcast
-            TextChatService:PostAsync(spyMessage, "RBXGeneral")
-        else
-            -- 2025 Private System Message
-            TextChatService:DisplaySystemMessage(spyMessage)
-        end
-    end
-end)
+-- Command handler via Chatted event  
+player.Chatted:Connect(function(message)  
+    if string.lower(message) == "/spy" then  
+        Config.enabled = not Config.enabled  
+        updateStatus()  
+    end  
+end)  
 
--- Initialization
-task.defer(function()
-    displayStatus()
-    print("Chat Spy Active - Type /spy to toggle")
-end)
+-- Core spy logic :cite[1]:cite[7]  
+TextChatService.MessageReceived:Connect(function(message)  
+    if not Config.enabled or _G.chatSpyInstance ~= instance then return end  
+
+    local textSource = message.TextSource  
+    if not textSource then return end  
+
+    -- Identify private messages by channel :cite[1]:cite[4]  
+    local channel = message:GetAttribute("ChatChannel")  
+    local channelName = channel and channel.Name or ""  
+    local isPrivate = (channelName == "RBXWhisper" or channelName == "RBXTeam")  
+    local isLocalPlayer = textSource.UserId == player.UserId  
+
+    if isPrivate and (Config.spyOnMyself or not isLocalPlayer) then  
+        local msgContent = message.Text  
+        local senderName = textSource.DisplayName or textSource.Name  
+
+        if Config.public then  
+            -- Prevent recursion with unique marker :cite[8]  
+            if not msgContent:find("{SPY}") then  
+                local formatted = Config.publicItalics and "/me " or ""  
+                formatted = formatted .. "{SPY} [" .. senderName .. "]: " .. msgContent  
+                generalChannel:SendAsync(formatted)  
+            end  
+        else  
+            -- System message with HTML formatting :cite[3]:cite[4]  
+            systemChannel:DisplaySystemMessage(  
+                "<font color='#00FFFF'>[SPY] [" .. senderName .. "]: " .. msgContent .. "</font>"  
+            )  
+        end  
+    end  
+end)  
+
+-- Initialize  
+updateStatus()  
+print("Chat Spy Active | Type '/spy' to toggle")  
