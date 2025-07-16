@@ -90,7 +90,7 @@ local function setupOwnMessageHook()
         
         -- Determine channel from message content
         local channel = "All"
-        if rawMessage:sub(1,3):lower() == "/w" then
+        if rawMessage:sub(1,3):lower() == "/whisper " then
             channel = "RBXWhisper"
         elseif rawMessage:sub(1,1) == "/" then
             channel = "Command"
@@ -144,7 +144,7 @@ for _, otherPlayer in ipairs(Players:GetPlayers()) do
         otherPlayer.Chatted:Connect(function(message)
             if _G.chatSpyInstance ~= instance then return end
             -- Explicit whisper detection
-            if message:sub(1,3):lower() == "/w" then
+            if message:sub(1,3):lower() == "/whisper " then
                 processMessage(otherPlayer, message, "RBXWhisper")
             else
                 processMessage(otherPlayer, message, "All")
@@ -157,7 +157,7 @@ Players.PlayerAdded:Connect(function(newPlayer)
     newPlayer.Chatted:Connect(function(message)
         if _G.chatSpyInstance ~= instance then return end
         -- Explicit whisper detection
-        if message:sub(1,3):lower() == "/w" then
+        if message:sub(1,3):lower() == "/whisper " then
             processMessage(newPlayer, message, "RBXWhisper")
         else
             processMessage(newPlayer, message, "All")
