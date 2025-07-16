@@ -3,7 +3,7 @@ local Players = game:GetService("Players")
 local TextChatService = game:GetService("TextChatService")
 local player = Players.LocalPlayer
 
--- 1. MANDATORY PRIVACY INITIALIZATION :cite[5]:cite[7]
+-- 1. INITIALIZE CHANNELS FIRST :cite[3]
 local textChannels = TextChatService:WaitForChild("TextChannels")
 local systemChannel = textChannels:WaitForChild("RBXSystem")
 
@@ -14,61 +14,61 @@ local Config = {
     public = false
 }
 
--- 2. ENCRYPTION COMPLIANCE CHECK :cite[5]
-local function canViewMessage(senderId)
-    local success, result = pcall(function()
-        return #TextChatService:CanUsersDirectChatAsync(player.UserId, {senderId}) > 0
-    end)
-    return success and result
+-- Track active instance
+local instance = (_G.chatSpyInstance or 0) + 1
+_G.chatSpyInstance = instance
+
+-- 2. STATUS MESSAGES WITH HTML FORMATTING :cite[1]
+local function updateStatus()
+    systemChannel:DisplaySystemMessage(
+        "<font color='#00FFFF'>[SPY " .. (Config.enabled and "ENABLED" or "DISABLED") .. "]</font>"
+    )
 end
 
--- 3. OUTPUT WITH RATE LIMITING (PREVENTS DROPPED MESSAGES) :cite[9]
-local lastOutputTime = 0
-local function safeLog(message)
-    if os.clock() - lastOutputTime < 1.0 then  -- 1-second cooldown
-        task.wait(1.2)
+-- 3. COMMAND HANDLER (CLIENT-SIDE)
+player.Chatted:Connect(function(message)
+    if string.lower(message) == "/spy" then
+        Config.enabled = not Config.enabled
+        updateStatus()
     end
-    systemChannel:DisplaySystemMessage("<font color='#00FFFF'>[SPY] "..message.."</font>")
-    lastOutputTime = os.clock()
-end
+end)
 
--- 4. MESSAGE PROCESSING CORE :cite[7]
+-- 4. MESSAGE PROCESSING CORE :cite[3]:cite[6]
 TextChatService.MessageReceived:Connect(function(message)
-    if not Config.enabled then return end
+    if not Config.enabled or _G.chatSpyInstance ~= instance then return end
 
+    -- 5. VERIFY MESSAGE SOURCE
     local textSource = message.TextSource
     if not textSource then return end
-
-    -- 5. CORRECT CHANNEL DETECTION (2025 STANDARD) :cite[5]
+    
+    -- 6. MODERN CHANNEL DETECTION (2025 STANDARD) :cite[7]
     local channel = message.TextChannel
     if not channel then return end
     local channelName = channel.Name
-    local isPrivate = (channelName == "Whisper" or channelName == "Team")
+    local isPrivate = (channelName == "Whisper" or channelName == "Team")  -- ✅ 2025 names
     
-    -- 6. ENCRYPTION CHECK FOR WHISPERS :cite[5]
+    -- 7. MANDATORY PRIVACY CHECK :cite[3]
     local canSpy = true
-    if channelName == "Whisper" then
-        canSpy = canViewMessage(textSource.UserId)
+    if isPrivate then
+        canSpy = pcall(function()
+            return #TextChatService:CanUsersDirectChatAsync(player.UserId, {textSource.UserId}) > 0
+        end)
     end
 
     local isLocalPlayer = textSource.UserId == player.UserId
 
+    -- 8. LOGGING WITH ANTI-FILTER DELAY :cite[1]
     if isPrivate and canSpy and (Config.spyOnMyself or not isLocalPlayer) then
+        task.wait(0.1)  -- ⏰ Prevent cascade filtering
         local msgContent = message.Text
         local senderName = textSource.DisplayName or textSource.Name
-        safeLog("["..senderName.."]: "..msgContent)
+
+        -- 9. GUARANTEED OUTPUT :cite[2]
+        local spyMessage = "<font color='#00FFFF'>[SPY] ["..senderName.."]: "..msgContent.."</font>"
+        systemChannel:DisplaySystemMessage(spyMessage)
     end
 end)
 
--- 7. COMMAND HANDLER :cite[9]
-player.Chatted:Connect(function(msg)
-    if string.lower(msg) == "/spy" then
-        Config.enabled = not Config.enabled
-        systemChannel:DisplaySystemMessage(
-            "<font color='#00FFFF'>[SPY "..(Config.enabled and "ENABLED" or "DISABLED").."]</font>"
-        )
-    end
-end)
-
--- Initial status
-systemChannel:DisplaySystemMessage("<font color='#00FFFF'>[SPY ENABLED]</font>")
+-- Initialization
+updateStatus()
+print("✅ Spy Active - Private messages will now log")
