@@ -32,13 +32,13 @@ local function isWhisperToLocalPlayer(message)
     return message:lower():match("^/w%s+" .. player.Name:lower() .. "%s")
 end
 
--- Core message processing
+-- Core message processing (ONLY CHANGE: Added channel check)
 local function processMessage(speaker, message, channel)
     if not Config.enabled then return end
     if speaker == player and not Config.spyOnMyself then return end
     
-    -- Skip public messages
-    if channel == "RBXGeneral" or channel == "All" then return end
+    -- ONLY CHANGE: Skip public channel messages
+    if channel == "RBXGeneral" then return end
     
     -- Skip whispers TO local player
     if channel == "RBXWhisper" and isWhisperToLocalPlayer(message) then 
@@ -126,9 +126,12 @@ else
         local speaker = Players:GetPlayerByUserId(message.TextSource.UserId)
         if speaker and speaker ~= player then
             local channel = message.TextChannel and message.TextChannel.Name or "Unknown"
-            -- Skip public messages in fallback
-            if channel == "RBXGeneral" then return end
-            processMessage(speaker, message.Text, channel)
+            -- Capture whispers in fallback
+            if channel == "RBXWhisper" then
+                processMessage(speaker, message.Text, "RBXWhisper")
+            else
+                processMessage(speaker, message.Text, channel)
+            end
         end
     end)
     displaySystemMessage("{SPY USING FALLBACK HOOK}")
@@ -148,8 +151,8 @@ for _, otherPlayer in ipairs(Players:GetPlayers()) do
             -- Explicit whisper detection
             if message:sub(1,3):lower() == "/w " then
                 processMessage(otherPlayer, message, "RBXWhisper")
-            elseif message:sub(1,1) == "/" then
-                processMessage(otherPlayer, message, "Command")
+            else
+                processMessage(otherPlayer, message, "All")
             end
         end)
     end
@@ -161,23 +164,8 @@ Players.PlayerAdded:Connect(function(newPlayer)
         -- Explicit whisper detection
         if message:sub(1,3):lower() == "/w " then
             processMessage(newPlayer, message, "RBXWhisper")
-        elseif message:sub(1,1) == "/" then
-            processMessage(newPlayer, message, "Command")
+        else
+            processMessage(newPlayer, message, "All")
         end
     end)
-end)
-
--- Dedicated team chat monitoring
-TextChatService.MessageReceived:Connect(function(message)
-    if _G.chatSpyInstance ~= instance then return end
-    if not Config.enabled then return end
-    if not message.TextSource then return end
-    
-    local channel = message.TextChannel and message.TextChannel.Name
-    if channel == "RBXTeam" then
-        local speaker = Players:GetPlayerByUserId(message.TextSource.UserId)
-        if speaker then
-            processMessage(speaker, message.Text, "RBXTeam")
-        end
-    end
 end)
