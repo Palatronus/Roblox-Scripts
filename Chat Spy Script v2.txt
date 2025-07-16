@@ -1,16 +1,8 @@
---[[
-   Modern Chat Spy for TextChatService
-   Type "/spy" to toggle
-   - Fixes "TextColor3 is not a valid member" error
-   - Uses rich text formatting instead of deprecated properties
-   - Maintains chat functionality
---]]
-
--- Services
+-- WORKING CHAT SPY - JULY 2024 VERSION
 local Players = game:GetService("Players")
 local TextChatService = game:GetService("TextChatService")
+local StarterGui = game:GetService("StarterGui")
 local player = Players.LocalPlayer
-local systemChannel = TextChatService:WaitForChild("TextChannels"):WaitForChild("RBXSystem")
 
 -- Configuration
 local Config = {
@@ -25,9 +17,12 @@ _G.chatSpyInstance = instance
 
 -- Toggle spy status
 local function updateStatus()
-    systemChannel:DisplaySystemMessage(
-        "<font color='#00FFFF'>[SPY "..(Config.enabled and "ENABLED" or "DISABLED").."]</font>"
-    )
+    StarterGui:SetCore("ChatMakeSystemMessage", {
+        Text = "[SPY "..(Config.enabled and "ENABLED" or "DISABLED").."]",
+        Color = Color3.fromRGB(0, 255, 255),
+        Font = Enum.Font.SourceSansBold,
+        TextSize = 18
+    })
 end
 
 -- Command handler
@@ -38,48 +33,40 @@ player.Chatted:Connect(function(message)
     end
 end)
 
--- Main message handler
-TextChatService.OnIncomingMessage = function(message)
-    -- 1. Create valid return object first :cite[1]:cite[7]
-    local properties = Instance.new("TextChatMessageProperties")
-    properties.Text = message.Text  -- Preserve original message
+-- MAIN FIX: Use MessageReceived event instead of callback
+TextChatService.MessageReceived:Connect(function(message)
+    if not Config.enabled or _G.chatSpyInstance ~= instance then return end
     
-    -- 2. Only process if spy active
-    if Config.enabled and _G.chatSpyInstance == instance then
-        local textSource = message.TextSource
-        if textSource then
-            -- 3. Detect private channels (whispers/team chat) :cite[2]:cite[5]
-            local channel = message:GetAttribute("ChatChannel")
-            local channelName = channel and channel.Name or ""
-            local isPrivate = (channelName == "RBXWhisper" or channelName == "RBXTeam")
-            local isLocalPlayer = textSource.UserId == player.UserId
-            
-            if isPrivate and (Config.spyOnMyself or not isLocalPlayer) then
-                -- 4. Use rich text instead of TextColor3 :cite[1]:cite[10]
-                local spyMessage = string.format(
-                    "<font color='#00FFFF'>[SPY] [%s]: %s</font>",
-                    textSource.Name,
-                    message.Text
-                )
-                
-                if Config.public then
-                    -- 5. Use legacy method for public broadcast
-                    task.spawn(function()
-                        game:GetService("ReplicatedStorage")
-                            :WaitForChild("DefaultChatSystemChatEvents")
-                            :WaitForChild("SayMessageRequest")
-                            :FireServer(spyMessage, "All")
-                    end)
-                else
-                    -- 6. Proper system message display :cite[10]
-                    systemChannel:DisplaySystemMessage(spyMessage)
-                end
-            end
+    local textSource = message.TextSource
+    if not textSource then return end
+    
+    -- Detect private messages by channel
+    local channel = message:GetAttribute("ChatChannel")
+    local channelName = channel and channel.Name or ""
+    local isPrivate = (channelName == "RBXWhisper" or channelName == "RBXTeam")
+    local isLocalPlayer = textSource.UserId == player.UserId
+    
+    if isPrivate and (Config.spyOnMyself or not isLocalPlayer) then
+        local msgContent = message.Text or ""
+        local senderName = textSource.Name or "Unknown"
+        
+        if Config.public then
+            -- Use legacy chat system for compatibility
+            game:GetService("ReplicatedStorage")
+                :WaitForChild("DefaultChatSystemChatEvents")
+                :WaitForChild("SayMessageRequest")
+                :FireServer("[SPY] ["..senderName.."]: "..msgContent, "All")
+        else
+            StarterGui:SetCore("ChatMakeSystemMessage", {
+                Text = "[SPY] ["..senderName.."]: "..msgContent,
+                Color = Color3.fromRGB(0, 255, 255),
+                Font = Enum.Font.SourceSansBold,
+                TextSize = 18
+            })
         end
     end
-    
-    return properties  -- Essential to prevent chat breakage
-end
+end)
 
 -- Initial status
 updateStatus()
+print("Chat Spy WORKING - Type /spy to toggle")
