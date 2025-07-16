@@ -1,7 +1,7 @@
 --[[
-   Updated Chat Spy for TextChatService
+   Modern Chat Spy (Client-Side)
    Type "/spy" to toggle
-   Only intercepts messages visible to client (whispers, team chat)
+   Fixed: "Private is not a valid member of Enum.TextChatMessageStatus"
 --]]
 
 print("-- Modern Chat Spy Loaded --")
@@ -26,7 +26,8 @@ local SpyMessageProperties = {
 local TextChatService = game:GetService("TextChatService")
 local Players = game:GetService("Players")
 local player = Players.LocalPlayer
-local systemChannel = TextChatService:WaitForChild("TextChannels"):WaitForChild("RBXSystem")
+local textChannels = TextChatService:WaitForChild("TextChannels")
+local systemChannel = textChannels:WaitForChild("RBXSystem")  -- :cite[2]
 
 -- Instance tracking
 local instance = (_G.chatSpyInstance or 0) + 1
@@ -49,8 +50,8 @@ local function processCommand(message)
     return false
 end
 
--- Main message handler
-local function handleIncomingMessage(message)
+-- Main message handler (FIXED)
+local function onMessageAdded(message, channel)
     if _G.chatSpyInstance ~= instance then return end
     if not Config.enabled then return end
     
@@ -58,10 +59,10 @@ local function handleIncomingMessage(message)
     if not textSource then return end
     
     local isLocalPlayer = textSource.UserId == player.UserId
-    local isPrivate = (
-        message.Status == Enum.TextChatMessageStatus.Private or
-        message.Status == Enum.TextChatMessageStatus.FilteredPrivate
-    )
+    local channelName = channel.Name
+    
+    -- Detect private messages by channel type :cite[5]:cite[8]
+    local isPrivate = (channelName == "RBXWhisper" or channelName == "RBXTeam")
     
     if isPrivate and (Config.spyOnMyself or not isLocalPlayer) then
         local msgContent = message.Text
@@ -70,7 +71,7 @@ local function handleIncomingMessage(message)
         if Config.public then
             local formatted = Config.publicItalics and "/me " or ""
             formatted = formatted .. "{SPY} [".. senderName .."]: ".. msgContent
-            TextChatService.TextChannels.RBXGeneral:SendAsync(formatted)
+            textChannels.RBXGeneral:SendAsync(formatted)  -- Use general channel
         else
             systemChannel:DisplaySystemMessage(
                 "<font color='#00FFFF'>[SPY] [".. senderName .."]: ".. msgContent .. "</font>"
@@ -79,17 +80,7 @@ local function handleIncomingMessage(message)
     end
 end
 
--- Initialize after chat loads :cite[7]
-task.defer(function()
-    TextChatService.OnIncomingMessage = function(message)
-        local properties = oldHandler and oldHandler(message) or nil
-        handleIncomingMessage(message)
-        return properties
-    end
-    
-    -- Setup command detection
-    player.Chatted:Connect(processCommand)
-    
-    -- Initial status
-    updateSpyStatus()
-end)
+-- Initialize
+TextChatService.OnMessageAdded:Connect(onMessageAdded)  -- :cite[5]
+player.Chatted:Connect(processCommand)
+updateSpyStatus()
