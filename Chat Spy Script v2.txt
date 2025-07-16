@@ -1,4 +1,4 @@
--- ROBLOX CHAT SPY (CLIENT-SIDE) - VERIFIED WORKING
+-- ROBLOX CHAT SPY (CLIENT-SIDE) - FINAL WORKING VERSION
 local Players = game:GetService("Players")
 local TextChatService = game:GetService("TextChatService")
 local StarterGui = game:GetService("StarterGui")
@@ -36,50 +36,54 @@ player.Chatted:Connect(function(message)
     end
 end)
 
--- Main message handler
-TextChatService.OnIncomingMessage = function(message)
-    -- Always return minimal properties for chat to function
-    local baseProperties = {
-        TextColor3 = Color3.new(1, 1, 1),
-        Font = Enum.Font.SourceSans,
-        TextSize = 18
-    }
-    
-    if not Config.enabled or _G.chatSpyInstance ~= instance then
-        return baseProperties
+-- Create message received connection instead of callback
+local messageConnection
+local function initializeSpy()
+    if messageConnection then
+        messageConnection:Disconnect()
     end
     
-    local textSource = message.TextSource
-    if not textSource then return baseProperties end
-    
-    -- Get channel name safely
-    local channel = message:GetAttribute("ChatChannel")
-    local channelName = channel and channel.Name or "Global"
-    
-    -- Detect private messages
-    local isPrivate = (channelName == "RBXWhisper" or channelName == "RBXTeam")
-    local isLocalPlayer = textSource.UserId == player.UserId
-    
-    if isPrivate and (Config.spyOnMyself or not isLocalPlayer) then
-        local msgContent = message.Text or ""
-        local senderName = textSource.Name or "Unknown"
+    messageConnection = TextChatService.MessageReceived:Connect(function(message)
+        if not Config.enabled or _G.chatSpyInstance ~= instance then return end
         
-        if Config.public then
-            -- Send to public chat using legacy method (works client-side)
-            game:GetService("ReplicatedStorage").DefaultChatSystemChatEvents.SayMessageRequest:FireServer(
-                "[SPY] ["..senderName.."]: "..msgContent,
-                "All"
-            )
-        else
-            -- Send private system message using StarterGui
-            SpyMessageProperties.Text = "[SPY] ["..senderName.."]: "..msgContent
-            StarterGui:SetCore("ChatMakeSystemMessage", SpyMessageProperties)
+        local textSource = message.TextSource
+        if not textSource then return end
+        
+        -- Get channel name safely
+        local channel = message:GetAttribute("ChatChannel")
+        local channelName = channel and channel.Name or "Global"
+        
+        -- Detect private messages
+        local isPrivate = (channelName == "RBXWhisper" or channelName == "RBXTeam")
+        local isLocalPlayer = textSource.UserId == player.UserId
+        
+        if isPrivate and (Config.spyOnMyself or not isLocalPlayer) then
+            local msgContent = message.Text or ""
+            local senderName = textSource.Name or "Unknown"
+            
+            if Config.public then
+                -- Send to public chat using legacy method
+                task.spawn(function()
+                    game:GetService("ReplicatedStorage"):WaitForChild("DefaultChatSystemChatEvents")
+                        :WaitForChild("SayMessageRequest"):FireServer(
+                            "[SPY] ["..senderName.."]: "..msgContent,
+                            "All"
+                        )
+                end)
+            else
+                -- Send private system message
+                SpyMessageProperties.Text = "[SPY] ["..senderName.."]: "..msgContent
+                StarterGui:SetCore("ChatMakeSystemMessage", SpyMessageProperties)
+            end
         end
-    end
-    
-    return baseProperties
+    end)
 end
 
--- Initial status
+-- Initialize
+initializeSpy()
 updateStatus()
+
+-- Reinitialize when character respawns
+player.CharacterAdded:Connect(initializeSpy)
+
 print("Chat Spy Activated - Type /spy to toggle")
