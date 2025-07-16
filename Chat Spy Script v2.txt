@@ -1,23 +1,22 @@
 --[[
-   Modern Chat Spy (Client-Side TextChatService Version)
-   Type "/spy" to enable/disable chat spy
-   Compatible with Synapse and most executors
+   Updated Chat Spy for TextChatService
+   Type "/spy" to toggle
+   Only intercepts messages visible to client (whispers, team chat)
 --]]
 
-print("-- Modern Chat Spy Executed --")
-print("Type \"/spy\" to enable or disable the chat spy")
-print("Updated for Roblox TextChatService")
+print("-- Modern Chat Spy Loaded --")
+print("Type \"/spy\" to toggle spy mode")
 
 -- Configuration
 local Config = {
     enabled = true,
-    spyOnMyself = true,
+    spyOnMyself = false,
     public = false,
     publicItalics = true
 }
 
 -- Message styling
-local PrivateProperties = {
+local SpyMessageProperties = {
     Color = Color3.fromRGB(0, 255, 255),
     Font = Enum.Font.SourceSansBold,
     TextSize = 18
@@ -27,95 +26,70 @@ local PrivateProperties = {
 local TextChatService = game:GetService("TextChatService")
 local Players = game:GetService("Players")
 local player = Players.LocalPlayer
-local StarterGui = game:GetService("StarterGui")
+local systemChannel = TextChatService:WaitForChild("TextChannels"):WaitForChild("RBXSystem")
 
--- Spy instance tracking
+-- Instance tracking
 local instance = (_G.chatSpyInstance or 0) + 1
 _G.chatSpyInstance = instance
 
 -- Toggle spy status
 local function updateSpyStatus()
-    PrivateProperties.Text = "{SPY " .. (Config.enabled and "EN" or "DIS") .. "ABLED}"
-    StarterGui:SetCore("ChatMakeSystemMessage", PrivateProperties)
+    systemChannel:DisplaySystemMessage(
+        "<font color='#00FFFF'>[SPY " .. (Config.enabled and "ENABLED" or "DISABLED") .. "]</font>"
+    )
 end
 
--- Command handler
+-- Command handling
 local function processCommand(message)
     if string.lower(message) == "/spy" then
         Config.enabled = not Config.enabled
         updateSpyStatus()
-        return true  -- Consume the command
+        return true
     end
     return false
 end
 
--- Message handler
-local originalChatCallback
-local function chatSpyHandler(message, channel)
-    if _G.chatSpyInstance ~= instance then
-        return originalChatCallback and originalChatCallback(message, channel)
-    end
+-- Main message handler
+local function handleIncomingMessage(message)
+    if _G.chatSpyInstance ~= instance then return end
+    if not Config.enabled then return end
     
-    -- Process commands
-    if processCommand(message) then
-        return
-    end
+    local textSource = message.TextSource
+    if not textSource then return end
     
-    -- Send message normally if not a spy command
-    if originalChatCallback then
-        originalChatCallback(message, channel)
+    local isLocalPlayer = textSource.UserId == player.UserId
+    local isPrivate = (
+        message.Status == Enum.TextChatMessageStatus.Private or
+        message.Status == Enum.TextChatMessageStatus.FilteredPrivate
+    )
+    
+    if isPrivate and (Config.spyOnMyself or not isLocalPlayer) then
+        local msgContent = message.Text
+        local senderName = textSource.Name
+        
+        if Config.public then
+            local formatted = Config.publicItalics and "/me " or ""
+            formatted = formatted .. "{SPY} [".. senderName .."]: ".. msgContent
+            TextChatService.TextChannels.RBXGeneral:SendAsync(formatted)
+        else
+            systemChannel:DisplaySystemMessage(
+                "<font color='#00FFFF'>[SPY] [".. senderName .."]: ".. msgContent .. "</font>"
+            )
+        end
     end
 end
 
--- Setup chat callback
-if TextChatService.OnIncomingMessage then
-    originalChatCallback = TextChatService.OnIncomingMessage
+-- Initialize after chat loads :cite[7]
+task.defer(function()
     TextChatService.OnIncomingMessage = function(message)
-        local properties = originalChatCallback(message)
-        
-        if _G.chatSpyInstance == instance and Config.enabled then
-            local speaker = message.TextSource
-            if speaker then
-                local isLocalPlayer = speaker.UserId == player.UserId
-                local isPrivate = (
-                    message.Status == Enum.TextChatMessageStatus.Private or
-                    message.Status == Enum.TextChatMessageStatus.FilteredPrivate
-                )
-                
-                if isPrivate and (Config.spyOnMyself or not isLocalPlayer) then
-                    local msgContent = message.Text
-                    if Config.public then
-                        local formatted = Config.publicItalics and "/me " or ""
-                        formatted = formatted .. "{SPY} [".. speaker.Name .."]: ".. msgContent
-                        task.spawn(function()
-                            TextChatService:SendAsync(formatted, "All")
-                        end)
-                    else
-                        PrivateProperties.Text = "{SPY} [".. speaker.Name .."]: ".. msgContent
-                        StarterGui:SetCore("ChatMakeSystemMessage", PrivateProperties)
-                    end
-                end
-            end
-        end
-        
+        local properties = oldHandler and oldHandler(message) or nil
+        handleIncomingMessage(message)
         return properties
     end
-else
-    warn("TextChatService.OnIncomingMessage not available")
-end
-
--- Initial status
-updateSpyStatus()
-
--- Set up command detection
-local function onCharacterAdded(character)
-    local humanoid = character:WaitForChild("Humanoid")
-    humanoid.Chatted:Connect(function(message)
-        processCommand(message)
-    end)
-end
-
-if player.Character then
-    onCharacterAdded(player.Character)
-end
-player.CharacterAdded:Connect(onCharacterAdded)
+    
+    -- Setup command detection
+    player.Chatted:Connect(processCommand)
+    
+    -- Initial status
+    updateSpyStatus()
+end)
