@@ -1,75 +1,78 @@
--- ROBLOX CHAT SPY (2025 FIXED VERSION)
-local Players = game:GetService("Players")
-local TextChatService = game:GetService("TextChatService")
-local player = Players.LocalPlayer
+-- ROBLOX CHAT SPY (JULY 2025 FIXED)  
+local Players = game:GetService("Players")  
+local TextChatService = game:GetService("TextChatService")  
+local player = Players.LocalPlayer  
 
--- Configuration
-local Config = {
-    enabled = true,
-    spyOnMyself = true,
-    public = false,
-    publicItalics = true
-}
+-- Configuration  
+local Config = {  
+    enabled = true,  
+    spyOnMyself = true,  
+    public = false  
+}  
 
--- Instance tracking to prevent conflicts
-local instance = (_G.chatSpyInstance or 0) + 1
-_G.chatSpyInstance = instance
+-- 1. Initialize channels FIRST (critical for 2025 systems) :cite[6]  
+local textChannels = TextChatService:WaitForChild("TextChannels")  
+local systemChannel = textChannels:WaitForChild("RBXSystem")  
+local generalChannel = textChannels:WaitForChild("RBXGeneral")  
 
--- Get channels
-local textChannels = TextChatService:WaitForChild("TextChannels")
-local systemChannel = textChannels:WaitForChild("RBXSystem")
-local generalChannel = textChannels:WaitForChild("RBXGeneral")
+-- Track active instance  
+local instance = (_G.chatSpyInstance or 0) + 1  
+_G.chatSpyInstance = instance  
 
--- Status update
-local function updateStatus()
-    systemChannel:DisplaySystemMessage(
-        "<font color='#00FFFF'>[SPY " .. (Config.enabled and "ENABLED" or "DISABLED") .. "]</font>"
-    )
-end
+-- 2. Status update using HTML formatting (2025 standard) :cite[6]  
+local function updateStatus()  
+    systemChannel:DisplaySystemMessage(  
+        "<font color='#00FFFF'>[SPY " .. (Config.enabled and "ENABLED" or "DISABLED") .. "]</font>"  
+    )  
+end  
 
--- Command handler
-player.Chatted:Connect(function(message)
-    if string.lower(message) == "/spy" then
-        Config.enabled = not Config.enabled
-        updateStatus()
-    end
-end)
+-- 3. Command handling via REGISTERED COMMANDS (2025 best practice) :cite[3]  
+TextChatService:RegisterCommands({  
+    {  
+        name = "spy",  
+        description = "Toggle chat spy",  
+        primaryAlias = "/spy",  
+        callback = function()  
+            Config.enabled = not Config.enabled  
+            updateStatus()  
+            return false -- Suppress command in chat  
+        end  
+    }  
+})  
 
--- FIXED MESSAGE DETECTION
-TextChatService.MessageReceived:Connect(function(message)
-    if not Config.enabled or _G.chatSpyInstance ~= instance then return end
+-- 4. Message processing with FIXED CHANNEL DETECTION :cite[2]:cite[3]  
+TextChatService.MessageReceived:Connect(function(message)  
+    if not Config.enabled or _G.chatSpyInstance ~= instance then return end  
 
-    local textSource = message.TextSource
-    if not textSource then return end
-    
-    -- FIX 1: Use TextChannel instead of ChatChannel attribute
-    local channel = message.TextChannel
-    if not channel then return end
-    
-    -- FIX 2: Correct channel name detection
-    local channelName = channel.Name
-    local isPrivate = (channelName == "Whisper" or channelName == "Team")  -- Updated channel names
-    
-    local isLocalPlayer = textSource.UserId == player.UserId
+    local textSource = message.TextSource  
+    if not textSource then return end  
 
-    if isPrivate and (Config.spyOnMyself or not isLocalPlayer) then
-        local msgContent = message.Text
-        local senderName = textSource.DisplayName or textSource.Name
+    -- 5. CORRECT private channel detection (2025 naming) :cite[2]  
+    local channel = message.TextChannel  
+    if not channel then return end  
 
-        if Config.public then
-            if not msgContent:find("{SPY}") then
-                local formatted = Config.publicItalics and "/me " or ""
-                formatted = formatted .. "{SPY} [" .. senderName .. "]: " .. msgContent
-                generalChannel:SendAsync(formatted)
-            end
-        else
-            systemChannel:DisplaySystemMessage(
-                "<font color='#00FFFF'>[SPY] [" .. senderName .. "]: " .. msgContent .. "</font>"
-            )
-        end
-    end
-end)
+    local channelName = channel.Name  
+    local isPrivate = (channelName == "Whisper" or channelName == "Team") -- Not "RBXWhisper/RBXTeam"  
 
--- Initialize
-updateStatus()
-print("Chat Spy Active | Type '/spy' to toggle")
+    local isLocalPlayer = textSource.UserId == player.UserId  
+
+    if isPrivate and (Config.spyOnMyself or not isLocalPlayer) then  
+        local msgContent = message.Text  
+        local senderName = textSource.DisplayName or textSource.Name  
+
+        -- 6. Output with FILTER BYPASS (avoid 2025 cascade filtering) :cite[7]  
+        task.wait(0.1) -- Prevent aggressive filter tagging  
+        
+        if Config.public then  
+            generalChannel:SendAsync("{SPY} [" .. senderName .. "]: " .. msgContent)  
+        else  
+            systemChannel:DisplaySystemMessage(  
+                "<font color='#00FFFF'>[SPY] [" .. senderName .. "]: " .. msgContent .. "</font>"  
+            )  
+        end  
+    end  
+end)  
+
+-- Initial status  
+updateStatus()  
+print("Chat Spy Active | Messages will now log")
