@@ -37,9 +37,6 @@ local function processMessage(speaker, message, channel)
     if not Config.enabled then return end
     if speaker == player and not Config.spyOnMyself then return end
     
-    -- Skip public messages by channel name
-    if channel == "RBXGeneral" then return end
-    
     -- Skip whispers TO local player
     if channel == "RBXWhisper" and isWhisperToLocalPlayer(message) then 
         return 
