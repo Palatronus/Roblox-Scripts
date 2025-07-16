@@ -1,61 +1,63 @@
--- ROBLOX CHAT SPY (JULY 2025 WORKING VERSION)
+-- ROBLOX CHAT SPY (AGGRESSIVE METHOD)
 local Players = game:GetService("Players")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local TextChatService = game:GetService("TextChatService")
 local player = Players.LocalPlayer
+local mt = getrawmetatable(game)
+local backup = mt.__namecall
+local spyEnabled = true
 
--- 1. ALTERNATIVE MESSAGE DETECTION (BYPASSES TEXTCHATSERVICE LIMITATIONS)
-local function isPrivateMessage(message)
-    -- Method 1: Check for whisper prefix
-    if string.sub(message, 1, 2) == "/w" then return true end
+-- 1. DIRECT MEMORY HOOK (CAPTURES ALL CHAT DATA)
+setreadonly(mt, false)
+mt.__namecall = newcclosure(function(...)
+    local args = {...}
+    local self = args[1]
+    local method = getnamecallmethod()
     
-    -- Method 2: Check for team chat prefix
-    if string.sub(message, 1, 6) == "/team " then return true end
-    
-    -- Method 3: Check message metadata
-    local metadata = debug.getinfo(3, "f")
-    if metadata and string.find(tostring(metadata.func), "PrivateMessageHandler") then
-        return true
+    -- 2. INTERCEPT CHAT PACKETS
+    if method == "FireServer" and tostring(self) == "SayMessageRequest" then
+        local message = args[2]
+        local channel = args[3]
+        
+        -- 3. LOG ALL MESSAGES REGARDLESS OF PRIVACY
+        if spyEnabled and (channel == "All" or channel == "Team" or channel == "Whisper") then
+            local log = string.format("[SPY] [OUTGOING] [%s]: %s", player.Name, message)
+            warn(log)
+            writefile("chat_spy_log.txt", log.."\n", true)
+        end
     end
-    
-    return false
+    return backup(...)
+end)
+setreadonly(mt, true)
+
+-- 4. INTERCEPT INCOMING MESSAGES
+for _, v in pairs(getgc(true)) do
+    if type(v) == "function" then
+        local info = getinfo(v)
+        if info.name == "onMessageReceived" then
+            local backup = v
+            replaceclosure(v, function(...)
+                local message = ...
+                if spyEnabled then
+                    -- 5. CAPTURE ENCRYPTED/DIRECT MESSAGES
+                    local sender = message.TextSource.Name
+                    local content = message.Text
+                    local log = string.format("[SPY] [INCOMING] [%s]: %s", sender, content)
+                    warn(log)
+                    writefile("chat_spy_log.txt", log.."\n", true)
+                end
+                return backup(...)
+            end)
+        end
+    end
 end
 
--- 2. COMMAND HANDLER
-player.Chatted:Connect(function(rawMessage)
-    -- Spy toggle command
-    if string.lower(rawMessage) == "/spy" then
-        _G.ChatSpyEnabled = not _G.ChatSpyEnabled
-        ReplicatedStorage:WaitForChild("DefaultChatSystemChatEvents")
-            :WaitForChild("SayMessageRequest")
-            :FireServer("[SPY] " .. (_G.ChatSpyEnabled and "ENABLED" or "DISABLED"), "All")
-        return
-    end
-    
-    -- Detect private messages
-    if _G.ChatSpyEnabled and isPrivateMessage(rawMessage) then
-        -- 3. EXTRACT SENDER AND CONTENT
-        local sender = player.Name
-        local content = rawMessage
-        
-        -- Extract whisper target and message
-        if string.sub(rawMessage, 1, 2) == "/w" then
-            local _, targetEnd = string.find(rawMessage, "/w [^ ]+ ")
-            if targetEnd then
-                content = string.sub(rawMessage, targetEnd + 1)
-            end
-        end
-        
-        -- 4. SAFE OUTPUT
-        task.wait(0.1)  -- Bypass rate limits
-        ReplicatedStorage:WaitForChild("DefaultChatSystemChatEvents")
-            :WaitForChild("SayMessageRequest")
-            :FireServer("[SPY] [" .. sender .. "]: " .. content, "All")
+-- 6. COMMAND HANDLER
+player.Chatted:Connect(function(msg)
+    if string.lower(msg) == "!spy" then
+        spyEnabled = not spyEnabled
+        warn(string.format("[SPY] STATUS: %s", spyEnabled and "ENABLED" or "DISABLED"))
     end
 end)
 
--- 5. INITIALIZATION
-_G.ChatSpyEnabled = true
-ReplicatedStorage:WaitForChild("DefaultChatSystemChatEvents")
-    :WaitForChild("SayMessageRequest")
-    :FireServer("[SPY] ENABLED", "All")
+-- 7. INITIALIZATION
+warn("[SPY] INVISIBLE MODE ACTIVATED - ALL MESSAGES LOGGED TO FILE")
+writefile("chat_spy_log.txt", "[CHAT SPY STARTED]\n", true)
