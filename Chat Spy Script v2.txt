@@ -17,10 +17,6 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local instance = (_G.chatSpyInstance or 0) + 1
 _G.chatSpyInstance = instance
 
--- Message deduplication system
-local messageCache = {}
-local CACHE_TTL = 1.5  -- 1.5 seconds
-
 -- System message formatting
 local function displaySystemMessage(text)
     TextChatService.TextChannels.RBXSystem:DisplaySystemMessage(
@@ -31,48 +27,49 @@ local function displaySystemMessage(text)
     )
 end
 
--- Optimized whisper detection
+-- Fast whisper detection
 local function isWhisperToLocalPlayer(message)
-    return string.sub(message:lower(), 1, 3) == "/whisper " and
-           string.find(message:lower(), player.Name:lower(), 4, true)
+    local lowerMsg = string.lower(message)
+    if string.sub(lowerMsg, 1, 3) ~= "/w " then return false end
+    return string.find(lowerMsg, string.lower(player.Name), 4, true) ~= nil
 end
 
--- Core message processing with deduplication
+-- Channel whitelist for private messages
+local PRIVATE_CHANNELS = {
+    RBXWhisper = true,
+    Command = true,
+    RBXTeam = true  -- Team chat
+}
+
+-- Core message processing with optimized filtering
 local function processMessage(speaker, message, channel)
     if not Config.enabled then return end
     if speaker == player and not Config.spyOnMyself then return end
     
-    -- Skip public messages by channel name
-    if channel == "RBXGeneral" then return end
+    -- Skip public messages (ensure no false positives)
+    if not PRIVATE_CHANNELS[channel] and not string.match(channel, "^RBXTeam") then
+        return
+    end
     
     -- Skip whispers TO local player
     if channel == "RBXWhisper" and isWhisperToLocalPlayer(message) then 
         return 
     end
     
-    -- Create deduplication key
-    local dedupKey = speaker.Name..tostring(message)
-    
-    -- Check for duplicate messages
-    if messageCache[dedupKey] and (os.clock() - messageCache[dedupKey] < CACHE_TTL) then
-        return
-    end
-    
-    -- Update deduplication tracker
-    messageCache[dedupKey] = os.clock()
-    
     -- Clean message
     local cleanMsg = message:gsub("[\n\r]", ""):gsub("\t", " "):gsub(" +", " ")
     
     if Config.public then
-        local formatted = (Config.publicItalics and "/me " or "") .. "{SPY} [" .. speaker.Name .. "]: " .. cleanMsg
-        TextChatService.TextChannels.RBXGeneral:SendAsync(formatted)
+        task.spawn(function()
+            local formatted = (Config.publicItalics and "/me " or "") .. "{SPY} [" .. speaker.Name .. "]: " .. cleanMsg
+            TextChatService.TextChannels.RBXGeneral:SendAsync(formatted)
+        end)
     else
         displaySystemMessage("{SPY} [" .. speaker.Name .. "]: " .. cleanMsg)
     end
 end
 
--- Optimized message hook
+-- High-performance message hook
 local function setupInfiniteYieldHook()
     local chatEvents = ReplicatedStorage:FindFirstChild("DefaultChatSystemChatEvents")
     if not chatEvents then return false end
@@ -80,45 +77,41 @@ local function setupInfiniteYieldHook()
     local onMessageDone = chatEvents:FindFirstChild("OnMessageDoneFiltering")
     if not onMessageDone then return false end
     
-    -- Use a single connection for efficiency
-    local connection
-    connection = onMessageDone.OnClientEvent:Connect(function(messageData)
-        if _G.chatSpyInstance ~= instance then 
-            connection:Disconnect()
-            return 
-        end
+    -- Use bindable event for maximum performance
+    local fastProcessor = Instance.new("BindableEvent")
+    fastProcessor.Event:Connect(function(speaker, message, channel)
+        processMessage(speaker, message, channel)
+    end)
+    
+    onMessageDone.OnClientEvent:Connect(function(messageData)
+        if _G.chatSpyInstance ~= instance then return end
         if not messageData.FromSpeaker then return end
         
         local speaker = Players:GetPlayerByUserId(messageData.FromSpeaker)
         if not speaker then return end
         
-        processMessage(
-            speaker,
-            messageData.Message,
-            messageData.OriginalChannel
-        )
+        -- Fire and forget for maximum speed
+        fastProcessor:Fire(speaker, messageData.Message, messageData.OriginalChannel)
     end)
     
     return true
 end
 
--- Handle own messages efficiently
+-- Optimized own message handler
 local function setupOwnMessageHook()
-    local connection
-    connection = player.Chatted:Connect(function(rawMessage)
-        if _G.chatSpyInstance ~= instance then 
-            connection:Disconnect()
-            return 
-        end
+    player.Chatted:Connect(function(rawMessage)
+        if _G.chatSpyInstance ~= instance then return end
         if not Config.enabled then return end
         if not Config.spyOnMyself then return end
         
-        -- Fast channel detection
+        -- Ultra-fast channel detection
         local channel = "All"
-        local prefix = string.sub(rawMessage:lower(), 1, 3)
-        if prefix == "/whisper " then
+        local firstChar = string.sub(rawMessage, 1, 1)
+        local firstThree = string.sub(rawMessage, 1, 3)
+        
+        if firstThree:lower() == "/w " then
             channel = "RBXWhisper"
-        elseif string.sub(rawMessage, 1, 1) == "/" then
+        elseif firstChar == "/" then
             channel = "Command"
         end
         
@@ -144,19 +137,18 @@ end)
 if setupInfiniteYieldHook() then
     displaySystemMessage("{SPY MESSAGE HOOK ACTIVE}")
 else
-    -- Efficient fallback with deduplication
-    local fallbackConnection
-    fallbackConnection = TextChatService.MessageReceived:Connect(function(message)
-        if _G.chatSpyInstance ~= instance then 
-            fallbackConnection:Disconnect()
-            return 
-        end
+    -- High-performance fallback
+    TextChatService.MessageReceived:Connect(function(message)
+        if _G.chatSpyInstance ~= instance then return end
         if not message.TextSource then return end
         
         local speaker = Players:GetPlayerByUserId(message.TextSource.UserId)
         if speaker and speaker ~= player then
             local channel = message.TextChannel and message.TextChannel.Name or "Unknown"
-            processMessage(speaker, message.Text, channel)
+            -- Skip public messages in fallback
+            if channel ~= "RBXGeneral" then
+                processMessage(speaker, message.Text, channel)
+            end
         end
     end)
     displaySystemMessage("{SPY USING FALLBACK HOOK}")
@@ -171,34 +163,20 @@ displaySystemMessage("{SPY " .. (Config.enabled and "EN" or "DIS") .. "ABLED}")
 -- Optimized player connections
 for _, otherPlayer in ipairs(Players:GetPlayers()) do
     if otherPlayer ~= player then
-        local connection
-        connection = otherPlayer.Chatted:Connect(function(message)
-            if _G.chatSpyInstance ~= instance then 
-                connection:Disconnect()
-                return 
-            end
-            -- Fast whisper detection
-            if string.sub(message:lower(), 1, 3) == "/whisper " then
-                processMessage(otherPlayer, message, "RBXWhisper")
-            else
-                processMessage(otherPlayer, message, "All")
-            end
+        otherPlayer.Chatted:Connect(function(message)
+            if _G.chatSpyInstance ~= instance then return end
+            -- Direct channel assignment without if-else
+            local channel = (string.sub(message:lower(), 1, 3) == "/w " and "RBXWhisper" or "All"
+            processMessage(otherPlayer, message, channel)
         end)
     end
 end
 
 Players.PlayerAdded:Connect(function(newPlayer)
-    local connection
-    connection = newPlayer.Chatted:Connect(function(message)
-        if _G.chatSpyInstance ~= instance then 
-            connection:Disconnect()
-            return 
-        end
-        -- Fast whisper detection
-        if string.sub(message:lower(), 1, 3) == "/whisper " then
-            processMessage(newPlayer, message, "RBXWhisper")
-        else
-            processMessage(newPlayer, message, "All")
-        end
+    newPlayer.Chatted:Connect(function(message)
+        if _G.chatSpyInstance ~= instance then return end
+        -- Direct channel assignment without if-else
+        local channel = (string.sub(message:lower(), 1, 3) == "/w " and "RBXWhisper" or "All"
+        processMessage(newPlayer, message, channel)
     end)
-end)
+end
