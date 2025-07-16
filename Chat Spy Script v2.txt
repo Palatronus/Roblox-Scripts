@@ -1,8 +1,16 @@
--- ROBLOX CHAT SPY (CLIENT-SIDE) - VERIFIED SOLUTION
+--[[
+   Modern Chat Spy for TextChatService
+   Type "/spy" to toggle
+   - Fixes "TextColor3 is not a valid member" error
+   - Uses rich text formatting instead of deprecated properties
+   - Maintains chat functionality
+--]]
+
+-- Services
 local Players = game:GetService("Players")
 local TextChatService = game:GetService("TextChatService")
-local StarterGui = game:GetService("StarterGui")
 local player = Players.LocalPlayer
+local systemChannel = TextChatService:WaitForChild("TextChannels"):WaitForChild("RBXSystem")
 
 -- Configuration
 local Config = {
@@ -17,12 +25,9 @@ _G.chatSpyInstance = instance
 
 -- Toggle spy status
 local function updateStatus()
-    StarterGui:SetCore("ChatMakeSystemMessage", {
-        Text = "[SPY "..(Config.enabled and "ENABLED" or "DISABLED").."]",
-        Color = Color3.fromRGB(0, 255, 255),
-        Font = Enum.Font.SourceSansBold,
-        TextSize = 18
-    })
+    systemChannel:DisplaySystemMessage(
+        "<font color='#00FFFF'>[SPY "..(Config.enabled and "ENABLED" or "DISABLED").."]</font>"
+    )
 end
 
 -- Command handler
@@ -33,55 +38,48 @@ player.Chatted:Connect(function(message)
     end
 end)
 
--- Main message handler (FIXED CALLBACK)
+-- Main message handler
 TextChatService.OnIncomingMessage = function(message)
-    -- 1. Always return valid TextChatMessageProperties :cite[1]:cite[3]
+    -- 1. Create valid return object first :cite[1]:cite[7]
     local properties = Instance.new("TextChatMessageProperties")
+    properties.Text = message.Text  -- Preserve original message
     
-    -- 2. Minimal properties to prevent chat breakage
-    properties.Text = message.Text
-    properties.TextColor3 = Color3.new(1, 1, 1)
-    
-    -- 3. Only process if spy active
+    -- 2. Only process if spy active
     if Config.enabled and _G.chatSpyInstance == instance then
         local textSource = message.TextSource
         if textSource then
-            -- 4. Safe channel detection
+            -- 3. Detect private channels (whispers/team chat) :cite[2]:cite[5]
             local channel = message:GetAttribute("ChatChannel")
             local channelName = channel and channel.Name or ""
-            
-            -- 5. Identify private channels (whispers/team) :cite[3]
             local isPrivate = (channelName == "RBXWhisper" or channelName == "RBXTeam")
             local isLocalPlayer = textSource.UserId == player.UserId
             
             if isPrivate and (Config.spyOnMyself or not isLocalPlayer) then
-                local msgContent = message.Text or ""
-                local senderName = textSource.Name or "Unknown"
+                -- 4. Use rich text instead of TextColor3 :cite[1]:cite[10]
+                local spyMessage = string.format(
+                    "<font color='#00FFFF'>[SPY] [%s]: %s</font>",
+                    textSource.Name,
+                    message.Text
+                )
                 
-                -- 6. Output handling
                 if Config.public then
+                    -- 5. Use legacy method for public broadcast
                     task.spawn(function()
-                        -- Use legacy method for compatibility
                         game:GetService("ReplicatedStorage")
                             :WaitForChild("DefaultChatSystemChatEvents")
                             :WaitForChild("SayMessageRequest")
-                            :FireServer("[SPY] ["..senderName.."]: "..msgContent, "All")
+                            :FireServer(spyMessage, "All")
                     end)
                 else
-                    StarterGui:SetCore("ChatMakeSystemMessage", {
-                        Text = "[SPY] ["..senderName.."]: "..msgContent,
-                        Color = Color3.fromRGB(0, 255, 255),
-                        Font = Enum.Font.SourceSansBold,
-                        TextSize = 18
-                    })
+                    -- 6. Proper system message display :cite[10]
+                    systemChannel:DisplaySystemMessage(spyMessage)
                 end
             end
         end
     end
     
-    return properties -- ESSENTIAL to prevent errors :cite[1]
+    return properties  -- Essential to prevent chat breakage
 end
 
 -- Initial status
 updateStatus()
-print("Chat Spy Activated - Type /spy to toggle")
