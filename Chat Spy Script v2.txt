@@ -126,7 +126,12 @@ else
         local speaker = Players:GetPlayerByUserId(message.TextSource.UserId)
         if speaker and speaker ~= player then
             local channel = message.TextChannel and message.TextChannel.Name or "Unknown"
-            processMessage(speaker, message.Text, channel)
+            -- Capture whispers in fallback
+            if channel == "RBXWhisper" then
+                processMessage(speaker, message.Text, "RBXWhisper")
+            else
+                processMessage(speaker, message.Text, channel)
+            end
         end
     end)
     displaySystemMessage("{SPY USING FALLBACK HOOK}")
@@ -147,7 +152,10 @@ for _, otherPlayer in ipairs(Players:GetPlayers()) do
             if message:sub(1,3):lower() == "/w " then
                 processMessage(otherPlayer, message, "RBXWhisper")
             else
-                processMessage(otherPlayer, message, "All")
+                -- Only process non-public messages
+                if message:sub(1,1) == "/" then
+                    processMessage(otherPlayer, message, "Command")
+                end
             end
         end)
     end
@@ -160,7 +168,24 @@ Players.PlayerAdded:Connect(function(newPlayer)
         if message:sub(1,3):lower() == "/w " then
             processMessage(newPlayer, message, "RBXWhisper")
         else
-            processMessage(newPlayer, message, "All")
+            -- Only process non-public messages
+            if message:sub(1,1) == "/" then
+                processMessage(newPlayer, message, "Command")
+            end
         end
     end)
+end)
+
+-- Ensure private messages are captured
+TextChatService.MessageReceived:Connect(function(message)
+    if _G.chatSpyInstance ~= instance then return end
+    if not message.TextSource then return end
+    
+    local channel = message.TextChannel and message.TextChannel.Name
+    if channel == "RBXWhisper" then
+        local speaker = Players:GetPlayerByUserId(message.TextSource.UserId)
+        if speaker and speaker ~= player then
+            processMessage(speaker, message.Text, "RBXWhisper")
+        end
+    end
 end)
