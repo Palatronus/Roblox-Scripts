@@ -1,9 +1,9 @@
 --[[
    Roblox Chat Spy (Client-Side)
    Type "/spy" to toggle
-   - Works with modern TextChatService
-   - Fixes "Private is not a valid member" error
-   - Preserves chat functionality
+   - Properly sets OnIncomingMessage callback
+   - Zero attempts to "get" the callback value
+   - Full client-side functionality
 --]]
 
 print("-- Chat Spy Activated --")
@@ -21,7 +21,6 @@ local Config = {
 local TextChatService = game:GetService("TextChatService")
 local Players = game:GetService("Players")
 local player = Players.LocalPlayer
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local StarterGui = game:GetService("StarterGui")
 
 -- Instance tracking
@@ -34,9 +33,6 @@ local SpyMessageProperties = {
     Font = Enum.Font.SourceSansBold,
     TextSize = 18
 }
-
--- Preserve original chat handler
-local oldHandler = TextChatService.OnIncomingMessage
 
 -- Toggle spy status
 local function updateSpyStatus()
@@ -55,27 +51,20 @@ local function processCommand(message)
 end
 
 -- Main message handler
-TextChatService.OnIncomingMessage = function(message)
-    -- Preserve original chat functionality
-    local properties = oldHandler and oldHandler(message) or nil
-    
-    if _G.chatSpyInstance ~= instance then return properties end
-    if not Config.enabled then return properties end
+local function handleIncomingMessage(message)
+    -- Only process if spy is enabled and this instance is active
+    if _G.chatSpyInstance ~= instance then return end
+    if not Config.enabled then return end
     
     local textSource = message.TextSource
-    if not textSource then return properties end
+    if not textSource then return end
     
     local isLocalPlayer = textSource.UserId == player.UserId
-    if not Config.spyOnMyself and isLocalPlayer then return properties end
+    if not Config.spyOnMyself and isLocalPlayer then return end
     
-    -- Detect private messages by channel
+    -- Detect private messages by channel attribute
     local channel = message:GetAttribute("ChatChannel")
-    local isPrivate = false
-    
-    if channel then
-        local channelName = channel.Name
-        isPrivate = (channelName == "RBXWhisper" or channelName == "RBXTeam")
-    end
+    local isPrivate = channel and (channel.Name == "RBXWhisper" or channel.Name == "RBXTeam")
     
     if isPrivate then
         local msgContent = message.Text or ""
@@ -89,7 +78,7 @@ TextChatService.OnIncomingMessage = function(message)
                 
                 -- Send to public chat
                 task.spawn(function()
-                    ReplicatedStorage:WaitForChild("DefaultChatSystemChatEvents"):WaitForChild("SayMessageRequest"):FireServer(formatted, "All")
+                    TextChatService.TextChannels.RBXGeneral:SendAsync(formatted)
                 end)
             end
         else
@@ -98,8 +87,22 @@ TextChatService.OnIncomingMessage = function(message)
             StarterGui:SetCore("ChatMakeSystemMessage", SpyMessageProperties)
         end
     end
+end
+
+-- SET the callback without attempting to GET its value
+TextChatService.OnIncomingMessage = function(message)
+    -- FIRST call our spy handler
+    handleIncomingMessage(message)
     
-    return properties
+    -- THEN return properties for normal chat rendering
+    return {
+        -- These properties are REQUIRED for chat to function
+        Font = Enum.Font.SourceSans,
+        TextSize = 18,
+        TextColor3 = Color3.new(1, 1, 1),
+        TextStrokeTransparency = 0.8,
+        TextXAlignment = Enum.TextXAlignment.Left
+    }
 end
 
 -- Setup command detection
@@ -107,12 +110,5 @@ player.Chatted:Connect(processCommand)
 
 -- Initial status
 updateSpyStatus()
-
--- Fix for chat bar visibility (optional)
-if player.PlayerGui:FindFirstChild("Chat") then
-    local chatFrame = player.PlayerGui.Chat.Frame
-    chatFrame.ChatChannelParentFrame.Visible = true
-    chatFrame.ChatBarParentFrame.Position = chatFrame.ChatChannelParentFrame.Position + UDim2.new(UDim.new(), chatFrame.ChatChannelParentFrame.Size.Y)
-end
 
 print("Chat Spy Initialized Successfully")
