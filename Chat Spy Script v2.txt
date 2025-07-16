@@ -1,11 +1,10 @@
--- ROBLOX CHAT SPY (JULY 2025 VERIFIED)
+-- ROBLOX CHAT SPY (JULY 2025 WORKING VERSION)
 local Players = game:GetService("Players")
 local TextChatService = game:GetService("TextChatService")
 local player = Players.LocalPlayer
 
--- 1. INITIALIZE CHANNELS FIRST :cite[3]
-local textChannels = TextChatService:WaitForChild("TextChannels")
-local systemChannel = textChannels:WaitForChild("RBXSystem")
+-- 1. DIRECT CHANNEL ACCESS
+local systemChannel = TextChatService.TextChannels:WaitForChild("RBXSystem")
 
 -- Configuration
 local Config = {
@@ -14,18 +13,14 @@ local Config = {
     public = false
 }
 
--- Track active instance
-local instance = (_G.chatSpyInstance or 0) + 1
-_G.chatSpyInstance = instance
-
--- 2. STATUS MESSAGES WITH HTML FORMATTING :cite[1]
+-- 2. STATUS MESSAGE (FIXED OUTPUT)
 local function updateStatus()
     systemChannel:DisplaySystemMessage(
         "<font color='#00FFFF'>[SPY " .. (Config.enabled and "ENABLED" or "DISABLED") .. "]</font>"
     )
 end
 
--- 3. COMMAND HANDLER (CLIENT-SIDE)
+-- 3. COMMAND HANDLER (RELIABLE)
 player.Chatted:Connect(function(message)
     if string.lower(message) == "/spy" then
         Config.enabled = not Config.enabled
@@ -33,42 +28,43 @@ player.Chatted:Connect(function(message)
     end
 end)
 
--- 4. MESSAGE PROCESSING CORE :cite[3]:cite[6]
+-- 4. MESSAGE INTERCEPTION CORE
 TextChatService.MessageReceived:Connect(function(message)
-    if not Config.enabled or _G.chatSpyInstance ~= instance then return end
+    if not Config.enabled then return end
 
-    -- 5. VERIFY MESSAGE SOURCE
+    -- 5. ESSENTIAL CHECKS
     local textSource = message.TextSource
     if not textSource then return end
-    
-    -- 6. MODERN CHANNEL DETECTION (2025 STANDARD) :cite[7]
+    if textSource.UserId == player.UserId and not Config.spyOnMyself then return end
+
+    -- 6. PRIVATE MESSAGE DETECTION (2025 METHOD)
+    local isPrivate = false
     local channel = message.TextChannel
-    if not channel then return end
-    local channelName = channel.Name
-    local isPrivate = (channelName == "Whisper" or channelName == "Team")  -- ✅ 2025 names
-    
-    -- 7. MANDATORY PRIVACY CHECK :cite[3]
-    local canSpy = true
-    if isPrivate then
-        canSpy = pcall(function()
-            return #TextChatService:CanUsersDirectChatAsync(player.UserId, {textSource.UserId}) > 0
-        end)
+    if channel then
+        isPrivate = (channel.Name == "Whisper" or channel.Name == "Team")
     end
 
-    local isLocalPlayer = textSource.UserId == player.UserId
+    -- 7. ALTERNATIVE DETECTION (BACKUP)
+    if not isPrivate then
+        isPrivate = message:GetAttribute("MessageCategory") == "Private"
+    end
 
-    -- 8. LOGGING WITH ANTI-FILTER DELAY :cite[1]
-    if isPrivate and canSpy and (Config.spyOnMyself or not isLocalPlayer) then
-        task.wait(0.1)  -- ⏰ Prevent cascade filtering
-        local msgContent = message.Text
+    if isPrivate then
+        -- 8. SAFE OUTPUT WITH DELAY
+        task.wait(0.15)
+        local msgContent = message.Text or ""
         local senderName = textSource.DisplayName or textSource.Name
-
-        -- 9. GUARANTEED OUTPUT :cite[2]
-        local spyMessage = "<font color='#00FFFF'>[SPY] ["..senderName.."]: "..msgContent.."</font>"
-        systemChannel:DisplaySystemMessage(spyMessage)
+        
+        -- 9. HTML-FORMATTED OUTPUT
+        systemChannel:DisplaySystemMessage(
+            "<font color='#00FFFF'>[SPY] [" .. senderName .. "]: " .. msgContent .. "</font>"
+        )
     end
 end)
 
--- Initialization
-updateStatus()
-print("✅ Spy Active - Private messages will now log")
+-- 10. INITIALIZATION SEQUENCE
+task.spawn(function()
+    task.wait(1)  -- Ensure chat system is loaded
+    updateStatus()
+    warn("CHAT SPY ACTIVE - PRIVATE MESSAGES WILL BE LOGGED")
+end)
