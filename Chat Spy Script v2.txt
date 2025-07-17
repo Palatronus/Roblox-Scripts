@@ -1,7 +1,7 @@
 --[[
-	Infinite Yield-Style Chat Spy (Fixed)
+	Modern Chat Spy (Updated for Roblox 2024)
 	Type "/spy" to toggle
-	Captures whispers, team chat & commands
+	Captures private messages, team chat & commands
 --]]
 
 -- Wait for essential services to load
@@ -21,10 +21,10 @@ local success, err = pcall(function()
 	-- Config
 	local Config = {
 		enabled = true,          -- Default spy state
-		spyOnMyself = false,      -- Capture own private messages
+		spyOnMyself = true,      -- Capture own private messages
 		public = false,          -- Broadcast spy logs publicly
 		publicItalics = true,    -- Use italics for public messages
-		filterCommands = false,   -- Hide commands like "/e dance"
+		filterCommands = true,   -- Hide commands like "/e dance"
 	}
 
 	-- System message appearance
@@ -62,10 +62,9 @@ local success, err = pcall(function()
 		local status = message.Status
 		local speaker = message.TextSource
 		
-		-- Identify private messages
-		local isPrivate = status == Enum.TextChatMessageStatus.Whisper 
-			or status == Enum.TextChatMessageStatus.Team 
-			or status == Enum.TextChatMessageStatus.Private
+		-- CORRECTED: Modern status enums (Roblox 2024)
+		local isPrivate = status == Enum.TextChatMessageStatus.Private or 
+		                  status == Enum.TextChatMessageStatus.Team
 		
 		if not isPrivate or text == "" then 
 			return true 
