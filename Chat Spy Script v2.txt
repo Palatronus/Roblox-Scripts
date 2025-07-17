@@ -2,7 +2,7 @@
 	Modern Chat Spy (TextChatService)
 	Type "/spy" to enable/disable.
 	Updated for Roblox's TextChatService system (2023+)
-	Based on Infinite Yield's chat logging approach
+	Incorporates Infinite Yield's chat logging techniques
 --]]
 
 print("-- Modern Chat Spy Executed (TextChatService) --")
@@ -11,10 +11,11 @@ print("Type \"/spy\" to toggle the chat spy.")
 -- Config
 Config = {
 	enabled = true,         -- Default state
-	spyOnMyself = false,    -- Whether to show your own private messages
-	public = false,         -- Broadcast spy logs publicly (visible to all)
+	spyOnMyself = false,     -- Show your own private messages
+	public = false,         -- Broadcast spy logs publicly
 	publicItalics = true,   -- Use italics for public spy messages
-	filterCommands = false   -- Hide commands like "/e wave"
+	filterCommands = false,  -- Hide commands like "/e wave"
+	logUnfiltered = true    -- Capture raw messages before filtering
 }
 
 -- System message appearance
@@ -32,12 +33,54 @@ local player = Players.LocalPlayer
 local instance = (_G.chatSpyInstance or 0) + 1
 _G.chatSpyInstance = instance
 
--- Check if message is private (whisper/team/command)
-local function isPrivateMessage(message)
+-- Critical fix: Use OnIncomingMessage instead of MessageReceived
+local function processIncomingMessage(message, channel)
+	if _G.chatSpyInstance ~= instance then return end
+	if not Config.enabled then return end
+	
+	-- Extract message properties (Infinite Yield method)
+	local text = message.Text
 	local status = message.Status
-	return status == Enum.TextChatMessageStatus.Whisper 
+	local speaker = message.TextSource
+	local isPrivate = status == Enum.TextChatMessageStatus.Whisper 
 		or status == Enum.TextChatMessageStatus.Team 
 		or status == Enum.TextChatMessageStatus.Private
+	
+	-- Skip non-private messages
+	if not isPrivate then return end
+	
+	-- Filter commands if enabled
+	if Config.filterCommands and text:match("^%/%w+") then return end
+	
+	-- Get speaker information
+	local playerName = "System"
+	if speaker then
+		local playerObj = Players:GetPlayerByUserId(speaker.UserId)
+		if playerObj then
+			playerName = playerObj.Name
+			
+			-- Skip own messages if disabled
+			if playerObj == player and not Config.spyOnMyself then
+				return
+			end
+		end
+	end
+	
+	-- Clean message text
+	local cleanText = text:gsub("[\n\r]", ""):gsub("\t", " "):gsub("%s+", " ")
+	
+	-- Log handling
+	if Config.public then
+		local prefix = Config.publicItalics and "/me " or ""
+		local formatted = prefix .. "{SPY} [".. playerName .."]: " .. cleanText
+		local generalChannel = TextChatService:FindFirstChild("RBXGeneral")
+		if generalChannel then
+			generalChannel:SendAsync(formatted)
+		end
+	else
+		PrivateProperties.Text = "{SPY} [".. playerName .."]: " .. cleanText
+		StarterGui:SetCore("ChatMakeSystemMessage", PrivateProperties)
+	end
 end
 
 -- Toggle with /spy command
@@ -53,47 +96,19 @@ local function onChatted(msg)
 	end
 end
 
--- Process incoming messages
-local function onMessageReceived(message)
-	if _G.chatSpyInstance ~= instance then return end
-	if not Config.enabled then return end
+-- Initialize (Critical fix: Use OnIncomingMessage)
+TextChatService.OnIncomingMessage = (TextChatService.OnIncomingMessage or function() end) and function(...)
+	-- Preserve existing handlers
+	pcall(TextChatService.OnIncomingMessage, ...)
 	
-	-- Filter commands if enabled
-	if Config.filterCommands and message.Text:match("^%/%w+") then return end
-	
-	if isPrivateMessage(message) then
-		local sender = message.TextSource
-		if not sender then return end
-		
-		local player = Players:GetPlayerByUserId(sender.UserId)
-		if not player then return end
-		
-		-- Skip own messages if disabled
-		if player == Players.LocalPlayer and not Config.spyOnMyself then
-			return
-		end
-		
-		local cleanText = message.Text
-			:gsub("[\n\r]", "")
-			:gsub("\t", " ")
-			:gsub("%s+", " ")
-		
-		if Config.public then
-			local prefix = Config.publicItalics and "/me " or ""
-			local formatted = prefix .. "{SPY} [".. player.Name .."]: " .. cleanText
-			local generalChannel = TextChatService:FindFirstChild("RBXGeneral")
-			if generalChannel then
-				generalChannel:SendAsync(formatted)
-			end
-		else
-			PrivateProperties.Text = "{SPY} [".. player.Name .."]: " .. cleanText
-			StarterGui:SetCore("ChatMakeSystemMessage", PrivateProperties)
-		end
+	-- Process message
+	local message, channel = ...
+	if Config.logUnfiltered then
+		processIncomingMessage(message, channel)
 	end
 end
 
--- Initialize
-TextChatService.MessageReceived:Connect(onMessageReceived)
+-- Initialize command handler
 player.Chatted:Connect(onChatted)
 
 -- Initial status message
