@@ -16,10 +16,10 @@ local player = Players.LocalPlayer
 -- Config
 Config = {
 	enabled = true,          -- Default spy state
-	spyOnMyself = true,      -- Capture own private messages
+	spyOnMyself = false,      -- Capture own private messages
 	public = false,          -- Broadcast spy logs publicly
 	publicItalics = true,    -- Use italics for public messages
-	filterCommands = true,   -- Hide commands like "/e wave"
+	filterCommands = false,   -- Hide commands like "/e wave"
 	captureUnfiltered = true -- Essential: Capture raw pre-filtered messages
 }
 
