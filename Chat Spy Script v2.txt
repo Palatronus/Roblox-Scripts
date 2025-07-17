@@ -19,10 +19,10 @@ end
 -- Config
 local Config = {
     enabled = true,
-    spyOnMyself = true,
+    spyOnMyself = false,
     public = false,
     publicItalics = true,
-    filterCommands = true
+    filterCommands = false
 }
 
 -- Message appearance
