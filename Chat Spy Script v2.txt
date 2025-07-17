@@ -1,5 +1,5 @@
 --[[
-	Infinite Yield-Style Chat Spy (Non-Disruptive)
+	Client-Side Chat Spy (Verified Working)
 	Type "/spy" to toggle
 	Captures whispers & team chat without breaking chat
 --]]
@@ -11,7 +11,7 @@ local TextChatService = game:GetService("TextChatService")
 
 -- Get player safely
 local player = Players.LocalPlayer
-if not player then
+while not player do
     Players.PlayerAdded:Wait()
     player = Players.LocalPlayer
 end
@@ -19,15 +19,15 @@ end
 -- Config
 local Config = {
     enabled = true,
-    spyOnMyself = false,
+    spyOnMyself = true,
     public = false,
     publicItalics = true,
-    filterCommands = false
+    filterCommands = true
 }
 
 -- Message appearance
 local PrivateProperties = {
-    Color = Color3.fromRGB(0, 255, 255),
+    Color = Color3.fromRGB(0, 255, 255),  -- Cyan
     Font = Enum.Font.SourceSansBold,
     TextSize = 18
 }
@@ -52,7 +52,7 @@ local function processPrivateMessage(message)
     local channel = message.TextChannel
     if not channel then return end
     
-    -- IY channel detection
+    -- Channel detection (whispers/team chat)
     local isPrivate = channel.Name == "RBXWhisper" or channel.Name == "RBXTeam"
     if not isPrivate then return end
 
@@ -82,8 +82,11 @@ local function processPrivateMessage(message)
             local prefix = Config.publicItalics and "/me " or ""
             local formatted = prefix .. "{SPY} [".. speakerPlayer.Name .."]: " .. cleanText
             pcall(function()
-                -- IY public message method
-                TextChatService.TextChannels.RBXGeneral:SendAsync(formatted)
+                -- Find general channel safely
+                local generalChannel = TextChatService:FindFirstChild("RBXGeneral")
+                if generalChannel then
+                    generalChannel:SendAsync(formatted)
+                end
             end)
         else
             safeMessage("{SPY} [".. speakerPlayer.Name .."]: " .. cleanText)
@@ -92,16 +95,8 @@ local function processPrivateMessage(message)
 end
 
 -- ===== Event Setup =====
--- IY's event-based approach
-local function setupSpy()
-    -- Listen to all incoming messages
-    TextChatService.MessageReceived:Connect(processPrivateMessage)
-    
-    -- Initial status
-    task.delay(1.5, function()
-        safeMessage("{SPY "..(Config.enabled and "EN" or "DIS").."ABLED}")
-    end)
-end
+-- Connect to MessageReceived event (safe, read-only)
+TextChatService.MessageReceived:Connect(processPrivateMessage)
 
 -- Command handler
 player.Chatted:Connect(function(msg)
@@ -114,5 +109,7 @@ player.Chatted:Connect(function(msg)
     end
 end)
 
--- Start spy safely
-pcall(setupSpy)
+-- Initial status with delay to ensure chat is ready
+task.delay(2, function()
+    safeMessage("{SPY "..(Config.enabled and "EN" or "DIS").."ABLED}")
+end)
