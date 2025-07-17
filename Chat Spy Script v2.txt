@@ -4,126 +4,136 @@
 	Captures whispers, team chat & commands
 --]]
 
-print("-- Chat Spy (IY Method) Executed --")
-print("Type \"/spy\" to toggle")
-
--- Services
-local TextChatService = game:GetService("TextChatService")
-local Players = game:GetService("Players")
-local StarterGui = game:GetService("StarterGui")
-local player = Players.LocalPlayer
-
--- Config
-Config = {
-	enabled = true,          -- Default spy state
-	spyOnMyself = false,      -- Capture own private messages
-	public = false,          -- Broadcast spy logs publicly
-	publicItalics = true,    -- Use italics for public messages
-	filterCommands = false,   -- Hide commands like "/e dance"
-}
-
--- System message appearance
-PrivateProperties = {
-	Color = Color3.fromRGB(0, 255, 255),
-	Font = Enum.Font.SourceSansBold,
-	TextSize = 18
-}
-
--- Anti-duplication tracking
-local instance = (_G.chatSpyInstance or 0) + 1
-_G.chatSpyInstance = instance
-
--- ===== Fixed Message Handler ===== --
-TextChatService.OnIncomingMessage = function(message)
-	-- Skip if disabled or wrong instance
-	if _G.chatSpyInstance ~= instance or not Config.enabled then
-		return true
-	end
+-- Wait for essential services to load
+local success, err = pcall(function()
+	-- Services
+	local TextChatService = game:GetService("TextChatService")
+	local Players = game:GetService("Players")
+	local StarterGui = game:GetService("StarterGui")
 	
-	-- Process only successful messages
-	if message.Status ~= Enum.TextChatMessageStatus.Success then
-		return true
-	end
-	
-	local text = message.Text or ""
-	local status = message.Status
-	local speaker = message.TextSource
-	
-	-- Identify private messages
-	local isPrivate = status == Enum.TextChatMessageStatus.Whisper 
-		or status == Enum.TextChatMessageStatus.Team 
-		or status == Enum.TextChatMessageStatus.Private
-	
-	if not isPrivate or text == "" then 
-		return true 
-	end
-	
-	-- Filter commands
-	if Config.filterCommands and text:match("^%/%w+") then 
-		return true 
+	-- Wait for player to join
+	local player = Players.LocalPlayer
+	while not player do
+		Players.PlayerAdded:Wait()
+		player = Players.LocalPlayer
 	end
 
-	-- Identify speaker
-	local playerName = "System"
-	local playerObj = nil
-	if speaker then
-		playerObj = Players:GetPlayerByUserId(speaker.UserId)
-		if playerObj then
-			playerName = playerObj.Name
-			-- Skip own messages if disabled
-			if playerObj == player and not Config.spyOnMyself then
-				return true
+	-- Config
+	local Config = {
+		enabled = true,          -- Default spy state
+		spyOnMyself = false,      -- Capture own private messages
+		public = false,          -- Broadcast spy logs publicly
+		publicItalics = true,    -- Use italics for public messages
+		filterCommands = false,   -- Hide commands like "/e dance"
+	}
+
+	-- System message appearance
+	local PrivateProperties = {
+		Color = Color3.fromRGB(0, 255, 255),
+		Font = Enum.Font.SourceSansBold,
+		TextSize = 18
+	}
+
+	-- Anti-duplication tracking
+	local instance = (_G.chatSpyInstance or 0) + 1
+	_G.chatSpyInstance = instance
+
+	-- Display initial status safely
+	local function safeMessage(text)
+		pcall(function()
+			PrivateProperties.Text = text
+			StarterGui:SetCore("ChatMakeSystemMessage", PrivateProperties)
+		end)
+	end
+
+	-- ===== Fixed Message Handler ===== --
+	TextChatService.OnIncomingMessage = function(message)
+		-- Skip if disabled or wrong instance
+		if _G.chatSpyInstance ~= instance or not Config.enabled then
+			return true
+		end
+		
+		-- Process only successful messages
+		if message.Status ~= Enum.TextChatMessageStatus.Success then
+			return true
+		end
+		
+		local text = message.Text or ""
+		local status = message.Status
+		local speaker = message.TextSource
+		
+		-- Identify private messages
+		local isPrivate = status == Enum.TextChatMessageStatus.Whisper 
+			or status == Enum.TextChatMessageStatus.Team 
+			or status == Enum.TextChatMessageStatus.Private
+		
+		if not isPrivate or text == "" then 
+			return true 
+		end
+		
+		-- Filter commands
+		if Config.filterCommands and text:match("^%/%w+") then 
+			return true 
+		end
+
+		-- Identify speaker
+		local playerName = "System"
+		local playerObj = nil
+		if speaker then
+			playerObj = Players:GetPlayerByUserId(speaker.UserId)
+			if playerObj then
+				playerName = playerObj.Name
+				-- Skip own messages if disabled
+				if playerObj == player and not Config.spyOnMyself then
+					return true
+				end
 			end
 		end
+
+		-- Clean message text
+		local cleanText = text:gsub("[\n\r]", ""):gsub("\t", " "):gsub("%s+", " ")
+		
+		-- ===== Output Handling ===== --
+		task.defer(function()
+			if Config.public then
+				local prefix = Config.publicItalics and "/me " or ""
+				local formatted = prefix .. "{SPY} [".. playerName .."]: " .. cleanText
+				
+				-- Safe public broadcasting
+				pcall(function()
+					local generalChannel = TextChatService:FindFirstChild("RBXGeneral")
+					if generalChannel then
+						generalChannel:SendAsync(formatted)
+					end
+				end)
+			else
+				-- Private logging
+				safeMessage("{SPY} [".. playerName .."]: " .. cleanText)
+			end
+		end)
+		
+		return true
 	end
 
-	-- Clean message text
-	local cleanText = text:gsub("[\n\r]", ""):gsub("\t", " "):gsub("%s+", " ")
-	
-	-- ===== Output Handling ===== --
-	task.defer(function()
-		if Config.public then
-			local prefix = Config.publicItalics and "/me " or ""
-			local formatted = prefix .. "{SPY} [".. playerName .."]: " .. cleanText
-			
-			-- FIXED: Use proper SendAsync method
-			pcall(function()
-				local generalChannel = TextChatService:FindFirstChild("RBXGeneral")
-				if generalChannel then
-					generalChannel:SendAsync(formatted)
-				end
-			end)
-		else
-			-- Private logging
-			PrivateProperties.Text = "{SPY} [".. playerName .."]: " .. cleanText
-			StarterGui:SetCore("ChatMakeSystemMessage", PrivateProperties)
+	-- ===== Command Handling ===== --
+	local function onChatted(msg)
+		if _G.chatSpyInstance ~= instance then return end
+		
+		if msg:lower():sub(1, 4) == "/spy" then
+			Config.enabled = not Config.enabled
+			task.wait(0.3)
+			safeMessage("{SPY "..(Config.enabled and "EN" or "DIS").."ABLED}")
 		end
-	end)
-	
-	return true
-end
-
--- ===== Command Handling ===== --
-local function onChatted(msg)
-	if _G.chatSpyInstance ~= instance then return end
-	
-	if msg:lower():sub(1, 4) == "/spy" then
-		Config.enabled = not Config.enabled
-		task.wait(0.3)
-		PrivateProperties.Text = "{SPY "..(Config.enabled and "EN" or "DIS").."ABLED}"
-		StarterGui:SetCore("ChatMakeSystemMessage", PrivateProperties)
 	end
-end
 
--- Initialize command handler
-player.Chatted:Connect(onChatted)
+	-- Initialize command handler
+	player.Chatted:Connect(onChatted)
 
--- Initial status message
-PrivateProperties.Text = "{SPY "..(Config.enabled and "EN" or "DIS").."ABLED}"
-StarterGui:SetCore("ChatMakeSystemMessage", PrivateProperties)
+	-- Initial status message
+	safeMessage("{SPY "..(Config.enabled and "EN" or "DIS").."ABLED}")
+end)
 
--- Legacy chat warning 
-if game:GetService("Chat"):FindFirstChild("ChatService") then
-	PrivateProperties.Text = "{SPY WARNING: Legacy chat enabled}"
-	StarterGui:SetCore("ChatMakeSystemMessage", PrivateProperties)
+-- Handle initialization errors
+if not success then
+	warn("Chat Spy initialization failed: " .. tostring(err))
 end
