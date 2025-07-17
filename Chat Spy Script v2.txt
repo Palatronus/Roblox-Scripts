@@ -1,37 +1,29 @@
 --[[
-	Roblox Chat Spy (Fixed 2025)
+	Infinite Yield-Style Chat Spy (July 2025)
 	Type "/spy" to toggle
-	Captures whispers, team chat & commands
+	Fully compliant with TextChatService regulations
 --]]
 
-print("-- Chat Spy Executed --")
+print("-- Modern Chat Spy Initialized --")
 
 -- Services
 local Players = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
 local TextChatService = game:GetService("TextChatService")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local player = Players.LocalPlayer or Players.PlayerAdded:Wait()
 
--- Get player safely
-local player = Players.LocalPlayer
-if not player then
-    Players.PlayerAdded:Wait()
-    player = Players.LocalPlayer
-end
-print("Player found:", player.Name)
-
--- Config
+-- Config (IY Defaults)
 local Config = {
     enabled = true,
-    spyOnMyself = false,
+    spyOnMyself = true,
     public = false,
     publicItalics = true,
-    filterCommands = false
+    filterCommands = true
 }
 
--- Message appearance
+-- IY-style message appearance
 local PrivateProperties = {
-    Color = Color3.fromRGB(0, 255, 255),
+    Color = Color3.fromRGB(0, 255, 255),  -- Cyan
     Font = Enum.Font.SourceSansBold,
     TextSize = 18
 }
@@ -39,9 +31,8 @@ local PrivateProperties = {
 -- Anti-duplication
 local instance = (_G.chatSpyInstance or 0) + 1
 _G.chatSpyInstance = instance
-print("Spy instance:", instance)
 
--- Safe messaging function
+-- Safe messaging (IY method)
 local function safeMessage(text)
     pcall(function()
         PrivateProperties.Text = text
@@ -49,119 +40,65 @@ local function safeMessage(text)
     end)
 end
 
--- ===== Modern TextChatService Handler ===== --
-local function setupModernChatSpy()
-    print("Setting up modern chat spy")
-    
-    TextChatService.OnIncomingMessage = function(message)
-        if _G.chatSpyInstance ~= instance or not Config.enabled then
-            return true
-        end
+-- ===== Modern Message Handler =====
+local function processMessage(message)
+    if _G.chatSpyInstance ~= instance or not Config.enabled then
+        return
+    end
 
-        -- Check if message is private
-        local channel = message.TextChannel
-        if channel and (channel.Name == "RBXWhisper" or channel.Name == "RBXTeam") then
-            local text = message.Text or ""
+    -- Channel-based detection (IY method)
+    local channel = message.TextChannel
+    if not (channel and (channel.Name == "RBXWhisper" or channel.Name == "RBXTeam")) then
+        return
+    end
+
+    local text = message.Text or ""
+    if text == "" then return end
+
+    -- Command filtering
+    if Config.filterCommands and text:match("^%/%w+") then 
+        return 
+    end
+
+    -- Speaker identification
+    local speaker = message.TextSource
+    if not speaker then return end
+    
+    local playerObj = Players:GetPlayerByUserId(speaker.UserId)
+    if not playerObj then return end
+    
+    if playerObj == player and not Config.spyOnMyself then
+        return
+    end
+
+    -- Message cleaning
+    local cleanText = text:gsub("[\n\r]", ""):gsub("\t", " "):gsub("%s+", " ")
+    
+    -- Output handling (deferred for safety)
+    task.defer(function()
+        if Config.public then
+            local prefix = Config.publicItalics and "/me " or ""
+            local formatted = prefix .. "{SPY} [".. playerObj.Name .."]: " .. cleanText
             
-            -- Filter commands
-            if Config.filterCommands and text:match("^%/%w+") then 
-                return true 
-            end
-
-            -- Identify speaker
-            local speaker = message.TextSource
-            if speaker then
-                local playerObj = Players:GetPlayerByUserId(speaker.UserId)
-                if playerObj then
-                    -- Skip own messages
-                    if playerObj == player and not Config.spyOnMyself then
-                        return true
-                    end
-
-                    -- Clean text
-                    local cleanText = text:gsub("[\n\r]", ""):gsub("\t", " "):gsub("%s+", " ")
-                    
-                    -- Output handling
-                    task.defer(function()
-                        if Config.public then
-                            local prefix = Config.publicItalics and "/me " or ""
-                            local formatted = prefix .. "{SPY} [".. playerObj.Name .."]: " .. cleanText
-                            pcall(function()
-                                -- Find general channel safely
-                                local generalChannel = TextChatService:FindFirstChild("RBXGeneral")
-                                if generalChannel then
-                                    generalChannel:SendAsync(formatted)
-                                end
-                            end)
-                        else
-                            safeMessage("{SPY} [".. playerObj.Name .."]: " .. cleanText)
-                        end
-                    end)
+            pcall(function()
+                local generalChannel = TextChatService:FindFirstChild("RBXGeneral")
+                if generalChannel then
+                    generalChannel:SendAsync(formatted)
                 end
-            end
-        end
-        return true
-    end
-    return true
-end
-
--- ===== Legacy Chat Fallback ===== --
-local function setupLegacyChatSpy()
-    print("Setting up legacy chat spy")
-    
-    local function onMessageFiltered(message, recipient, channel)
-        if _G.chatSpyInstance ~= instance or not Config.enabled then return end
-        
-        -- Detect private messages
-        if channel == "Whisper" or channel == "Team" then
-            local speaker = Players:FindFirstChild(message.FromSpeaker)
-            if speaker and (Config.spyOnMyself or speaker ~= player) then
-                -- Filter commands
-                if Config.filterCommands and message.Message:match("^%/%w+") then 
-                    return 
-                end
-                
-                task.defer(function()
-                    safeMessage("{SPY} [".. speaker.Name .."]: " .. message.Message)
-                end)
-            end
-        end
-    end
-
-    -- Connect to legacy system safely
-    pcall(function()
-        local chatEvents = ReplicatedStorage:WaitForChild("DefaultChatSystemChatEvents", 5)
-        if chatEvents then
-            local filteredEvent = chatEvents:WaitForChild("OnMessageDoneFiltering", 2)
-            if filteredEvent then
-                filteredEvent.OnClientEvent:Connect(onMessageFiltered)
-            end
+            end)
+        else
+            safeMessage("{SPY} [".. playerObj.Name .."]: " .. cleanText)
         end
     end)
 end
 
--- ===== Chat System Detection ===== --
-print("Detecting chat system...")
-local chatSystem = "legacy"  -- Default to legacy
-
--- Modern chat detection without enum
-if pcall(function()
-    return TextChatService.OnIncomingMessage ~= nil
-end) then
-    chatSystem = "modern"
-    print("Modern chat detected")
-else
-    print("Legacy chat detected")
+-- ===== Main Initialization =====
+TextChatService.OnIncomingMessage = function(message)
+    pcall(processMessage, message)  -- Critical error protection
+    return true  -- Maintain chat delivery
 end
 
--- Initialize appropriate system
-if chatSystem == "modern" then
-    pcall(setupModernChatSpy)
-else
-    pcall(setupLegacyChatSpy)
-end
-
--- ===== Command Handler ===== --
+-- Command handler
 player.Chatted:Connect(function(msg)
     if _G.chatSpyInstance ~= instance then return end
     
@@ -172,10 +109,7 @@ player.Chatted:Connect(function(msg)
     end
 end)
 
--- Initial status with delay to ensure chat is ready
+-- Initial status with delay
 task.delay(1.5, function()
     safeMessage("{SPY "..(Config.enabled and "EN" or "DIS").."ABLED}")
-    print("Initial status message sent")
 end)
-
-print("-- Chat Spy Initialization Complete --")
