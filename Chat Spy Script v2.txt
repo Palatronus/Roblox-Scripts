@@ -1,103 +1,98 @@
 --[[
-	Console-Based Chat Spy
-	Works in any exploiting environment
-	Prints private messages to console
+	Modern Chat Spy (Updated)
+	Type "spy" to enable or disable the chat spy.
+	Updated for TextChatService (2025)
 --]]
 
-print("===== CHAT SPY STARTED =====")
+print("-- Chat Spy Executed --")
+print("Type \"spy\" to enable or disable the chat spy.")
+
+-- Config (unchanged from original)
+Config = {
+	enabled = true,
+	spyOnMyself = true,
+	public = false,
+	publicItalics = true
+}
+
+-- Customizing Log Output (unchanged)
+PrivateProperties = {
+	Color = Color3.fromRGB(0,255,255); 
+	Font = Enum.Font.SourceSansBold;
+	TextSize = 18;
+}
 
 -- Services
 local Players = game:GetService("Players")
+local StarterGui = game:GetService("StarterGui")
 local TextChatService = game:GetService("TextChatService")
+local player = Players.LocalPlayer
+local instance = (_G.chatSpyInstance or 0) + 1
+_G.chatSpyInstance = instance
 
--- Get player with direct method
-local player
-for _ = 1, 10 do
-    player = Players.LocalPlayer
-    if player then break end
-    task.wait(0.1)
+-- Main message handler
+local function onMessageReceived(message)
+	if _G.chatSpyInstance ~= instance then return end
+	
+	-- Get message properties
+	local text = message.Text or ""
+	local channel = message.TextChannel
+	local speaker = message.TextSource
+	
+	-- Check if message is private (whisper/team)
+	local isPrivate = channel and (channel.Name == "RBXWhisper" or channel.Name == "RBXTeam")
+	
+	if not isPrivate then return end
+	
+	-- Handle /spy command
+	if player == Players:GetPlayerByUserId(speaker.UserId) and text:lower():sub(1,4) == "spy " then
+		Config.enabled = not Config.enabled
+		task.wait(0.3)
+		PrivateProperties.Text = "{SPY "..(Config.enabled and "EN" or "DIS").."ABLED}"
+		StarterGui:SetCore("ChatMakeSystemMessage", PrivateProperties)
+		return
+	end
+
+	-- Skip if spy disabled
+	if not Config.enabled then return end
+	
+	-- Get speaker player
+	local speakerPlayer = speaker and Players:GetPlayerByUserId(speaker.UserId)
+	if not speakerPlayer then return end
+	
+	-- Skip own messages if disabled
+	if speakerPlayer == player and not Config.spyOnMyself then return end
+	
+	-- Clean message text (original sanitization)
+	local cleanText = text:gsub("[\n\r]",''):gsub("\t",' '):gsub("[ ]+",' ')
+	
+	-- Output based on config
+	if Config.public then
+		-- Public broadcast
+		local prefix = Config.publicItalics and "/me " or ""
+		TextChatService.TextChannels.RBXGeneral:SendAsync(prefix .. "{SPY} [".. speakerPlayer.Name .."]: ".. cleanText)
+	else
+		-- Private system message
+		PrivateProperties.Text = "{SPY} [".. speakerPlayer.Name .."]: ".. cleanText
+		StarterGui:SetCore("ChatMakeSystemMessage", PrivateProperties)
+	end
 end
 
-if not player then
-    player = Players.PlayerAdded:Wait()
+-- Initialize
+TextChatService.MessageReceived:Connect(onMessageReceived)
+
+-- Initial status message
+PrivateProperties.Text = "{SPY "..(Config.enabled and "EN" or "DIS").."ABLED}"
+StarterGui:SetCore("ChatMakeSystemMessage", PrivateProperties)
+
+-- Show chat interface (original behavior)
+local chatFrame = player.PlayerGui:WaitForChild("Chat", 10)
+if chatFrame then
+	local frame = chatFrame:WaitForChild("Frame", 5)
+	if frame then
+		frame.ChatChannelParentFrame.Visible = true
+		frame.ChatBarParentFrame.Position = frame.ChatChannelParentFrame.Position + UDim2.new(UDim.new(), frame.ChatChannelParentFrame.Size.Y)
+	end
 end
 
-print("Player detected:", player.Name)
-
--- Config
-local Config = {
-    enabled = true,
-    spyOnMyself = false,
-    filterCommands = false
-}
-
-print("Config loaded - enabled:", Config.enabled, "spyOnMyself:", Config.spyOnMyself, "filterCommands:", Config.filterCommands)
-
--- Core spying function
-local function capturePrivateMessage(message)
-    if not Config.enabled then return end
-    
-    -- Get channel info
-    local channel = message.TextChannel
-    if not channel then return end
-    
-    -- Only care about private channels
-    if channel.Name ~= "RBXWhisper" and channel.Name ~= "RBXTeam" then return end
-    
-    -- Get message text
-    local text = message.Text or ""
-    if text == "" then return end
-    
-    -- Skip commands if filtering enabled
-    if Config.filterCommands and text:match("^%/%w+") then return end
-    
-    -- Get speaker
-    local speaker = message.TextSource
-    if not speaker then return end
-    
-    local speakerPlayer = Players:GetPlayerByUserId(speaker.UserId)
-    if not speakerPlayer then return end
-    
-    -- Skip own messages if disabled
-    if speakerPlayer == player and not Config.spyOnMyself then return end
-    
-    -- Print to console
-    print(string.format("[SPY] [%s]: %s", speakerPlayer.Name, text))
-end
-
--- Connect to chat events
-TextChatService.MessageReceived:Connect(capturePrivateMessage)
-
--- Toggle command
-player.Chatted:Connect(function(msg)
-    if msg:lower():sub(1,4) == "/spy" then
-        Config.enabled = not Config.enabled
-        print("[SPY] Status changed to:", Config.enabled and "ENABLED" or "DISABLED")
-    end
-end)
-
--- Initial confirmation
-print("===== SPY ACTIVE - Listening for private messages =====")
-print("Test commands:")
-print("/w [friend] Private test message")
-print("/team Team chat test")
-print("/e wave (if filterCommands=false)")
-
--- Diagnostic check
-task.delay(5, function()
-    print("===== DIAGNOSTIC REPORT =====")
-    print("TextChatService available:", tostring(TextChatService ~= nil))
-    print("MessageReceived event connected:", tostring(TextChatService.MessageReceived ~= nil))
-    
-    local hasWhisper = false
-    local hasTeam = false
-    
-    for _, channel in ipairs(TextChatService:GetChildren()) do
-        if channel.Name == "RBXWhisper" then hasWhisper = true end
-        if channel.Name == "RBXTeam" then hasTeam = true end
-    end
-    
-    print("Whisper channel exists:", hasWhisper)
-    print("Team channel exists:", hasTeam)
-    print("===== END DIAGNOSTIC =====")
-end)
+print("-- Chat Spy Initialization Complete --")
