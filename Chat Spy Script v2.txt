@@ -22,10 +22,10 @@ local success, err = pcall(function()
 	-- Config
 	local Config = {
 		enabled = true,          -- Default spy state
-		spyOnMyself = true,      -- Capture own private messages
+		spyOnMyself = false,      -- Capture own private messages
 		public = false,          -- Broadcast spy logs publicly
 		publicItalics = true,    -- Use italics for public messages
-		filterCommands = true,   -- Hide commands like "/e dance"
+		filterCommands = false,   -- Hide commands like "/e dance"
 	}
 
 	-- System message appearance (IY-style cyan)
