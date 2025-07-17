@@ -1,7 +1,8 @@
 --[[
-	Modern Chat Spy (Updated for Roblox 2024)
+	Infinite Yield-Style Chat Spy (2025)
 	Type "/spy" to toggle
-	Captures private messages, team chat & commands
+	Captures whispers, team chat & commands
+	Uses channel-based detection instead of deprecated status enums
 --]]
 
 -- Wait for essential services to load
@@ -14,7 +15,7 @@ local success, err = pcall(function()
 	-- Wait for player to join
 	local player = Players.LocalPlayer
 	while not player do
-		Players.PlayerAdded:Wait()
+		task.wait()
 		player = Players.LocalPlayer
 	end
 
@@ -27,7 +28,7 @@ local success, err = pcall(function()
 		filterCommands = true,   -- Hide commands like "/e dance"
 	}
 
-	-- System message appearance
+	-- System message appearance (IY-style cyan)
 	local PrivateProperties = {
 		Color = Color3.fromRGB(0, 255, 255),
 		Font = Enum.Font.SourceSansBold,
@@ -53,20 +54,21 @@ local success, err = pcall(function()
 			return true
 		end
 		
-		-- Process only successful messages
-		if message.Status ~= Enum.TextChatMessageStatus.Success then
-			return true
+		-- Process only messages with text
+		local text = message.Text or ""
+		if text == "" then 
+			return true 
 		end
 		
-		local text = message.Text or ""
-		local status = message.Status
-		local speaker = message.TextSource
+		-- INFINITE YIELD TECHNIQUE: Detect private messages by channel
+		local isPrivate = false
+		local channel = message.TextChannel
+		if channel then
+			-- Whisper: "RBXWhisper" channel | Team: "RBXTeam" channel
+			isPrivate = channel.Name == "RBXWhisper" or channel.Name == "RBXTeam"
+		end
 		
-		-- CORRECTED: Modern status enums (Roblox 2024)
-		local isPrivate = status == Enum.TextChatMessageStatus.Private or 
-		                  status == Enum.TextChatMessageStatus.Team
-		
-		if not isPrivate or text == "" then 
+		if not isPrivate then 
 			return true 
 		end
 		
@@ -78,8 +80,8 @@ local success, err = pcall(function()
 		-- Identify speaker
 		local playerName = "System"
 		local playerObj = nil
-		if speaker then
-			playerObj = Players:GetPlayerByUserId(speaker.UserId)
+		if message.TextSource then
+			playerObj = Players:GetPlayerByUserId(message.TextSource.UserId)
 			if playerObj then
 				playerName = playerObj.Name
 				-- Skip own messages if disabled
