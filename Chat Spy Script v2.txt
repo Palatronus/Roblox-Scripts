@@ -1,8 +1,7 @@
 --[[
-	Infinite Yield-Style Chat Spy (2025)
+	Infinite Yield-Style Chat Spy (Fixed Chat Functionality)
 	Type "/spy" to toggle
 	Captures whispers, team chat & commands
-	Uses channel-based detection instead of deprecated status enums
 --]]
 
 -- Wait for essential services to load
@@ -11,6 +10,7 @@ local success, err = pcall(function()
 	local TextChatService = game:GetService("TextChatService")
 	local Players = game:GetService("Players")
 	local StarterGui = game:GetService("StarterGui")
+	local ReplicatedStorage = game:GetService("ReplicatedStorage")
 	
 	-- Wait for player to join
 	local player = Players.LocalPlayer
@@ -47,17 +47,26 @@ local success, err = pcall(function()
 		end)
 	end
 
+	-- Store original chat handler
+	local originalChatHandler = TextChatService.OnIncomingMessage
+
 	-- ===== Fixed Message Handler ===== --
 	TextChatService.OnIncomingMessage = function(message)
+		-- Preserve original chat functionality
+		local shouldDeliver = true
+		if type(originalChatHandler) == "function" then
+			shouldDeliver = originalChatHandler(message)
+		end
+		
 		-- Skip if disabled or wrong instance
 		if _G.chatSpyInstance ~= instance or not Config.enabled then
-			return true
+			return shouldDeliver
 		end
 		
 		-- Process only messages with text
 		local text = message.Text or ""
 		if text == "" then 
-			return true 
+			return shouldDeliver
 		end
 		
 		-- INFINITE YIELD TECHNIQUE: Detect private messages by channel
@@ -69,12 +78,12 @@ local success, err = pcall(function()
 		end
 		
 		if not isPrivate then 
-			return true 
+			return shouldDeliver
 		end
 		
 		-- Filter commands
 		if Config.filterCommands and text:match("^%/%w+") then 
-			return true 
+			return shouldDeliver
 		end
 
 		-- Identify speaker
@@ -86,7 +95,7 @@ local success, err = pcall(function()
 				playerName = playerObj.Name
 				-- Skip own messages if disabled
 				if playerObj == player and not Config.spyOnMyself then
-					return true
+					return shouldDeliver
 				end
 			end
 		end
@@ -105,6 +114,9 @@ local success, err = pcall(function()
 					local generalChannel = TextChatService:FindFirstChild("RBXGeneral")
 					if generalChannel then
 						generalChannel:SendAsync(formatted)
+					else
+						-- Fallback to legacy method
+						ReplicatedStorage.DefaultChatSystemChatEvents.SayMessageRequest:FireServer(formatted, "All")
 					end
 				end)
 			else
@@ -113,7 +125,7 @@ local success, err = pcall(function()
 			end
 		end)
 		
-		return true
+		return shouldDeliver
 	end
 
 	-- ===== Command Handling ===== --
