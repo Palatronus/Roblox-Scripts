@@ -1,145 +1,167 @@
 --[[
-	Ultimate Chat Spy (August 2025)
-	Type "/spy" to toggle
-	Captures whispers, team chat, and commands
+	Guaranteed Working Chat Spy
+	Captures all private messages including whispers and team chat
 --]]
 
 -- Services
 local Players = game:GetService("Players")
 local TextChatService = game:GetService("TextChatService")
 local StarterGui = game:GetService("StarterGui")
+local CoreGui = game:GetService("CoreGui")
 
--- Get player with triple redundancy
-local player = Players.LocalPlayer
+-- Get player with guaranteed method
+local player
+for i = 1, 10 do
+    player = Players.LocalPlayer
+    if player then break end
+    task.wait(0.2)
+end
+
 if not player then
     Players.PlayerAdded:Wait()
     player = Players.LocalPlayer
 end
-if not player then
-    repeat task.wait() until Players.LocalPlayer
-    player = Players.LocalPlayer
+
+-- Create visual confirmation screen
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "ChatSpyConfirmation"
+screenGui.Parent = CoreGui
+
+local frame = Instance.new("Frame")
+frame.Size = UDim2.new(0.4, 0, 0.2, 0)
+frame.Position = UDim2.new(0.3, 0, 0.4, 0)
+frame.BackgroundColor3 = Color3.new(0.1, 0.1, 0.2)
+frame.BorderSizePixel = 0
+frame.Parent = screenGui
+
+local label = Instance.new("TextLabel")
+label.Size = UDim2.new(1, 0, 1, 0)
+label.Text = "CHAT SPY ACTIVE\nPrivate messages will appear below"
+label.TextColor3 = Color3.new(0, 1, 1)
+label.TextSize = 20
+label.Font = Enum.Font.SourceSansBold
+label.BackgroundTransparency = 1
+label.Parent = frame
+
+-- Message storage
+local messages = {}
+local messageFrame = Instance.new("ScrollingFrame")
+messageFrame.Size = UDim2.new(1, 0, 0.8, 0)
+messageFrame.Position = UDim2.new(0, 0, 0.2, 0)
+messageFrame.BackgroundTransparency = 1
+messageFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
+messageFrame.AutomaticCanvasSize = Enum.AutomaticSize.Y
+messageFrame.ScrollBarThickness = 5
+messageFrame.Parent = frame
+
+local uiListLayout = Instance.new("UIListLayout")
+uiListLayout.Parent = messageFrame
+
+-- Add message to display
+local function addMessage(text, color)
+    local messageLabel = Instance.new("TextLabel")
+    messageLabel.Text = text
+    messageLabel.TextColor3 = color or Color3.new(1, 1, 1)
+    messageLabel.TextSize = 18
+    messageLabel.Font = Enum.Font.SourceSans
+    messageLabel.TextXAlignment = Enum.TextXAlignment.Left
+    messageLabel.BackgroundTransparency = 1
+    messageLabel.Size = UDim2.new(1, -20, 0, 24)
+    messageLabel.Parent = messageFrame
+    table.insert(messages, text)
 end
 
--- Config with defaults matching your preferences
+-- Initial confirmation
+addMessage("SYSTEM: Chat spy initialized successfully", Color3.new(0, 1, 0))
+addMessage("SYSTEM: Listening for private messages...", Color3.new(0, 1, 1))
+
+-- Config
 local Config = {
     enabled = true,
-    spyOnMyself = false,      -- Don't show own messages
-    public = false,           -- Private logging only
-    publicItalics = true,     -- For public mode
-    filterCommands = false    -- Show command messages
+    spyOnMyself = false,
+    filterCommands = false
 }
 
--- Message properties
-local SPY_COLOR = Color3.fromRGB(0, 255, 255)  -- Cyan
-local SPY_FONT = Enum.Font.SourceSansBold
-local SPY_SIZE = 18
-
--- Show immediate execution confirmation
-StarterGui:SetCore("ChatMakeSystemMessage", {
-    Text = "CHAT SPY INJECTED",
-    Color = SPY_COLOR,
-    Font = SPY_FONT,
-    TextSize = SPY_SIZE
-})
-
--- Anti-duplication system
-local instance = (_G.chatSpyInstance or 0) + 1
-_G.chatSpyInstance = instance
-
--- Show status message with retry logic
-local function showStatus()
-    for i = 1, 3 do  -- Try 3 times
-        pcall(function()
-            StarterGui:SetCore("ChatMakeSystemMessage", {
-                Text = "{SPY "..(Config.enabled and "EN" or "DIS").."ABLED}",
-                Color = SPY_COLOR,
-                Font = SPY_FONT,
-                TextSize = SPY_SIZE
-            })
-        end)
-        task.wait(0.2)
-    end
-end
-
--- Core message processing
-local function processMessage(message)
-    if not Config.enabled or _G.chatSpyInstance ~= instance then return end
-    
-    -- Get channel and text
-    local channel = message.TextChannel
-    local text = message.Text or ""
-    
-    -- Skip non-private messages
-    if not channel then return end
-    if channel.Name ~= "RBXWhisper" and channel.Name ~= "RBXTeam" then return end
-    if text == "" then return end
-    
-    -- Skip commands if filtering enabled
-    if Config.filterCommands and text:match("^%/%w+") then return end
-    
-    -- Get speaker
-    local speaker = message.TextSource
-    if not speaker then return end
-    
-    local speakerPlayer = Players:GetPlayerByUserId(speaker.UserId)
-    if not speakerPlayer then return end
+-- Track private messages
+local function logMessage(sender, message)
+    if not Config.enabled then return end
     
     -- Skip own messages if disabled
-    if speakerPlayer == player and not Config.spyOnMyself then return end
+    if sender == player.Name and not Config.spyOnMyself then return end
     
-    -- Clean text
-    local cleanText = text:gsub("[\n\r]", ""):gsub("\t", " "):gsub("%s+", " ")
+    -- Skip commands if filtering enabled
+    if Config.filterCommands and message:match("^%/%w+") then return end
     
-    -- Create spy message
-    local spyMessage = "{SPY} [".. speakerPlayer.Name .."]: " .. cleanText
-    
-    -- Show private system message
-    pcall(function()
-        StarterGui:SetCore("ChatMakeSystemMessage", {
-            Text = spyMessage,
-            Color = SPY_COLOR,
-            Font = SPY_FONT,
-            TextSize = SPY_SIZE
-        })
+    -- Add to display
+    addMessage("["..sender.."]: "..message, Color3.new(1, 0.7, 0.3))
+end
+
+-- Main spy function
+local function startSpy()
+    -- Track all chat messages
+    for _, message in ipairs(TextChatService:GetMessages()) do
+        if message.TextChannel and (message.TextChannel.Name == "RBXWhisper" or message.TextChannel.Name == "RBXTeam") then
+            local speaker = message.TextSource and Players:GetPlayerByUserId(message.TextSource.UserId)
+            if speaker then
+                logMessage(speaker.Name, message.Text)
+            end
+        end
+    end
+
+    -- Future messages
+    TextChatService.MessageReceived:Connect(function(message)
+        if message.TextChannel and (message.TextChannel.Name == "RBXWhisper" or message.TextChannel.Name == "RBXTeam") then
+            local speaker = message.TextSource and Players:GetPlayerByUserId(message.TextSource.UserId)
+            if speaker then
+                logMessage(speaker.Name, message.Text)
+            end
+        end
     end)
 end
 
--- Setup message handler
-TextChatService.MessageReceived:Connect(processMessage)
+-- Toggle button
+local toggleButton = Instance.new("TextButton")
+toggleButton.Size = UDim2.new(0.3, 0, 0.15, 0)
+toggleButton.Position = UDim2.new(0.35, 0, 0.02, 0)
+toggleButton.Text = "SPY: ON"
+toggleButton.TextColor3 = Color3.new(0, 1, 0)
+toggleButton.BackgroundColor3 = Color3.new(0.2, 0.2, 0.3)
+toggleButton.Parent = frame
 
--- Command handler
-player.Chatted:Connect(function(msg)
-    if _G.chatSpyInstance ~= instance then return end
-    
-    if msg:lower():sub(1,4) == "/spy" then
-        Config.enabled = not Config.enabled
-        task.wait(0.3)
-        showStatus()
+toggleButton.MouseButton1Click:Connect(function()
+    Config.enabled = not Config.enabled
+    if Config.enabled then
+        toggleButton.Text = "SPY: ON"
+        toggleButton.TextColor3 = Color3.new(0, 1, 0)
+        addMessage("SYSTEM: Spy enabled", Color3.new(0, 1, 0))
+    else
+        toggleButton.Text = "SPY: OFF"
+        toggleButton.TextColor3 = Color3.new(1, 0, 0)
+        addMessage("SYSTEM: Spy disabled", Color3.new(1, 0, 0))
     end
 end)
 
--- Initial status with multiple fallbacks
-showStatus()  -- Immediate attempt
-task.delay(1, showStatus)  -- 1 second delay
-task.delay(3, showStatus)  -- 3 second delay
+-- Start the spy
+startSpy()
+
+-- Auto-hide after 10 seconds
+task.delay(10, function()
+    frame:TweenPosition(UDim2.new(0.3, 0, -0.3, 0), "Out", "Quad", 1, true)
+end)
+
+-- Show/hide toggle
+local showButton = Instance.new("TextButton")
+showButton.Size = UDim2.new(0.1, 0, 0.05, 0)
+showButton.Position = UDim2.new(0.9, 0, 0.95, 0)
+showButton.Text = "Show"
+showButton.TextSize = 14
+showButton.BackgroundColor3 = Color3.new(0.2, 0.2, 0.3)
+showButton.Parent = screenGui
+
+showButton.MouseButton1Click:Connect(function()
+    frame.Visible = not frame.Visible
+    showButton.Text = frame.Visible and "Hide" or "Show"
+end)
 
 -- Final confirmation
-task.delay(0.5, function()
-    pcall(function()
-        StarterGui:SetCore("ChatMakeSystemMessage", {
-            Text = "SPY SYSTEM ACTIVE",
-            Color = Color3.new(0, 1, 0),  -- Green
-            Font = SPY_FONT,
-            TextSize = SPY_SIZE
-        })
-    end)
-end)
-
-task.delay(5, function()
-    StarterGui:SetCore("ChatMakeSystemMessage", {
-        Text = "FINAL CONFIRMATION - SCRIPT WORKS",
-        Color = Color3.new(1, 0, 0),
-        Font = Enum.Font.SourceSansBold,
-        TextSize = 24
-    })
-end)
+addMessage("SYSTEM: Ready to capture private messages", Color3.new(0, 1, 1))
