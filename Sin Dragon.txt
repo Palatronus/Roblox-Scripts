@@ -30,7 +30,7 @@ highlightflingtargets = true --highlight fling
 discharscripts = true --disable character scripts
 flingchangestate = true --fling with whole body
 hidedeatheffect = true --hides the red damage border when you die (respawn)
-respawntp = 3 --respawn tp mode
+respawntp = 0 --respawn tp mode
 -- 0 - stay at spawn
 -- 1 - randomtp close
 -- 2 - behind fake character
