@@ -13,7 +13,7 @@ https://discord.com/invite/aEZpBEHgMT
 --=         Script Options          =--
 --===================================--
 
-transparent = false --toggle clientsided parts (dragon head, claws, etc)
+transparent = true --toggle clientsided parts (dragon head, claws, etc)
 effects = false --toggle clientsided effects (punch effect, laser effect, etc), set this to false if you use an emulator and you are lagging
 
 --====================================--
