@@ -13,7 +13,7 @@ https://discord.com/invite/aEZpBEHgMT
 --=         Script Options          =--
 --===================================--
 
-DisableRedAnimatedText = false --disables the animated text that keeps popping up on screen, does not disable Kills, Target or Script Title
+DisableRedAnimatedText = true --disables the animated text that keeps popping up on screen, does not disable Kills, Target or Script Title
 
 --====================================--
 --           FDless Options           --
@@ -23,7 +23,7 @@ permadeath = true --adds permanent death (no respawning), see #supported-executo
 fling = true --toggle fling
 allowshiftlock = true --adds shiftlock to patchma rig
 ctrltp = true --adds control click tp
-placeholders = true --adds transparent parts showing your hats when you don't have real ones
+placeholders = false --adds transparent parts showing your hats when you don't have real ones
 clickfling = false --adds click flinging regardless of attacks
 highlightflingtargets = true --highlight fling
 discharscripts = true --disable character scripts
