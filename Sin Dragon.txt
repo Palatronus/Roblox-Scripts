@@ -20,7 +20,7 @@ effects = false --toggle clientsided effects (punch effect, laser effect, etc), 
 --           FDless Options           --
 --====================================--
 
-permadeath = false --adds permanent death (no respawning), see #supported-executors channel for executors that work with this
+permadeath = true --adds permanent death (no respawning), see #supported-executors channel for executors that work with this
 fling = true --toggle fling
 allowshiftlock = true --adds shiftlock to patchma rig
 ctrltp = false --adds control click tp
