@@ -34,7 +34,7 @@ respawntp = 3 --respawn tp mode
 -- 1 - randomtp close
 -- 2 - behind fake character
 -- 3 - hide body
-breakjointsmethod = 1 --breakjoints mode
+breakjointsmethod = 3 --breakjoints mode
 -- 1 - health+breakjoints (the most support)
 -- 2 - health or breakjoints
 -- 3 - breakjoints
