@@ -1,6 +1,5 @@
--- Simple Auto-Clicker for LDPlayer
+-- LDPlayer-Compatible Auto-Clicker
 local UserInputService = game:GetService("UserInputService")
-local VirtualInputManager = game:GetService("VirtualInputManager")
 local RunService = game:GetService("RunService")
 
 -- Configuration
@@ -10,6 +9,7 @@ local CLICK_INTERVAL = 1/CPS
 
 -- State tracking
 local enabled = false
+local mouseDown = false
 
 -- Notification function
 local function Notify(message)
@@ -17,17 +17,24 @@ local function Notify(message)
         game:GetService("StarterGui"):SetCore("SendNotification", {
             Title = "AUTO-CLICKER",
             Text = message,
-            Duration = 2
+            Duration = 2,
+            Icon = "rbxassetid://6726578095"
         })
     end)
     print("AutoClicker: "..message)
 end
 
--- Direct mouse click simulation
-local function Click()
-    VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, nil, nil)
-    task.wait(0.01)
-    VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, nil, nil)
+-- Mouse state manipulation
+local function SetMouseState(down)
+    if down then
+        -- Press mouse button
+        mouseDown = true
+        game:GetService("ContextActionService"):CallFunction("CoreGuiMouseCapture", "MouseButton1Down", Vector2.new())
+    else
+        -- Release mouse button
+        mouseDown = false
+        game:GetService("ContextActionService"):CallFunction("CoreGuiMouseCapture", "MouseButton1Up", Vector2.new())
+    end
 end
 
 -- Toggle functionality
@@ -36,17 +43,27 @@ local function ToggleAutoClicker()
     
     if enabled then
         Notify("ENABLED (20 CPS)")
-        while enabled and task.wait(CLICK_INTERVAL) do
-            Click()
-        end
+        -- Start click loop
+        coroutine.wrap(function()
+            while enabled and task.wait(CLICK_INTERVAL) do
+                -- Create click by quickly pressing and releasing
+                SetMouseState(true)
+                task.wait(0.01)
+                SetMouseState(false)
+            end
+        end)()
     else
         Notify("DISABLED")
+        -- Ensure mouse is released when disabled
+        if mouseDown then
+            SetMouseState(false)
+        end
     end
 end
 
 -- Key bind setup
 UserInputService.InputBegan:Connect(function(input)
-    if input.KeyCode == TOGGLE_KEY then
+    if input.KeyCode == TOGGLE_KEY and not UserInputService:GetFocusedTextBox() then
         ToggleAutoClicker()
     end
 end)
