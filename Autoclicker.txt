@@ -1,6 +1,6 @@
--- FE Background Auto-Clicker (Emulator Compatible)
-local VirtualInputManager = game:GetService("VirtualInputManager")
+-- Simple Auto-Clicker for LDPlayer
 local UserInputService = game:GetService("UserInputService")
+local VirtualInputManager = game:GetService("VirtualInputManager")
 local RunService = game:GetService("RunService")
 
 -- Configuration
@@ -10,26 +10,23 @@ local CLICK_INTERVAL = 1/CPS
 
 -- State tracking
 local enabled = false
-local connection = nil
 
--- Enhanced notification system
+-- Notification function
 local function Notify(message)
     pcall(function()
         game:GetService("StarterGui"):SetCore("SendNotification", {
             Title = "AUTO-CLICKER",
             Text = message,
-            Duration = 3,
-            Icon = "rbxassetid://6726578095"
+            Duration = 2
         })
     end)
-    print("["..os.date("%X").."] "..message)
+    print("AutoClicker: "..message)
 end
 
--- Emulator-compatible click simulation
-local function SimulateClick()
-    -- Direct mouse event injection
+-- Direct mouse click simulation
+local function Click()
     VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, nil, nil)
-    task.wait(0.001)  -- Minimum press duration
+    task.wait(0.01)
     VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, nil, nil)
 end
 
@@ -38,29 +35,16 @@ local function ToggleAutoClicker()
     enabled = not enabled
     
     if enabled then
-        Notify("ENABLED\n20 CPS Background")
-        print("Activated - Works when tabbed out")
-        
-        -- Create background-compatible loop
-        if connection then connection:Disconnect() end
-        
-        connection = RunService.Heartbeat:Connect(function()
-            if enabled then
-                SimulateClick()
-                task.wait(CLICK_INTERVAL)
-            end
-        end)
+        Notify("ENABLED (20 CPS)")
+        while enabled and task.wait(CLICK_INTERVAL) do
+            Click()
+        end
     else
         Notify("DISABLED")
-        print("Deactivated")
-        if connection then
-            connection:Disconnect()
-            connection = nil
-        end
     end
 end
 
--- Key bind setup with emulator focus check
+-- Key bind setup
 UserInputService.InputBegan:Connect(function(input)
     if input.KeyCode == TOGGLE_KEY then
         ToggleAutoClicker()
@@ -69,5 +53,5 @@ end)
 
 -- Initialization
 Notify("Ready - Press Q to toggle")
-print("AutoClicker initialized for emulator use")
+print("AutoClicker initialized for LDPlayer")
 print("CPS: "..CPS.." | Interval: "..CLICK_INTERVAL.."s")
