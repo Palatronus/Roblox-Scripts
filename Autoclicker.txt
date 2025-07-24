@@ -1,74 +1,127 @@
--- LDPlayer-Compatible Auto-Clicker
-local UserInputService = game:GetService("UserInputService")
-local RunService = game:GetService("RunService")
+; Roblox Auto-Clicker for LDPlayer
+; Press Q to toggle rapid left-clicking at 20 CPS
+; Works in background - perfect for AFK
 
--- Configuration
-local TOGGLE_KEY = Enum.KeyCode.Q
-local CPS = 20
-local CLICK_INTERVAL = 1/CPS
+#NoEnv
+#SingleInstance Force
+SendMode Input
+SetWorkingDir %A_ScriptDir%
+SetTitleMatchMode, 2
 
--- State tracking
-local enabled = false
-local mouseDown = false
+; Configuration
+toggleKey := "Q"             ; Toggle key
+cps := 20                    ; Clicks per second
+clickDuration := 50          ; 1000ms / 20 CPS = 50ms interval
+notificationDuration := 2000 ; Notification display time (ms)
 
--- Notification function
-local function Notify(message)
-    pcall(function()
-        game:GetService("StarterGui"):SetCore("SendNotification", {
-            Title = "AUTO-CLICKER",
-            Text = message,
-            Duration = 2,
-            Icon = "rbxassetid://6726578095"
-        })
-    end)
-    print("AutoClicker: "..message)
-end
+; State tracking
+isClicking := false
+notificationActive := false
 
--- Mouse state manipulation
-local function SetMouseState(down)
-    if down then
-        -- Press mouse button
-        mouseDown = true
-        game:GetService("ContextActionService"):CallFunction("CoreGuiMouseCapture", "MouseButton1Down", Vector2.new())
-    else
-        -- Release mouse button
-        mouseDown = false
-        game:GetService("ContextActionService"):CallFunction("CoreGuiMouseCapture", "MouseButton1Up", Vector2.new())
-    end
-end
+; Tray icon setup
+Menu, Tray, Tip, Roblox Auto-Clicker`nPress %toggleKey% to toggle
+Menu, Tray, NoStandard
+Menu, Tray, Add, Exit, ExitScript
 
--- Toggle functionality
-local function ToggleAutoClicker()
-    enabled = not enabled
+; Main GUI for notifications
+Gui, +AlwaysOnTop -Caption +ToolWindow +LastFound +E0x20
+Gui, Color, 1A1A1A
+Gui, Font, cWhite s10, Segoe UI
+Gui, Add, Text, vNotificationText w200 Center, Auto-Clicker: Ready
+WinSet, Transparent, 230
+Gui, Show, Hide, AutoClickerNotification
+
+; Initial notification
+ShowNotification("Ready - Press " . toggleKey . " to toggle")
+
+; Main toggle hotkey
+Hotkey, %toggleKey%, ToggleAutoClicker
+Return
+
+ToggleAutoClicker:
+    isClicking := !isClicking
     
-    if enabled then
-        Notify("ENABLED (20 CPS)")
-        -- Start click loop
-        coroutine.wrap(function()
-            while enabled and task.wait(CLICK_INTERVAL) do
-                -- Create click by quickly pressing and releasing
-                SetMouseState(true)
-                task.wait(0.01)
-                SetMouseState(false)
-            end
-        end)()
+    if (isClicking) {
+        ShowNotification("ENABLED`n20 CPS")
+        SetTimer, RapidClick, %clickDuration%
+    } else {
+        ShowNotification("DISABLED")
+        SetTimer, RapidClick, Off
+    }
+Return
+
+RapidClick:
+    ; Check if Roblox window exists
+    IfWinExist, Roblox
+    {
+        ; Get mouse position relative to Roblox window
+        WinGetPos, X, Y, Width, Height, Roblox
+        
+        ; Calculate center of window
+        centerX := X + (Width // 2)
+        centerY := Y + (Height // 2)
+        
+        ; Send click to Roblox window
+        ControlClick, x%centerX% y%centerY%, Roblox,,,, NA
+    }
     else
-        Notify("DISABLED")
-        -- Ensure mouse is released when disabled
-        if mouseDown then
-            SetMouseState(false)
-        end
-    end
-end
+    {
+        ShowNotification("Roblox not found!")
+        SetTimer, RapidClick, Off
+        isClicking := false
+    }
+Return
 
--- Key bind setup
-UserInputService.InputBegan:Connect(function(input)
-    if input.KeyCode == TOGGLE_KEY and not UserInputService:GetFocusedTextBox() then
-        ToggleAutoClicker()
-    end
-end)
+ShowNotification(message) {
+    global notificationDuration
+    
+    ; Update notification text
+    GuiControl,, NotificationText, %message%
+    
+    ; Position notification at bottom center
+    SysGet, screen, MonitorWorkArea
+    notificationX := (screenRight - 200) // 2
+    notificationY := screenBottom - 100
+    
+    ; Show notification
+    Gui, Show, x%notificationX% y%notificationY% NoActivate
+    SetTimer, HideNotification, %notificationDuration%
+    notificationActive := true
+}
 
--- Initialization
-Notify("Ready - Press Q to toggle")
-print("AutoClicker initialized for LDPlayer")
-print("CPS: "..CPS.." | Interval: "..CLICK_INTERVAL.."s")
+HideNotification:
+    Gui, Hide
+    notificationActive := false
+Return
+
+; Emergency stop if mouse moves while clicking
+~LButton::
+~RButton::
+~MButton::
+~XButton1::
+~XButton2::
+~WheelDown::
+~WheelUp::
+    if (isClicking) {
+        ShowNotification("DISABLED`n(Mouse activity)")
+        SetTimer, RapidClick, Off
+        isClicking := false
+    }
+Return
+
+; Pause script with middle mouse button
+MButton::
+    Suspend, Toggle
+    if (A_IsSuspended) {
+        ShowNotification("SCRIPT PAUSED")
+    } else {
+        ShowNotification("SCRIPT RESUMED")
+    }
+Return
+
+ExitScript:
+    ExitApp
+Return
+
+; Always run when script starts
+#Persistent
