@@ -1,0 +1,84 @@
+-- FE Toggle Auto-Clicker (20 CPS Background)
+local VirtualInputManager = game:GetService("VirtualInputManager")
+local UserInputService = game:GetService("UserInputService")
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+
+-- Configuration
+local TOGGLE_KEY = Enum.KeyCode.Q
+local CPS = 20
+local CLICK_INTERVAL = 1/CPS
+local BACKGROUND_MODE = true
+
+-- State tracking
+local enabled = false
+local connection = nil
+
+-- Notification system
+local function Notify(message)
+    if not pcall(function()
+        game:GetService("StarterGui"):SetCore("SendNotification", {
+            Title = "AUTO-CLICKER",
+            Text = message,
+            Duration = 3
+        })
+    end) then
+        warn("AutoClicker: " .. message)
+    end
+end
+
+-- Mouse click simulation
+local function SimulateClick()
+    VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, nil, nil)
+    task.wait(0.01)
+    VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, nil, nil)
+end
+
+-- Toggle functionality
+local function ToggleAutoClicker()
+    enabled = not enabled
+    
+    if enabled then
+        Notify("ENABLED (20 CPS)")
+        print("AutoClicker: Activated - Will work in background")
+        
+        -- Create new click loop
+        if connection then
+            connection:Disconnect()
+        end
+        
+        connection = RunService.Heartbeat:Connect(function()
+            if enabled then
+                SimulateClick()
+                task.wait(CLICK_INTERVAL)
+            end
+        end)
+    else
+        Notify("DISABLED")
+        print("AutoClicker: Deactivated")
+        if connection then
+            connection:Disconnect()
+            connection = nil
+        end
+    end
+end
+
+-- Key bind setup
+UserInputService.InputBegan:Connect(function(input)
+    if input.KeyCode == TOGGLE_KEY and not UserInputService:GetFocusedTextBox() then
+        ToggleAutoClicker()
+    end
+end)
+
+-- Background execution setup
+if BACKGROUND_MODE then
+    RunService:BindToRenderStep("BackgroundClicker", Enum.RenderPriority.Last.Value, function()
+        if enabled then
+            SimulateClick()
+            task.wait(CLICK_INTERVAL)
+        end
+    end)
+end
+
+Notify("Script Loaded - Press Q to toggle")
+print("AutoClicker initialized. Press Q to toggle 20 CPS clicking")
