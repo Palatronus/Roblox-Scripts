@@ -44,7 +44,16 @@ if not _G.LinkedSwordAIPersistentData then
         FailedPaths = {},
         LastEquipAttempt = 0,
         EquipmentReady = false,
-        KnownVoidAreas = {}
+        KnownVoidAreas = {},
+        PathCache = {},           -- NEW: Cache for pathfinding results
+        LastPathfindingTime = 0,  -- NEW: Track last pathfinding operation
+        PerformanceStats = {      -- NEW: Track performance metrics
+            PathfindingTime = 0,
+            CombatTime = 0,
+            MovementTime = 0,
+            LastOptimizationTime = 0
+        },
+        AlternativePaths = {}     -- NEW: Store alternative paths
     }
 end
 
@@ -52,31 +61,35 @@ local persistentData = _G.LinkedSwordAIPersistentData
 
 -- Configuration
 local CONFIG = {
-    DETECTION_RADIUS = 100,        -- Stud radius for detecting players
+    DETECTION_RADIUS = 200,        -- INCREASED: Stud radius for detecting players (was 100)
     ATTACK_RANGE = 15,             -- Start attacking when within this range
-    ATTACK_COOLDOWN = 0.8,         -- Time between attacks in seconds
+    ATTACK_COOLDOWN = 0.7,         -- IMPROVED: Slightly faster attacks (was 0.8)
     LUNGE_DELAY = 0.1,             -- Delay between attacks for lunge combo
     STUCK_CHECK_DISTANCE = 1.5,    -- Distance to check if stuck on player
     STUCK_CHECK_TIME = 1.0,        -- Time to wait before considering stuck
-    MAX_TARGET_DISTANCE = 150,     -- Maximum effective reach in studs
+    MAX_TARGET_DISTANCE = 250,     -- INCREASED: Maximum effective reach in studs (was 150)
     MIN_HEALTH_CHECK = 0,          -- Minimum health to consider player valid
-    RETARGET_CHECK_TIME = 1.0,     -- How often to check for closer targets
+    RETARGET_CHECK_TIME = 1.5,     -- OPTIMIZED: Less frequent retargeting (was 1.0)
     VOID_CHECK_DISTANCE = 50,      -- Distance to check for void areas
     VOID_Y_THRESHOLD = -100,       -- Y position threshold for void detection
-    FORCEFIELD_FLEE_DISTANCE = 0,  -- FIXED: Set to 0 to prevent fleeing from ForceField players
-    SWORD_CHECK_INTERVAL = 5,      -- How often to check for sword (seconds)
+    FORCEFIELD_FLEE_DISTANCE = 0,  -- Set to 0 to prevent fleeing from ForceField players
+    SWORD_CHECK_INTERVAL = 7,      -- OPTIMIZED: Less frequent sword checks (was 5)
     RESPAWN_EQUIP_DELAY = 1.5,     -- Delay before equipping sword after respawn
-    MOVEMENT_MEMORY_TIME = 0.5,    -- Time to remember previous movement direction
-    SAFE_GAP_DISTANCE = 8,         -- Maximum safe gap distance to traverse
-    PATH_SMOOTHING_FACTOR = 0.6,   -- Factor for smoothing movement (0-1)
-    MOVEMENT_RETRY_DELAY = 0.5,    -- Delay before retrying failed movement
-    NARROW_PASSAGE_WIDTH = 3,      -- Width to consider a passage as narrow
-    PATHFINDING_STEPS = 8,         -- Number of steps to check when pathfinding
-    COMBAT_BEHAVIOR_CHANGE_TIME = 3.0, -- Time between combat behavior changes
-    COMBAT_DEFENSIVE_CHANCE = 0.33, -- Chance to use defensive behavior
-    COMBAT_OFFENSIVE_CHANCE = 0.33, -- Chance to use offensive behavior
-    STRAFE_DISTANCE = 3,           -- Distance to strafe during combat
-    BRIDGE_CHECK_DISTANCE = 20     -- Distance to check for bridges
+    MOVEMENT_MEMORY_TIME = 0.7,    -- IMPROVED: Remember movement direction longer (was 0.5)
+    SAFE_GAP_DISTANCE = 10,        -- IMPROVED: Increased safe gap distance (was 8)
+    PATH_SMOOTHING_FACTOR = 0.7,   -- IMPROVED: Smoother movement (was 0.6)
+    MOVEMENT_RETRY_DELAY = 1.0,    -- OPTIMIZED: Longer delay before retrying (was 0.5)
+    NARROW_PASSAGE_WIDTH = 3.5,    -- IMPROVED: Slightly wider passage detection (was 3)
+    PATHFINDING_STEPS = 10,        -- IMPROVED: More pathfinding steps (was 8)
+    COMBAT_BEHAVIOR_CHANGE_TIME = 4.0, -- OPTIMIZED: Less frequent behavior changes (was 3.0)
+    COMBAT_DEFENSIVE_CHANCE = 0.25, -- IMPROVED: Less defensive behavior (was 0.33)
+    COMBAT_OFFENSIVE_CHANCE = 0.45, -- IMPROVED: More offensive behavior (was 0.33)
+    STRAFE_DISTANCE = 4,           -- IMPROVED: Increased strafe distance (was 3)
+    BRIDGE_CHECK_DISTANCE = 25,    -- IMPROVED: Increased bridge check distance (was 20)
+    PERFORMANCE_MODE = true,       -- NEW: Enable performance optimizations
+    PATH_CACHE_TIME = 3.0,         -- NEW: How long to cache path results
+    ALTERNATIVE_PATH_COUNT = 4,    -- NEW: Number of alternative paths to try
+    MIN_ATTACK_DISTANCE = 3        -- NEW: Minimum distance to maintain aggression
 }
 
 -- Create status GUI
@@ -469,6 +482,21 @@ local function InitializeAI()
     
     -- Check if path to target is safe (no voids)
     local function IsSafePath(targetPosition)
+        -- Performance optimization: Check cache first
+        if CONFIG.PERFORMANCE_MODE then
+            local currentTime = tick()
+            for cachedPath, data in pairs(persistentData.PathCache) do
+                if (Vector3.new(cachedPath.x, cachedPath.y, cachedPath.z) - targetPosition).Magnitude < 5 and 
+                   currentTime - data.time < CONFIG.PATH_CACHE_TIME then
+                    debugPrint("PATH", "Using cached path result: " .. (data.safe and "SAFE" or "UNSAFE"))
+                    return data.safe, data.bridgePath, data.alternativePath
+                end
+            end
+        end
+        
+        -- Start performance tracking
+        local startTime = tick()
+        
         -- Check if this path has failed recently
         for _, failedPath in ipairs(persistentData.FailedPaths) do
             if (targetPosition - failedPath.position).Magnitude < 5 and 
@@ -503,6 +531,31 @@ local function InitializeAI()
                             position = targetPosition,
                             time = tick()
                         })
+                        
+                        -- Cache the result
+                        if CONFIG.PERFORMANCE_MODE then
+                            persistentData.PathCache[targetPosition] = {
+                                safe = false,
+                                time = tick(),
+                                bridgePath = nil
+                            }
+                            
+                            -- Limit cache size
+                            local cacheSize = 0
+                            for _ in pairs(persistentData.PathCache) do cacheSize = cacheSize + 1 end
+                            if cacheSize > 20 then
+                                local oldestTime = math.huge
+                                local oldestKey = nil
+                                for k, v in pairs(persistentData.PathCache) do
+                                    if v.time < oldestTime then
+                                        oldestTime = v.time
+                                        oldestKey = k
+                                    end
+                                end
+                                if oldestKey then persistentData.PathCache[oldestKey] = nil end
+                            end
+                        end
+                        
                         return false
                     end
                     
@@ -522,7 +575,54 @@ local function InitializeAI()
                     local bridgePath = FindBridgePath(startPos, targetPosition)
                     if bridgePath then
                         -- We found a bridge path, use it instead
+                        
+                        -- Cache the result
+                        if CONFIG.PERFORMANCE_MODE then
+                            persistentData.PathCache[targetPosition] = {
+                                safe = true,
+                                time = tick(),
+                                bridgePath = bridgePath
+                            }
+                            persistentData.PerformanceStats.PathfindingTime = tick() - startTime
+                        end
+                        
                         return true, bridgePath
+                    end
+                    
+                    -- Try alternative paths if direct path is unsafe
+                    for altIndex = 1, CONFIG.ALTERNATIVE_PATH_COUNT do
+                        -- Try different angles
+                        local angle = (altIndex / CONFIG.ALTERNATIVE_PATH_COUNT) * math.pi
+                        local altDirection = CFrame.fromAxisAngle(Vector3.new(0, 1, 0), angle) * direction
+                        local altTargetPos = startPos + altDirection * (distance * 0.5)
+                        
+                        -- Check if this alternative path is safe
+                        local altSafe = true
+                        for j = increment, distance * 0.5, increment do
+                            local altCheckPos = startPos + altDirection * j
+                            if IsVoidArea(altCheckPos) then
+                                altSafe = false
+                                break
+                            end
+                        end
+                        
+                        if altSafe then
+                            -- Store this alternative path
+                            persistentData.AlternativePaths[targetPosition] = altTargetPos
+                            
+                            -- Cache the result
+                            if CONFIG.PERFORMANCE_MODE then
+                                persistentData.PathCache[targetPosition] = {
+                                    safe = false,
+                                    time = tick(),
+                                    bridgePath = nil,
+                                    alternativePath = altTargetPos
+                                }
+                                persistentData.PerformanceStats.PathfindingTime = tick() - startTime
+                            end
+                            
+                            return false, nil, altTargetPos
+                        end
                     end
                     
                     -- Remember this failed path
@@ -533,6 +633,17 @@ local function InitializeAI()
                         position = targetPosition,
                         time = tick()
                     })
+                    
+                    -- Cache the result
+                    if CONFIG.PERFORMANCE_MODE then
+                        persistentData.PathCache[targetPosition] = {
+                            safe = false,
+                            time = tick(),
+                            bridgePath = nil
+                        }
+                        persistentData.PerformanceStats.PathfindingTime = tick() - startTime
+                    end
+                    
                     return false
                 end
             end
@@ -548,7 +659,28 @@ local function InitializeAI()
                 position = targetPosition,
                 time = tick()
             })
+            
+            -- Cache the result
+            if CONFIG.PERFORMANCE_MODE then
+                persistentData.PathCache[targetPosition] = {
+                    safe = false,
+                    time = tick(),
+                    bridgePath = nil
+                }
+                persistentData.PerformanceStats.PathfindingTime = tick() - startTime
+            end
+            
             return false
+        end
+        
+        -- Cache the result
+        if CONFIG.PERFORMANCE_MODE then
+            persistentData.PathCache[targetPosition] = {
+                safe = true,
+                time = tick(),
+                bridgePath = nil
+            }
+            persistentData.PerformanceStats.PathfindingTime = tick() - startTime
         end
         
         return true
@@ -675,12 +807,23 @@ local function InitializeAI()
     end
     
     -- Smooth movement function with improved bridge and narrow passage handling
-    local function MoveTo(targetPosition, bridgePath)
+    local function MoveTo(targetPosition, bridgePath, alternativePath)
+        -- Performance tracking
+        local startTime = tick()
+        
         -- If we have a bridge path, use that instead
         if bridgePath then
             targetPosition = bridgePath
             if persistentData.StatusGUI then
                 persistentData.StatusGUI.UpdateDebug("Using bridge path")
+            end
+        end
+        
+        -- If we have an alternative path, use it instead
+        if alternativePath then
+            targetPosition = alternativePath
+            if persistentData.StatusGUI then
+                persistentData.StatusGUI.UpdateDebug("Using alternative path")
             end
         end
         
@@ -715,6 +858,19 @@ local function InitializeAI()
             smoothedTarget = HumanoidRootPart.Position + smoothedDirection * 
                            math.min(2, (targetPosition - HumanoidRootPart.Position).Magnitude)
         end
+        
+        -- Apply movement
+        Humanoid:Move(smoothedDirection)
+        
+        -- Update movement history
+        persistentData.LastMovementDirection = smoothedDirection
+        persistentData.LastMovementTime = currentTime
+        
+        -- Track performance
+        if CONFIG.PERFORMANCE_MODE then
+            persistentData.PerformanceStats.MovementTime = tick() - startTime
+        end
+    end
         
         -- Check if the smoothed path is safe
         if IsSafeGap(HumanoidRootPart.Position, smoothedTarget) then
@@ -907,11 +1063,42 @@ local function InitializeAI()
     
     -- Main update function
     local function Update()
+        -- Performance optimization: Periodically clean up memory
+        local currentTime = tick()
+        if CONFIG.PERFORMANCE_MODE and currentTime - persistentData.PerformanceStats.LastOptimizationTime > 30 then
+            -- Clean up path cache
+            local oldestTime = math.huge
+            local oldestKey = nil
+            local cacheCount = 0
+            
+            for k, v in pairs(persistentData.PathCache) do
+                cacheCount = cacheCount + 1
+                if v.time < oldestTime then
+                    oldestTime = v.time
+                    oldestKey = k
+                end
+            end
+            
+            -- If cache is too large, remove oldest entries
+            if cacheCount > 20 then
+                persistentData.PathCache[oldestKey] = nil
+            end
+            
+            -- Clean up failed paths older than 20 seconds
+            for i = #persistentData.FailedPaths, 1, -1 do
+                if currentTime - persistentData.FailedPaths[i].time > 20 then
+                    table.remove(persistentData.FailedPaths, i)
+                end
+            end
+            
+            persistentData.PerformanceStats.LastOptimizationTime = currentTime
+            debugPrint("PERF", "Memory optimization complete")
+        end
+        
         -- Check for sword periodically
         CheckForSword()
         
         -- Check if we need to find a new target or check for closer targets
-        local currentTime = tick()
         local needNewTarget = not persistentData.CurrentTarget or 
                              not persistentData.CurrentTarget.Character or 
                              not persistentData.CurrentTarget.Character:FindFirstChild("HumanoidRootPart")
@@ -939,7 +1126,7 @@ local function InitializeAI()
                             persistentData.StatusGUI.UpdateTarget(newTarget.Name)
                             persistentData.StatusGUI.UpdateStatus("Targeting " .. newTarget.Name)
                         end
-                        forcePrint("LinkedSwordAI: New target - " .. newTarget.Name)
+                        debugPrint("TARGET", "New target - " .. newTarget.Name)
                     end
                 else
                     if persistentData.StatusGUI then 
@@ -979,10 +1166,40 @@ local function InitializeAI()
             end
             
             -- Check if the path to the target is safe
-            local isSafe, bridgePath = IsSafePath(targetHRP.Position)
+            local isSafe, bridgePath, alternativePath = IsSafePath(targetHRP.Position)
+            
+            -- Track performance
+            if CONFIG.PERFORMANCE_MODE then
+                persistentData.PerformanceStats.PathfindingTime = tick() - currentTime
+            end
+            
             if isSafe then
                 -- Move toward target using smooth movement with bridge path if available
                 MoveTo(targetHRP.Position, bridgePath)
+                
+                -- Face the target
+                HumanoidRootPart.CFrame = CFrame.lookAt(
+                    HumanoidRootPart.Position, 
+                    Vector3.new(targetHRP.Position.X, HumanoidRootPart.Position.Y, targetHRP.Position.Z)
+                )
+                
+                -- Attack if in range and cooldown is ready
+                if distance <= CONFIG.ATTACK_RANGE and 
+                   persistentData.LinkedSword and 
+                   currentTime - persistentData.LastAttackTime > CONFIG.ATTACK_COOLDOWN then
+                    ExecuteAttack()
+                -- IMPROVED: Continue attacking even when very close to target
+                elseif distance <= CONFIG.MIN_ATTACK_DISTANCE and 
+                       persistentData.LinkedSword and 
+                       currentTime - persistentData.LastAttackTime > CONFIG.ATTACK_COOLDOWN then
+                    debugPrint("COMBAT", "Close range attack")
+                    persistentData.CurrentCombatBehavior = "offensive"  -- Force offensive behavior at close range
+                    ExecuteAttack()
+                end
+            elseif alternativePath then
+                -- Use alternative path if direct path is unsafe
+                debugPrint("PATH", "Using alternative path")
+                MoveTo(alternativePath)
                 
                 -- Face the target
                 HumanoidRootPart.CFrame = CFrame.lookAt(
