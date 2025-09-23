@@ -1,23 +1,23 @@
--- LinkedSwordAI_Stable.lua
--- Stable, working version with proper void avoidance
+-- LinkedSwordAI_Fixed.lua
+-- Fixed version based on the working third previous script
 
 local function forcePrint(...)
     local args = {...}
     local message = table.concat(args, " ")
     print("LinkedSwordAI: " .. message)
-    warn("LinkedSwordAI: " .. message)
 end
 
-forcePrint("Starting stable version...")
+forcePrint("Loading fixed version...")
 
--- Simple configuration
+-- Configuration
 local CONFIG = {
     ATTACK_RANGE = 15,
-    ATTACK_COOLDOWN = 1.0,
+    ATTACK_COOLDOWN = 0.8,
     DETECTION_RANGE = 100,
-    VOID_Y_LEVEL = -10,
-    EQUIP_DELAY = 1.0,
-    RETARGET_DELAY = 2.0
+    VOID_Y_LEVEL = -20,
+    EQUIP_DELAY = 0.5,
+    RETARGET_DELAY = 1,
+    FORCEFIELD_FLEE_DISTANCE = 25
 }
 
 -- Services
@@ -30,8 +30,6 @@ if not LocalPlayer then
     return
 end
 
-forcePrint("Services loaded")
-
 -- Main AI function
 local function StartAI()
     forcePrint("Initializing AI...")
@@ -39,16 +37,14 @@ local function StartAI()
     -- Wait for character
     local character = LocalPlayer.Character
     if not character then
-        forcePrint("Waiting for character to spawn...")
         character = LocalPlayer.CharacterAdded:Wait()
-        wait(2) -- Wait for character to fully load
+        wait(1)
     end
     
-    -- Wait for humanoid and root part
     local humanoid = character:WaitForChild("Humanoid")
     local rootPart = character:WaitForChild("HumanoidRootPart")
     
-    forcePrint("Character loaded: " .. character.Name)
+    forcePrint("Character loaded")
     
     -- Find sword
     local sword = nil
@@ -61,42 +57,89 @@ local function StartAI()
     end
     
     if not sword then
-        forcePrint("No sword found in character, checking backpack...")
         local backpack = LocalPlayer:FindFirstChild("Backpack")
         if backpack then
             for _, item in pairs(backpack:GetChildren()) do
                 if item:IsA("Tool") then
                     sword = item
                     humanoid:EquipTool(sword)
-                    wait(0.5)
-                    forcePrint("Equipped sword from backpack: " .. sword.Name)
+                    wait(0.2)
+                    forcePrint("Equipped sword: " .. sword.Name)
                     break
                 end
             end
         end
     end
-    
-    if not sword then
-        forcePrint("WARNING: No sword found at all!")
+
+    -- Enhanced void detection that actually prevents falling
+    local function CheckVoidSafety(position)
+        if position.Y < CONFIG.VOID_Y_LEVEL then
+            return false
+        end
+        
+        -- Raycast down to check for ground
+        local rayOrigin = position + Vector3.new(0, 2, 0)
+        local rayDirection = Vector3.new(0, -10, 0)
+        local raycastResult = workspace:Raycast(rayOrigin, rayDirection)
+        
+        return raycastResult ~= nil
     end
-    
-    -- Simple void check
-    local function isPositionSafe(position)
-        return position.Y > CONFIG.VOID_Y_LEVEL
+
+    -- Check path to target for voids
+    local function IsPathSafe(startPos, targetPos)
+        local direction = (targetPos - startPos).Unit
+        local distance = (targetPos - startPos).Magnitude
+        
+        -- Check points along the path
+        for i = 5, math.min(distance, 20), 5 do
+            local checkPoint = startPos + direction * i
+            if not CheckVoidSafety(checkPoint) then
+                return false, checkPoint
+            end
+        end
+        
+        return true, nil
     end
-    
+
+    -- Self-correction when above player
+    local function CheckStuckAbovePlayer()
+        for _, player in pairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer and player.Character then
+                local targetRoot = player.Character:FindFirstChild("HumanoidRootPart")
+                if targetRoot then
+                    local horizontalDist = (Vector3.new(rootPart.Position.X, 0, rootPart.Position.Z) - 
+                                          Vector3.new(targetRoot.Position.X, 0, targetRoot.Position.Z)).Magnitude
+                    local verticalDiff = rootPart.Position.Y - targetRoot.Position.Y
+                    
+                    if horizontalDist < 3 and verticalDiff > 5 then
+                        return true, player
+                    end
+                end
+            end
+        end
+        return false, nil
+    end
+
     -- Main loop
     local lastAttack = 0
     local currentTarget = nil
+    local lastRetarget = 0
     
-    local heartbeatConnection
-    heartbeatConnection = RunService.Heartbeat:Connect(function()
-        -- Basic void protection - if we're falling, move to safety
-        if not isPositionSafe(rootPart.Position) then
-            -- Emergency: move up and away
-            local safeSpot = rootPart.Position + Vector3.new(10, 20, 10)
-            humanoid:MoveTo(safeSpot)
-            forcePrint("VOID DETECTED! Moving to safety")
+    local connection
+    connection = RunService.Heartbeat:Connect(function()
+        -- Check if stuck above player first (highest priority)
+        local isStuck, stuckPlayer = CheckStuckAbovePlayer()
+        if isStuck then
+            forcePrint("Stuck above player, moving away")
+            local moveDir = (rootPart.Position - stuckPlayer.Character.HumanoidRootPart.Position).Unit
+            humanoid:MoveTo(rootPart.Position + moveDir * 8)
+            return
+        end
+        
+        -- Check current position safety
+        if not CheckVoidSafety(rootPart.Position) then
+            forcePrint("In void! Moving to safety")
+            humanoid:MoveTo(rootPart.Position + Vector3.new(10, 10, 10))
             return
         end
         
@@ -110,82 +153,81 @@ local function StartAI()
                 local targetHumanoid = player.Character:FindFirstChild("Humanoid")
                 
                 if targetRoot and targetHumanoid and targetHumanoid.Health > 0 then
-                    local distance = (targetRoot.Position - rootPart.Position).Magnitude
-                    
-                    if distance < closestDistance then
-                        closestDistance = distance
-                        closestPlayer = player
+                    -- Skip players with forcefields
+                    if player.Character:FindFirstChild("ForceField") then
+                        -- Move away from forcefield players
+                        if (targetRoot.Position - rootPart.Position).Magnitude < CONFIG.FORCEFIELD_FLEE_DISTANCE then
+                            local fleeDir = (rootPart.Position - targetRoot.Position).Unit
+                            humanoid:MoveTo(rootPart.Position + fleeDir * 15)
+                            forcePrint("Fleeing from forcefield")
+                            return
+                        end
+                    else
+                        local distance = (targetRoot.Position - rootPart.Position).Magnitude
+                        if distance < closestDistance then
+                            closestDistance = distance
+                            closestPlayer = player
+                        end
                     end
                 end
             end
         end
         
-        -- Update target
-        if closestPlayer then
+        -- Target selection
+        if closestPlayer and (not currentTarget or tick() - lastRetarget > CONFIG.RETARGET_DELAY) then
             currentTarget = closestPlayer
-            forcePrint("Targeting: " .. closestPlayer.Name .. " (" .. math.floor(closestDistance) .. " studs)")
-        else
-            currentTarget = nil
+            lastRetarget = tick()
+            forcePrint("New target: " .. closestPlayer.Name)
         end
         
-        -- If we have a target, engage
+        -- Target engagement
         if currentTarget and currentTarget.Character then
-            local targetRoot = currentTarget.Character:FindFirstChild("HumanoidRootPart")
-            local targetHumanoid = currentTarget.Character:FindFirstChild("Humanoid")
+            local targetRoot = currentTarget.Character.HumanoidRootPart
+            local targetHumanoid = currentTarget.Character.Humanoid
             
             if targetRoot and targetHumanoid and targetHumanoid.Health > 0 then
                 local distance = (targetRoot.Position - rootPart.Position).Magnitude
                 
-                -- Check if path to target is safe before moving
-                local direction = (targetRoot.Position - rootPart.Position).Unit
-                local checkDistance = math.min(distance, 20) -- Check up to 20 studs ahead
-                
-                local pathSafe = true
-                for i = 5, checkDistance, 5 do
-                    local checkPoint = rootPart.Position + (direction * i)
-                    if not isPositionSafe(checkPoint) then
-                        pathSafe = false
-                        forcePrint("Unsafe path detected at " .. i .. " studs")
-                        break
-                    end
-                end
+                -- Check if path to target is safe
+                local pathSafe, unsafePoint = IsPathSafe(rootPart.Position, targetRoot.Position)
                 
                 if pathSafe then
-                    -- Safe to approach target
+                    -- Move to target
                     humanoid:MoveTo(targetRoot.Position)
                     
-                    -- Face the target
-                    local lookDirection = (targetRoot.Position - rootPart.Position).Unit
-                    humanoid:MoveTo(rootPart.Position + (lookDirection * 2))
+                    -- Face target
+                    local lookDir = (targetRoot.Position - rootPart.Position).Unit
+                    humanoid:MoveTo(rootPart.Position + lookDir * 0.5)
                     
                     -- Attack if in range
                     if distance <= CONFIG.ATTACK_RANGE and sword then
                         if tick() - lastAttack > CONFIG.ATTACK_COOLDOWN then
                             lastAttack = tick()
-                            -- Simple attack
-                            if sword and sword.Parent then
-                                sword:Activate()
-                                forcePrint("Attacking " .. currentTarget.Name)
+                            -- Execute attack combo
+                            for i = 1, 3 do
+                                if sword and sword.Parent then
+                                    sword:Activate()
+                                end
+                                wait(0.1)
                             end
+                            forcePrint("Attacking " .. currentTarget.Name)
                         end
                     end
                 else
-                    -- Path is unsafe, don't move toward void
-                    forcePrint("Avoiding unsafe path to target")
-                    -- Move sideways or stay put
-                    local sideStep = rootPart.Position + Vector3.new(math.random(-5, 5), 0, math.random(-5, 5))
-                    if isPositionSafe(sideStep) then
-                        humanoid:MoveTo(sideStep)
-                    end
+                    forcePrint("Unsafe path detected, avoiding void")
+                    -- Move away from unsafe point
+                    local safeDir = (rootPart.Position - unsafePoint).Unit
+                    humanoid:MoveTo(rootPart.Position + safeDir * 5)
                 end
             else
                 currentTarget = nil
             end
         else
-            -- No target, wander slightly
-            if math.random(1, 100) < 10 then -- 10% chance to move
+            currentTarget = nil
+            -- Wander behavior when no target
+            if math.random(1, 100) < 20 then
                 local wanderPos = rootPart.Position + Vector3.new(math.random(-10, 10), 0, math.random(-10, 10))
-                if isPositionSafe(wanderPos) then
+                if CheckVoidSafety(wanderPos) then
                     humanoid:MoveTo(wanderPos)
                 end
             end
@@ -194,33 +236,25 @@ local function StartAI()
     
     -- Handle character death
     humanoid.Died:Connect(function()
-        forcePrint("Character died - stopping AI")
-        if heartbeatConnection then
-            heartbeatConnection:Disconnect()
+        forcePrint("Character died")
+        if connection then
+            connection:Disconnect()
         end
     end)
     
     forcePrint("AI started successfully")
-    return heartbeatConnection
+    return connection
 end
 
--- Handle respawns
+-- Respawn handling
 LocalPlayer.CharacterAdded:Connect(function(character)
-    forcePrint("Character respawned - restarting AI in 3 seconds...")
-    wait(3)
-    
-    -- Disconnect any old connection
-    if _G.AIConnection then
-        _G.AIConnection:Disconnect()
-    end
-    
-    -- Start new AI
-    _G.AIConnection = StartAI()
+    forcePrint("Character respawned")
+    wait(2)
+    StartAI()
 end)
 
--- Start the AI initially
-forcePrint("Starting AI in 5 seconds...")
-wait(5)
-_G.AIConnection = StartAI()
+-- Start the AI
+wait(3)
+StartAI()
 
-forcePrint("LinkedSwordAI fully loaded and running")
+forcePrint("Script loaded successfully")
