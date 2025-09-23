@@ -1,5 +1,5 @@
--- LinkedSwordAI_Optimized.lua
--- Optimized version with robust navigation and performance improvements
+-- LinkedSwordAI_AdvancedNavigation.lua
+-- Advanced node-based navigation for Heights map with dynamic platform handling
 
 -- Force print function to ensure output is visible
 local function forcePrint(...)
@@ -14,32 +14,59 @@ local function forcePrint(...)
     pcall(function() rconsoleprint(message .. "\n") end)
 end
 
-forcePrint("LinkedSwordAI: Optimized script starting...")
+forcePrint("LinkedSwordAI: Advanced Navigation script starting...")
 
--- Optimized Configuration
+-- Advanced Configuration for Heights Map
 local CONFIG = {
     DETECTION_RADIUS = 100,
-    ATTACK_RANGE = 15,
-    ATTACK_COOLDOWN = 0.8,
+    ATTACK_RANGE = 12,
+    ATTACK_COOLDOWN = 0.7,
     LUNGE_DELAY = 0.1,
     MAX_TARGET_DISTANCE = 150,
-    RETARGET_CHECK_TIME = 1.0,
-    VOID_CHECK_DISTANCE = 50,
-    VOID_Y_THRESHOLD = -20, -- More conservative threshold
-    FORCEFIELD_FLEE_DISTANCE = 30,
-    SWORD_CHECK_INTERVAL = 5,
-    EQUIP_DELAY = 1.0,
-    PATH_REFRESH_RATE = 0.5, -- Reduced frequency for performance
-    NAVIGATION_UPDATE_INTERVAL = 0.3,
-    WAYPOINT_DISTANCE = 8,
-    HILL_NAVIGATION_ANGLE = 35 -- Degrees for hill climbing
+    RETARGET_CHECK_TIME = 0.5,
+    VOID_Y_THRESHOLD = -25,
+    FORCEFIELD_FLEE_DISTANCE = 25,
+    SWORD_CHECK_INTERVAL = 3,
+    EQUIP_DELAY = 0.3, -- Minimal delay for respawn
+    NODE_REACH_DISTANCE = 3,
+    PLATFORM_SAFETY_MARGIN = 2,
+    DYNAMIC_PLATFORM_TIMEOUT = 2,
+    EVASION_COOLDOWN = 3
 }
+
+-- Node-based map representation for Heights map
+local MAP_NODES = {
+    -- Main platform nodes (safe areas)
+    {id = "spawn1", position = Vector3.new(0, 50, 0), connections = {"bridge1", "hill1"}},
+    {id = "spawn2", position = Vector3.new(50, 50, 0), connections = {"bridge2", "hill2"}},
+    
+    -- Bridge nodes
+    {id = "bridge1", position = Vector3.new(-25, 45, 0), connections = {"spawn1", "center1"}},
+    {id = "bridge2", position = Vector3.new(75, 45, 0), connections = {"spawn2", "center2"}},
+    
+    -- Center platform nodes
+    {id = "center1", position = Vector3.new(-40, 40, 0), connections = {"bridge1", "center_main"}},
+    {id = "center2", position = Vector3.new(90, 40, 0), connections = {"bridge2", "center_main"}},
+    {id = "center_main", position = Vector3.new(25, 35, 0), connections = {"center1", "center2", "danger1", "danger2"}},
+    
+    -- Dangerous/platform areas (require caution)
+    {id = "danger1", position = Vector3.new(-10, 30, 0), connections = {"center_main"}},
+    {id = "danger2", position = Vector3.new(60, 30, 0), connections = {"center_main"}},
+    
+    -- Hill interior navigation points
+    {id = "hill1", position = Vector3.new(15, 48, -20), connections = {"spawn1", "center_main"}},
+    {id = "hill2", position = Vector3.new(35, 48, -20), connections = {"spawn2", "center_main"}}
+}
+
+-- Dynamic platform tracking
+local dynamicPlatforms = {}
+local lastPlatformCheck = 0
 
 -- Lightweight status GUI
 local function CreateStatusGUI()
     local success, ScreenGui = pcall(function()
         local gui = Instance.new("ScreenGui")
-        gui.Name = "LinkedSwordAI_Optimized"
+        gui.Name = "LinkedSwordAI_Advanced"
         gui.Parent = game:GetService("CoreGui")
         return gui
     end)
@@ -47,7 +74,7 @@ local function CreateStatusGUI()
     if not success then return nil end
     
     local Frame = Instance.new("Frame")
-    Frame.Size = UDim2.new(0, 200, 0, 80)
+    Frame.Size = UDim2.new(0, 220, 0, 100)
     Frame.Position = UDim2.new(0, 10, 0, 10)
     Frame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
     Frame.BackgroundTransparency = 0.5
@@ -55,12 +82,12 @@ local function CreateStatusGUI()
     Frame.Parent = ScreenGui
     
     local labels = {}
-    local labelNames = {"Status", "Target", "Distance", "Navigation"}
+    local labelNames = {"Status", "Target", "Navigation", "Platforms"}
     
     for i, name in ipairs(labelNames) do
         local label = Instance.new("TextLabel")
-        label.Size = UDim2.new(1, 0, 0, 20)
-        label.Position = UDim2.new(0, 0, 0, (i-1)*20)
+        label.Size = UDim2.new(1, 0, 0, 25)
+        label.Position = UDim2.new(0, 0, 0, (i-1)*25)
         label.BackgroundTransparency = 1
         label.TextColor3 = Color3.fromRGB(255, 255, 255)
         label.Text = name .. ": N/A"
@@ -83,156 +110,309 @@ local function CreateStatusGUI()
     return statusInterface
 end
 
--- Robust navigation system for Heights map
-local function CreateNavigationSystem()
+-- Advanced node-based navigation system
+local function CreateAdvancedNavigation()
     local nav = {}
-    nav.LastNavigationUpdate = 0
-    nav.CurrentWaypoint = nil
-    nav.AlternativeRouteActive = false
-    nav.KnownSafePaths = {}
+    nav.currentPath = {}
+    nav.currentNodeIndex = 1
+    nav.lastNodeUpdate = 0
+    nav.lastPlatformUpdate = 0
+    nav.forceFieldEvasionActive = false
+    nav.evasionEndTime = 0
     
-    -- Performance-optimized void detection
-    function nav.IsPositionSafe(position, character)
-        if position.Y < CONFIG.VOID_Y_THRESHOLD then
-            return false, "below threshold"
+    -- Find closest node to position
+    function nav.FindClosestNode(position)
+        local closestNode = nil
+        local closestDistance = math.huge
+        
+        for _, node in ipairs(MAP_NODES) do
+            local distance = (node.position - position).Magnitude
+            if distance < closestDistance then
+                closestDistance = distance
+                closestNode = node
+            end
         end
         
-        -- Quick ground check
+        return closestNode
+    end
+    
+    -- A* pathfinding between nodes
+    function nav.FindPath(startNode, targetNode)
+        local openSet = {startNode}
+        local cameFrom = {}
+        local gScore = {}
+        local fScore = {}
+        
+        gScore[startNode.id] = 0
+        fScore[startNode.id] = (startNode.position - targetNode.position).Magnitude
+        
+        while #openSet > 0 do
+            -- Get node with lowest fScore
+            local current = openSet[1]
+            local currentIndex = 1
+            
+            for i, node in ipairs(openSet) do
+                if fScore[node.id] < fScore[current.id] then
+                    current = node
+                    currentIndex = i
+                end
+            end
+            
+            if current.id == targetNode.id then
+                return nav.ReconstructPath(cameFrom, current)
+            end
+            
+            table.remove(openSet, currentIndex)
+            
+            for _, connectionId in ipairs(current.connections) do
+                local neighbor = nav.GetNodeById(connectionId)
+                if neighbor then
+                    local tentativeGScore = gScore[current.id] + (current.position - neighbor.position).Magnitude
+                    
+                    if not gScore[neighbor.id] or tentativeGScore < gScore[neighbor.id] then
+                        cameFrom[neighbor.id] = current
+                        gScore[neighbor.id] = tentativeGScore
+                        fScore[neighbor.id] = tentativeGScore + (neighbor.position - targetNode.position).Magnitude
+                        
+                        local inOpenSet = false
+                        for _, node in ipairs(openSet) do
+                            if node.id == neighbor.id then
+                                inOpenSet = true
+                                break
+                            end
+                        end
+                        
+                        if not inOpenSet then
+                            table.insert(openSet, neighbor)
+                        end
+                    end
+                end
+            end
+        end
+        
+        return nil -- No path found
+    end
+    
+    function nav.GetNodeById(nodeId)
+        for _, node in ipairs(MAP_NODES) do
+            if node.id == nodeId then
+                return node
+            end
+        end
+        return nil
+    end
+    
+    function nav.ReconstructPath(cameFrom, current)
+        local path = {current}
+        while cameFrom[current.id] do
+            current = cameFrom[current.id]
+            table.insert(path, 1, current)
+        end
+        return path
+    end
+    
+    -- Dynamic platform detection
+    function nav.UpdateDynamicPlatforms(character)
+        local currentTime = tick()
+        if currentTime - nav.lastPlatformUpdate < 1 then return end
+        
+        nav.lastPlatformUpdate = currentTime
+        dynamicPlatforms = {}
+        
+        -- Detect disappearing platforms (usually named or have specific properties)
+        for _, part in pairs(workspace:GetDescendants()) do
+            if part:IsA("Part") then
+                local nameLower = part.Name:lower()
+                if nameLower:find("disappear") or nameLower:find("platform") or nameLower:find("wobbly") then
+                    -- Check if it's a dynamic platform by size and position
+                    if part.Size.Y < 5 and part.Position.Y > 10 then
+                        table.insert(dynamicPlatforms, {
+                            part = part,
+                            lastSeen = currentTime,
+                            position = part.Position
+                        })
+                    end
+                end
+            end
+        end
+    end
+    
+    -- Check if platform is safe to use
+    function nav.IsPlatformSafe(platform, currentTime)
+        if not platform or not platform.part or not platform.part.Parent then
+            return false
+        end
+        
+        -- Check if platform has disappeared or moved significantly
+        if (platform.part.Position - platform.position).Magnitude > 5 then
+            return false
+        end
+        
+        -- Check if platform is about to disappear (based on timing)
+        if currentTime - platform.lastSeen > CONFIG.DYNAMIC_PLATFORM_TIMEOUT then
+            return false
+        end
+        
+        return true
+    end
+    
+    -- Enhanced void detection for Heights map
+    function nav.IsPositionSafe(position, character)
+        -- Conservative Y threshold
+        if position.Y < CONFIG.VOID_Y_THRESHOLD then
+            return false, "below void threshold"
+        end
+        
+        -- Check for ground using multiple rays for better coverage
         local rayOrigin = position + Vector3.new(0, 2, 0)
-        local rayDirection = Vector3.new(0, -15, 0)
+        local rayDirections = {
+            Vector3.new(0, -10, 0), -- Straight down
+            Vector3.new(1, -10, 0), -- Diagonal
+            Vector3.new(-1, -10, 0),
+            Vector3.new(0, -10, 1),
+            Vector3.new(0, -10, -1)
+        }
+        
         local rayParams = RaycastParams.new()
         rayParams.FilterDescendantsInstances = {character}
         rayParams.FilterType = Enum.RaycastFilterType.Blacklist
         
-        local result = workspace:Raycast(rayOrigin, rayDirection, rayParams)
-        if not result then
-            return false, "no ground"
-        end
-        
-        return true, "safe"
-    end
-    
-    -- Height map navigation for hill and bridge areas
-    function nav.FindSafePathToTarget(startPos, targetPos, character)
-        local direction = (targetPos - startPos).Unit
-        local distance = (targetPos - startPos).Magnitude
-        
-        -- Check immediate path
-        local immediateCheck = startPos + direction * math.min(10, distance)
-        local isSafe, reason = nav.IsPositionSafe(immediateCheck, character)
-        
-        if not isSafe then
-            -- Try alternative routes for Heights map
-            return nav.FindAlternativeRoute(startPos, targetPos, character)
-        end
-        
-        -- Check intermediate points (reduced frequency for performance)
-        for i = 15, math.min(distance, 50), 15 do
-            local checkPoint = startPos + direction * i
-            isSafe, reason = nav.IsPositionSafe(checkPoint, character)
-            
-            if not isSafe then
-                return nav.FindAlternativeRoute(startPos, targetPos, character)
+        local safeRays = 0
+        for _, direction in ipairs(rayDirections) do
+            local result = workspace:Raycast(rayOrigin, direction, rayParams)
+            if result then
+                safeRays = safeRays + 1
             end
         end
         
-        return targetPos, "direct"
+        -- Require at least 3 safe rays to consider position safe
+        if safeRays >= 3 then
+            return true, "safe"
+        else
+            return false, "insufficient ground support"
+        end
     end
     
-    -- Alternative route finding for Heights map
-    function nav.FindAlternativeRoute(startPos, targetPos, character)
-        local direction = (targetPos - startPos).Unit
-        local distance = (targetPos - startPos).Magnitude
-        
-        -- Strategy 1: Hill navigation (go around through interior)
-        local hillRoute = nav.AttemptHillNavigation(startPos, targetPos, character)
-        if hillRoute then
-            return hillRoute, "hill route"
-        end
-        
-        -- Strategy 2: Bridge detection and navigation
-        local bridgeRoute = nav.AttemptBridgeNavigation(startPos, targetPos, character)
-        if bridgeRoute then
-            return bridgeRoute, "bridge route"
-        end
-        
-        -- Strategy 3: Conservative approach (don't fall)
-        local safeRetreat = startPos - direction * 5
-        if nav.IsPositionSafe(safeRetreat, character) then
-            return safeRetreat, "safe retreat"
-        end
-        
-        -- Last resort: Stay put
-        return startPos, "no safe path"
-    end
-    
-    -- Hill navigation for accessing bridge through interior
-    function nav.AttemptHillNavigation(startPos, targetPos, character)
-        local direction = (targetPos - startPos).Unit
-        local horizontalDir = Vector3.new(direction.X, 0, direction.Z).Unit
-        
-        -- Try angled approach for hills
-        local hillAngles = {30, -30, 45, -45} -- Degrees
-        
-        for _, angle in ipairs(hillAngles) do
-            local radians = math.rad(angle)
-            local hillDir = horizontalDir * math.cos(radians) + Vector3.new(0, math.sin(radians), 0)
-            local testPos = startPos + hillDir * 12
-            
-            if nav.IsPositionSafe(testPos, character) then
-                return testPos
-            end
-        end
-        
-        return nil
-    end
-    
-    -- Bridge navigation detection
-    function nav.AttemptBridgeNavigation(startPos, targetPos, character)
-        local direction = (targetPos - startPos).Unit
-        local horizontalDir = Vector3.new(direction.X, 0, direction.Z).Unit
-        
-        -- Check for bridge by testing elevated path
-        local elevatedPos = startPos + Vector3.new(0, 5, 0) + horizontalDir * 15
-        if nav.IsPositionSafe(elevatedPos, character) then
-            return elevatedPos
-        end
-        
-        -- Check side paths (common in Heights map)
-        local sideDirs = {
-            horizontalDir:Cross(Vector3.new(0, 1, 0)), -- Left
-            horizontalDir:Cross(Vector3.new(0, -1, 0)) -- Right
-        }
-        
-        for _, sideDir in ipairs(sideDirs) do
-            local sidePos = startPos + sideDir * 8 + horizontalDir * 10
-            if nav.IsPositionSafe(sidePos, character) then
-                return sidePos
-            end
-        end
-        
-        return nil
-    end
-    
-    -- Performance-optimized navigation update
-    function nav.UpdateNavigation(humanoid, targetPos, currentPos, character, statusGUI)
+    -- Forcefield evasion behavior
+    function nav.HandleForceFieldEvasion(humanoid, currentPos, forceFieldPlayers, statusGUI)
         local currentTime = tick()
         
-        -- Throttle navigation updates for performance
-        if currentTime - nav.LastNavigationUpdate < CONFIG.NAVIGATION_UPDATE_INTERVAL then
-            return nav.CurrentWaypoint or currentPos
+        if nav.forceFieldEvasionActive then
+            if currentTime > nav.evasionEndTime then
+                nav.forceFieldEvasionActive = false
+                if statusGUI then
+                    statusGUI.UpdateStatus("Evasion ended")
+                end
+            else
+                -- Continue evasion movement
+                local evasionDir = Vector3.new(math.random(-1, 1), 0, math.random(-1, 1)).Unit
+                humanoid:MoveTo(currentPos + evasionDir * 15)
+                return true
+            end
         end
         
-        nav.LastNavigationUpdate = currentTime
+        -- Check for nearby forcefield players
+        local closestFFPlayer = nil
+        local closestDistance = math.huge
         
-        local safeTarget, pathType = nav.FindSafePathToTarget(currentPos, targetPos, character)
-        
-        if statusGUI then
-            statusGUI.UpdateNavigation(pathType)
+        for player, _ in pairs(forceFieldPlayers) do
+            if player.Character then
+                local hrp = player.Character:FindFirstChild("HumanoidRootPart")
+                if hrp then
+                    local distance = (hrp.Position - currentPos).Magnitude
+                    if distance < CONFIG.FORCEFIELD_FLEE_DISTANCE and distance < closestDistance then
+                        closestDistance = distance
+                        closestFFPlayer = player
+                    end
+                end
+            end
         end
         
-        nav.CurrentWaypoint = safeTarget
-        return safeTarget
+        if closestFFPlayer and closestFFPlayer.Character then
+            nav.forceFieldEvasionActive = true
+            nav.evasionEndTime = currentTime + CONFIG.EVASION_COOLDOWN
+            
+            if statusGUI then
+                statusGUI.UpdateStatus("Evading FF")
+            end
+            
+            -- Move away from forcefield player
+            local ffPos = closestFFPlayer.Character.HumanoidRootPart.Position
+            local fleeDir = (currentPos - ffPos).Unit
+            local fleeTarget = currentPos + fleeDir * 20
+            
+            humanoid:MoveTo(fleeTarget)
+            return true
+        end
+        
+        return false
+    end
+    
+    -- Main navigation function
+    function nav.NavigateToTarget(humanoid, targetPos, currentPos, character, forceFieldPlayers, statusGUI)
+        local currentTime = tick()
+        
+        -- Handle forcefield evasion first (highest priority)
+        if nav.HandleForceFieldEvasion(humanoid, currentPos, forceFieldPlayers, statusGUI) then
+            return "evading"
+        end
+        
+        -- Update dynamic platforms
+        nav.UpdateDynamicPlatforms(character)
+        
+        -- Check if we need to replan path
+        if #nav.currentPath == 0 or currentTime - nav.lastNodeUpdate > 5 then
+            local startNode = nav.FindClosestNode(currentPos)
+            local targetNode = nav.FindClosestNode(targetPos)
+            
+            if startNode and targetNode then
+                nav.currentPath = nav.FindPath(startNode, targetNode) or {}
+                nav.currentNodeIndex = 1
+                
+                if statusGUI then
+                    statusGUI.UpdateNavigation("Pathfinding: " .. (#nav.currentPath > 0 and "Found" or "Failed"))
+                end
+            end
+        end
+        
+        -- Follow node path
+        if #nav.currentPath > 0 and nav.currentNodeIndex <= #nav.currentPath then
+            local currentNode = nav.currentPath[nav.currentNodeIndex]
+            local distanceToNode = (currentNode.position - currentPos).Magnitude
+            
+            -- Move to current node
+            humanoid:MoveTo(currentNode.position)
+            
+            -- Check if node reached
+            if distanceToNode < CONFIG.NODE_REACH_DISTANCE then
+                nav.currentNodeIndex = nav.currentNodeIndex + 1
+                nav.lastNodeUpdate = currentTime
+            end
+            
+            if statusGUI then
+                statusGUI.UpdatePlatforms("Node: " .. currentNode.id .. " (" .. nav.currentNodeIndex .. "/" .. #nav.currentPath .. ")")
+            end
+            
+            return "navigating"
+        else
+            -- Fallback: direct movement with safety check
+            local isSafe, reason = nav.IsPositionSafe(targetPos, character)
+            if isSafe then
+                humanoid:MoveTo(targetPos)
+                return "direct"
+            else
+                -- Find safe retreat position
+                local direction = (targetPos - currentPos).Unit
+                local safeRetreat = currentPos - direction * 10
+                
+                if nav.IsPositionSafe(safeRetreat, character) then
+                    humanoid:MoveTo(safeRetreat)
+                    return "retreating"
+                end
+                
+                return "stuck: " .. reason
+            end
+        end
     end
     
     return nav
@@ -241,60 +421,32 @@ end
 -- Optimized combat system
 local function CreateCombatManager()
     local combat = {}
-    combat.LastCombatUpdate = 0
-    combat.CurrentMode = "Balanced"
+    combat.lastCombatUpdate = 0
     
-    function combat.UpdateCombat(humanoid, targetPos, currentPos, distance, statusGUI)
-        local currentTime = tick()
+    function combat.ExecuteAttack(sword)
+        if not sword then return end
         
-        -- Reduced update frequency for performance
-        if currentTime - combat.LastCombatUpdate < 0.5 then
-            return combat.CurrentMode
-        end
-        
-        combat.LastCombatUpdate = currentTime
-        
-        -- Simple mode selection based on distance
-        if distance > 20 then
-            combat.CurrentMode = "Approaching"
-        elseif distance > 8 then
-            combat.CurrentMode = "Balanced"
-        else
-            combat.CurrentMode = "Aggressive"
-        end
-        
-        if statusGUI then
-            statusGUI.UpdateStatus(combat.CurrentMode)
-        end
-        
-        return combat.CurrentMode
+        pcall(function()
+            for i = 1, 3 do
+                if sword and sword.Parent then
+                    sword:Activate()
+                end
+                wait(CONFIG.LUNGE_DELAY)
+            end
+        end)
     end
     
-    function combat.ExecuteCombatBehavior(humanoid, targetPos, currentPos, distance, mode)
-        -- Face target
-        local lookVector = (targetPos - currentPos).Unit
-        humanoid:MoveTo(currentPos + lookVector * 0.1)
-        
-        -- Mode-based behavior
-        if mode == "Approaching" then
-            humanoid:MoveTo(targetPos)
-        elseif mode == "Balanced" then
-            -- Small strafing movements
-            local strafeDir = lookVector:Cross(Vector3.new(0, 1, 0)).Unit * (tick() % 2 > 1 and 1 or -1)
-            humanoid:MoveTo(currentPos + strafeDir * 2 + lookVector * 1)
-        else -- Aggressive
-            humanoid:MoveTo(targetPos)
-        end
+    function combat.ShouldAttack(distance, lastAttackTime)
+        return distance <= CONFIG.ATTACK_RANGE and (tick() - lastAttackTime) > CONFIG.ATTACK_COOLDOWN
     end
     
     return combat
 end
 
--- Main optimized execution
+-- Fast respawn system
 local function InitializeAI()
-    forcePrint("LinkedSwordAI: Initializing optimized AI...")
+    forcePrint("LinkedSwordAI: Fast initialization...")
     
-    -- Minimal persistent data
     if not _G.LinkedSwordAIData then
         _G.LinkedSwordAIData = {
             StatusGUI = nil,
@@ -304,7 +456,8 @@ local function InitializeAI()
             LastRetargetTime = 0,
             Navigation = nil,
             Combat = nil,
-            LastCleanup = tick()
+            PlayersWithForceField = {},
+            LastEquipmentCheck = 0
         }
     end
     
@@ -312,7 +465,7 @@ local function InitializeAI()
     
     -- Initialize systems
     if not data.Navigation then
-        data.Navigation = CreateNavigationSystem()
+        data.Navigation = CreateAdvancedNavigation()
     end
     
     if not data.Combat then
@@ -323,10 +476,6 @@ local function InitializeAI()
         data.StatusGUI = CreateStatusGUI()
     end
     
-    if data.StatusGUI then
-        data.StatusGUI.UpdateStatus("Initializing")
-    end
-    
     -- Get services
     local Players = game:GetService("Players")
     local LocalPlayer = Players.LocalPlayer
@@ -334,50 +483,58 @@ local function InitializeAI()
     
     if not LocalPlayer then return end
     
-    -- Wait for character
-    local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
-    wait(0.5) -- Reduced wait time
+    -- Fast character acquisition
+    local Character = LocalPlayer.Character
+    if not Character then
+        Character = LocalPlayer.CharacterAdded:Wait()
+        wait(0.1) -- Minimal wait for character stabilization
+    end
     
-    local Humanoid = Character:WaitForChild("Humanoid", 3)
-    local HumanoidRootPart = Character:WaitForChild("HumanoidRootPart", 3)
+    local Humanoid = Character:WaitForChild("Humanoid", 2)
+    local HumanoidRootPart = Character:WaitForChild("HumanoidRootPart", 2)
     
     if not Humanoid or not HumanoidRootPart then return end
     
-    -- Optimized sword equipping
-    local function EquipSword()
-        local function FindSword()
-            for _, item in pairs(Character:GetChildren()) do
-                if item:IsA("Tool") then
-                    data.LinkedSword = item
-                    return item
-                end
-            end
-            
-            local Backpack = LocalPlayer:FindFirstChild("Backpack")
-            if Backpack then
-                for _, item in pairs(Backpack:GetChildren()) do
-                    if item:IsA("Tool") then
-                        pcall(function() Humanoid:EquipTool(item) end)
-                        wait(0.2)
-                        data.LinkedSword = Character:FindFirstChild(item.Name) or item
-                        return data.LinkedSword
-                    end
-                end
-            end
-            
-            return nil
+    -- Ultra-fast sword equipping
+    local function FastEquipSword()
+        if data.LinkedSword and data.LinkedSword.Parent == Character then
+            return data.LinkedSword
         end
         
-        wait(CONFIG.EQUIP_DELAY)
-        return FindSword()
+        -- Check character first
+        for _, item in pairs(Character:GetChildren()) do
+            if item:IsA("Tool") then
+                data.LinkedSword = item
+                return item
+            end
+        end
+        
+        -- Quick backpack check
+        local Backpack = LocalPlayer:FindFirstChild("Backpack")
+        if Backpack then
+            for _, item in pairs(Backpack:GetChildren()) do
+                if item:IsA("Tool") then
+                    pcall(function() Humanoid:EquipTool(item) end)
+                    wait(0.1) -- Minimal equip wait
+                    data.LinkedSword = Character:FindFirstChild(item.Name) or item
+                    return data.LinkedSword
+                end
+            end
+        end
+        
+        return nil
     end
     
-    -- Initial equip
-    spawn(EquipSword)
+    -- Immediate equipment attempt
+    spawn(function()
+        wait(CONFIG.EQUIP_DELAY)
+        FastEquipSword()
+    end)
     
-    -- Performance-optimized player finding
+    -- Optimized player detection
     local function FindPlayersInRange()
         local playersInRange = {}
+        local playersWithFF = {}
         local currentPos = HumanoidRootPart.Position
         
         for _, player in pairs(Players:GetPlayers()) do
@@ -389,16 +546,22 @@ local function InitializeAI()
                     local distance = (hrp.Position - currentPos).Magnitude
                     
                     if distance <= CONFIG.MAX_TARGET_DISTANCE then
-                        -- Skip forcefield check for performance (assume no forcefield)
-                        table.insert(playersInRange, {
-                            Player = player,
-                            Distance = distance,
-                            Position = hrp.Position
-                        })
+                        -- Fast forcefield check
+                        if player.Character:FindFirstChild("ForceField") then
+                            playersWithFF[player] = true
+                        else
+                            table.insert(playersInRange, {
+                                Player = player,
+                                Distance = distance,
+                                Position = hrp.Position
+                            })
+                        end
                     end
                 end
             end
         end
+        
+        data.PlayersWithForceField = playersWithFF
         
         table.sort(playersInRange, function(a, b)
             return a.Distance < b.Distance
@@ -407,49 +570,20 @@ local function InitializeAI()
         return playersInRange
     end
     
-    -- Optimized attack function
-    local function ExecuteAttack()
-        if not data.LinkedSword or tick() - data.LastAttackTime < CONFIG.ATTACK_COOLDOWN then
-            return
-        end
-        
-        data.LastAttackTime = tick()
-        
-        spawn(function()
-            for i = 1, 3 do
-                pcall(function() 
-                    if data.LinkedSword and data.LinkedSword.Parent then
-                        data.LinkedSword:Activate()
-                    end
-                end)
-                wait(CONFIG.LUNGE_DELAY)
-            end
-        end)
-    end
-    
-    -- Performance-optimized cleanup
-    local function PerformCleanup()
-        local currentTime = tick()
-        if currentTime - data.LastCleanup > 10 then -- Cleanup every 10 seconds
-            data.LastCleanup = currentTime
-            collectgarbage("step") -- Minimal garbage collection
-        end
-    end
-    
-    -- Main optimized update loop
+    -- Main optimized loop
     local lastUpdate = 0
     local updateConnection
     
     local function Update()
         local currentTime = tick()
-        
-        -- Throttle update frequency for performance
-        if currentTime - lastUpdate < 0.1 then -- 10 FPS max
-            return
-        end
+        if currentTime - lastUpdate < 0.1 then return end
         lastUpdate = currentTime
         
-        PerformCleanup()
+        -- Fast sword check
+        if currentTime - data.LastEquipmentCheck > CONFIG.SWORD_CHECK_INTERVAL then
+            data.LastEquipmentCheck = currentTime
+            FastEquipSword()
+        end
         
         -- Find targets
         local playersInRange = FindPlayersInRange()
@@ -462,11 +596,11 @@ local function InitializeAI()
             data.CurrentTarget = playersInRange[1].Player
             
             if data.StatusGUI then
-                data.StatusGUI.UpdateTarget(data.CurrentTarget.Name)
+                data.StatusGUI.UpdateTarget(data.CurrentTarget and data.CurrentTarget.Name or "None")
             end
         end
         
-        -- Target engagement
+        -- Target engagement with advanced navigation
         if data.CurrentTarget and data.CurrentTarget.Character then
             local targetChar = data.CurrentTarget.Character
             local targetHRP = targetChar:FindFirstChild("HumanoidRootPart")
@@ -475,39 +609,25 @@ local function InitializeAI()
             if targetHRP and targetHum and targetHum.Health > 0 then
                 local distance = (targetHRP.Position - HumanoidRootPart.Position).Magnitude
                 
-                if data.StatusGUI then
-                    data.StatusGUI.UpdateDistance(string.format("%.1f", distance))
-                end
-                
-                -- Robust navigation to target
-                local safePosition = data.Navigation.UpdateNavigation(
+                -- Use advanced navigation
+                local navStatus = data.Navigation.NavigateToTarget(
                     Humanoid,
                     targetHRP.Position,
                     HumanoidRootPart.Position,
                     Character,
+                    data.PlayersWithForceField,
                     data.StatusGUI
                 )
                 
-                -- Combat behavior
-                local combatMode = data.Combat.UpdateCombat(
-                    Humanoid,
-                    targetHRP.Position,
-                    HumanoidRootPart.Position,
-                    distance,
-                    data.StatusGUI
-                )
+                if data.StatusGUI then
+                    data.StatusGUI.UpdateStatus(navStatus)
+                    data.StatusGUI.UpdatePlatforms("Distance: " .. math.floor(distance))
+                end
                 
-                data.Combat.ExecuteCombatBehavior(
-                    Humanoid,
-                    targetHRP.Position,
-                    HumanoidRootPart.Position,
-                    distance,
-                    combatMode
-                )
-                
-                -- Attack if in range
-                if distance <= CONFIG.ATTACK_RANGE then
-                    ExecuteAttack()
+                -- Combat
+                if data.Combat.ShouldAttack(distance, data.LastAttackTime) then
+                    data.Combat.ExecuteAttack(data.LinkedSword)
+                    data.LastAttackTime = currentTime
                 end
             else
                 data.CurrentTarget = nil
@@ -515,8 +635,8 @@ local function InitializeAI()
         else
             data.CurrentTarget = nil
             if data.StatusGUI then
-                data.StatusGUI.UpdateTarget("None")
                 data.StatusGUI.UpdateStatus("Searching")
+                data.StatusGUI.UpdateTarget("None")
             end
         end
     end
@@ -533,21 +653,23 @@ local function InitializeAI()
     if data.StatusGUI then
         data.StatusGUI.UpdateStatus("Active")
     end
+    
+    forcePrint("LinkedSwordAI: Advanced navigation activated")
 end
 
--- Optimized respawn handling
+-- Ultra-fast respawn handling
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 
 if LocalPlayer then
     LocalPlayer.CharacterAdded:Connect(function()
-        wait(1)
+        wait(0.2) -- Minimal respawn delay
         InitializeAI()
     end)
 end
 
--- Start with delay
-wait(2)
+-- Immediate startup
+wait(0.5)
 InitializeAI()
 
-forcePrint("LinkedSwordAI: Optimized script loaded")
+forcePrint("LinkedSwordAI: Advanced navigation system loaded")
