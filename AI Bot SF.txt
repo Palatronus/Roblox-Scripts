@@ -1096,4 +1096,3 @@ local success, errorMsg = pcall(InitializeAI)
 if not success then
     forcePrint("LinkedSwordAI: Critical error - " .. tostring(errorMsg))
 end
-[file content end]
