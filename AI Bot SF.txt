@@ -1,41 +1,42 @@
--- LinkedSwordAI_Fixed.lua
--- Stable version with proper error handling and scope management
+-- LinkedSwordAI_Persistent.lua
+-- Fixed version that persists through respawns and actually moves/attacks
 
 local LinkedSwordAI = {}
-LinkedSwordAI.Version = "2.0"
+LinkedSwordAI.Version = "3.0"
 LinkedSwordAI.IsRunning = false
 
--- Safe configuration with fallback values
+-- Configuration
 local Config = {
     -- Targeting
     DetectionRadius = 100,
     MaxTargetDistance = 150,
-    TargetRefreshRate = 0.5,
+    TargetRefreshRate = 0.3,
     
     -- Combat
     AttackRange = 16,
-    AttackCooldown = 1.0,
+    LungeRange = 12,
+    AttackCooldown = 0.9,
     ComboAttacks = 3,
     ComboDelay = 0.1,
     
     -- Movement
-    WaypointDistance = 8,
-    NavigationUpdate = 0.4,
+    WaypointDistance = 10,
+    NavigationUpdate = 0.2,
     StrafeDistance = 4,
+    MoveSpeedMultiplier = 1.2,
     
     -- Safety
     VoidThreshold = -20,
-    EdgeSafetyMargin = 2,
     
     -- Performance
-    UpdateThrottle = 0.1, -- 10 FPS max
-    CleanupInterval = 20
+    UpdateThrottle = 0.08, -- ~12 FPS
+    CleanupInterval = 15
 }
 
--- Safe service access
-local function GetService(serviceName)
-    return game:GetService(serviceName)
-end
+-- Services
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
 
 -- Debug output
 local function DebugPrint(message)
@@ -44,95 +45,112 @@ local function DebugPrint(message)
     end
 end
 
--- Safe wait function
+-- Safe wait that respects Heartbeat
 local function SafeWait(seconds)
     local start = tick()
     while tick() - start < seconds do
-        game:GetService("RunService").Heartbeat:Wait()
+        RunService.Heartbeat:Wait()
     end
 end
 
--- Core AI functions
+-- Initialize persistent AI state
+local function InitializeAIState()
+    if not _G.LinkedSwordAIData then
+        _G.LinkedSwordAIData = {
+            IsActive = false,
+            StatusGUI = nil,
+            CurrentTarget = nil,
+            LastAttackTime = 0,
+            LastTargetUpdate = 0,
+            LastNavigationUpdate = 0,
+            LastCleanup = tick(),
+            Connections = {},
+            StrafingDirection = 1,
+            CombatMode = "Approaching"
+        }
+    end
+    return _G.LinkedSwordAIData
+end
+
+-- Status GUI
 local function CreateStatusGUI()
-    local success, result = pcall(function()
-        local screenGui = Instance.new("ScreenGui")
-        screenGui.Name = "LinkedSwordAI_Status"
-        screenGui.Parent = game:GetService("CoreGui")
-        
-        local frame = Instance.new("Frame")
-        frame.Size = UDim2.new(0, 200, 0, 80)
-        frame.Position = UDim2.new(0, 10, 0, 10)
-        frame.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
-        frame.BackgroundTransparency = 0.3
-        frame.BorderSizePixel = 0
-        
-        local corner = Instance.new("UICorner")
-        corner.CornerRadius = UDim.new(0, 6)
-        corner.Parent = frame
-        
-        local labels = {}
-        local labelData = {
-            {"Status", "Initializing"},
-            {"Target", "None"}, 
-            {"Distance", "0.0"},
-            {"Action", "Idle"}
-        }
-        
-        for i, data in ipairs(labelData) do
-            local label = Instance.new("TextLabel")
-            label.Size = UDim2.new(1, -10, 0, 20)
-            label.Position = UDim2.new(0, 5, 0, (i-1)*20)
-            label.BackgroundTransparency = 1
-            label.TextColor3 = Color3.fromRGB(255, 255, 255)
-            label.Text = data[1] .. ": " .. data[2]
-            label.Font = Enum.Font.SourceSansSemibold
-            label.TextSize = 12
-            label.TextXAlignment = Enum.TextXAlignment.Left
-            label.Parent = frame
-            labels[data[1]] = label
-        end
-        
-        frame.Parent = screenGui
-        
-        return {
-            Update = function(field, value)
-                if labels[field] then
-                    labels[field].Text = field .. ": " .. (value or "N/A")
-                end
-            end,
-            Destroy = function()
-                screenGui:Destroy()
-            end
-        }
+    local success, screenGui = pcall(function()
+        local gui = Instance.new("ScreenGui")
+        gui.Name = "LinkedSwordAI_Status_v3"
+        gui.Parent = game:GetService("CoreGui")
+        return gui
     end)
     
-    if not success then
-        DebugPrint("Failed to create status GUI")
-        return nil
+    if not success then return nil end
+    
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(0, 220, 0, 100)
+    frame.Position = UDim2.new(0, 10, 0, 10)
+    frame.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+    frame.BackgroundTransparency = 0.2
+    frame.BorderSizePixel = 0
+    
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 6)
+    corner.Parent = frame
+    
+    local labels = {}
+    local labelInfo = {
+        {"Status", "Initializing"},
+        {"Target", "None"},
+        {"Distance", "0.0"},
+        {"Action", "Idle"},
+        {"Health", "100%"}
+    }
+    
+    for i, info in ipairs(labelInfo) do
+        local label = Instance.new("TextLabel")
+        label.Size = UDim2.new(1, -10, 0, 20)
+        label.Position = UDim2.new(0, 5, 0, (i-1)*20)
+        label.BackgroundTransparency = 1
+        label.TextColor3 = Color3.fromRGB(220, 220, 220)
+        label.Text = info[1] .. ": " .. info[2]
+        label.Font = Enum.Font.SourceSansSemibold
+        label.TextSize = 12
+        label.TextXAlignment = Enum.TextXAlignment.Left
+        label.Parent = frame
+        labels[info[1]] = label
     end
     
-    return result
+    frame.Parent = screenGui
+    
+    return {
+        Update = function(field, value)
+            if labels[field] then
+                labels[field].Text = field .. ": " .. (value or "N/A")
+            end
+        end,
+        Destroy = function()
+            pcall(function() screenGui:Destroy() end)
+        end
+    }
 end
 
+-- Sword equipping
 local function EquipSword(character, humanoid)
     if not character or not humanoid then return nil end
     
-    -- Check character inventory first
-    for _, item in pairs(character:GetChildren()) do
+    -- Check character first
+    for _, item in ipairs(character:GetChildren()) do
         if item:IsA("Tool") then
             return item
         end
     end
     
     -- Check backpack
-    local player = game:GetService("Players").LocalPlayer
+    local player = Players.LocalPlayer
     local backpack = player:FindFirstChild("Backpack")
     if backpack then
-        for _, item in pairs(backpack:GetChildren()) do
+        for _, item in ipairs(backpack:GetChildren()) do
             if item:IsA("Tool") then
                 pcall(function()
                     humanoid:EquipTool(item)
-                    SafeWait(0.2)
+                    SafeWait(0.3)
                 end)
                 return character:FindFirstChild(item.Name) or item
             end
@@ -142,12 +160,12 @@ local function EquipSword(character, humanoid)
     return nil
 end
 
+-- Target finding with better logic
 local function FindBestTarget(localPlayer, localPosition)
-    local players = game:GetService("Players"):GetPlayers()
     local bestTarget = nil
     local bestDistance = Config.MaxTargetDistance
     
-    for _, player in pairs(players) do
+    for _, player in ipairs(Players:GetPlayers()) do
         if player ~= localPlayer and player.Character then
             local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
             local rootPart = player.Character:FindFirstChild("HumanoidRootPart")
@@ -155,12 +173,13 @@ local function FindBestTarget(localPlayer, localPosition)
             if humanoid and humanoid.Health > 0 and rootPart then
                 local distance = (rootPart.Position - localPosition).Magnitude
                 
-                if distance < bestDistance then
+                if distance < bestDistance and distance <= Config.MaxTargetDistance then
                     bestTarget = {
                         Player = player,
                         Humanoid = humanoid,
                         RootPart = rootPart,
-                        Distance = distance
+                        Distance = distance,
+                        Position = rootPart.Position
                     }
                     bestDistance = distance
                 end
@@ -171,13 +190,12 @@ local function FindBestTarget(localPlayer, localPosition)
     return bestTarget
 end
 
+-- Improved navigation with movement
 local function IsPositionSafe(position, character)
-    -- Void check
     if position.Y < Config.VoidThreshold then
         return false, "void"
     end
     
-    -- Ground check
     local rayOrigin = position + Vector3.new(0, 3, 0)
     local rayDirection = Vector3.new(0, -25, 0)
     
@@ -185,264 +203,335 @@ local function IsPositionSafe(position, character)
     raycastParams.FilterDescendantsInstances = {character}
     raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
     
-    local result = workspace:Raycast(rayOrigin, rayDirection, raycastParams)
+    local result = Workspace:Raycast(rayOrigin, rayDirection, raycastParams)
     
-    if not result then
-        return false, "no ground"
-    end
-    
-    return true, "safe"
+    return result ~= nil, result and "safe" or "no ground"
 end
 
-local function CalculateSafeMovement(currentPos, targetPos, character)
+local function CalculateMovement(currentPos, targetPos, character, data)
     local direction = (targetPos - currentPos).Unit
     local distance = (targetPos - currentPos).Magnitude
-    local moveDistance = math.min(Config.WaypointDistance, distance)
     
-    -- Test direct path first
+    -- Always try direct path first
+    local moveDistance = math.min(Config.WaypointDistance, distance)
     local testPos = currentPos + (direction * moveDistance)
+    
     local isSafe, reason = IsPositionSafe(testPos, character)
     
     if isSafe then
         return testPos, "direct"
     end
     
-    -- Try alternative paths
-    local alternatives = {
-        -- Elevated path
-        currentPos + Vector3.new(0, 5, 0) + (direction * moveDistance),
-        -- Left path
-        currentPos + (direction:Cross(Vector3.new(0, 1, 0)) * 4) + (direction * moveDistance),
-        -- Right path  
-        currentPos + (direction:Cross(Vector3.new(0, -1, 0)) * 4) + (direction * moveDistance)
+    -- Try different strategies for Heights map
+    local strategies = {
+        -- Elevated path (for bridges)
+        currentPos + Vector3.new(0, 6, 0) + (direction * moveDistance),
+        -- Left strafe
+        currentPos + (direction:Cross(Vector3.new(0, 1, 0)) * 3) + (direction * moveDistance * 0.8),
+        -- Right strafe
+        currentPos + (direction:Cross(Vector3.new(0, -1, 0)) * 3) + (direction * moveDistance * 0.8),
+        -- Small step forward
+        currentPos + (direction * 3)
     }
     
-    for i, altPos in ipairs(alternatives) do
-        if IsPositionSafe(altPos, character) then
-            return altPos, "alternative_" .. i
+    for i, pos in ipairs(strategies) do
+        if IsPositionSafe(pos, character) then
+            return pos, "strategy_" .. i
         end
     end
     
-    -- Retreat if no safe path
-    local retreatPos = currentPos - (direction * 3)
+    -- If all else fails, retreat slightly
+    local retreatPos = currentPos - (direction * 2)
     if IsPositionSafe(retreatPos, character) then
         return retreatPos, "retreat"
     end
     
-    -- Stay put as last resort
+    -- Last resort: stay put but look at target
     return currentPos, "hold"
 end
 
-local function ExecuteAttack(sword, lastAttackTime)
-    if not sword or tick() - lastAttackTime < Config.AttackCooldown then
-        return lastAttackTime
+-- Combat behavior that actually moves
+local function ExecuteCombat(humanoid, rootPart, targetPos, distance, sword, lastAttackTime, data)
+    local currentTime = tick()
+    local direction = (targetPos - rootPart.Position).Unit
+    
+    -- Face the target
+    humanoid:MoveTo(rootPart.Position + direction * 0.1)
+    
+    -- Determine combat mode
+    local combatMode
+    if distance <= Config.LungeRange then
+        combatMode = "Aggressive"
+    elseif distance <= Config.AttackRange then
+        combatMode = "Balanced"
+    else
+        combatMode = "Approaching"
     end
     
-    local newAttackTime = tick()
+    data.CombatMode = combatMode
     
-    -- Combo attack
-    for i = 1, Config.ComboAttacks do
-        if sword and sword.Parent then
-            pcall(function()
-                sword:Activate()
-            end)
+    -- Execute movement based on mode
+    if combatMode == "Approaching" then
+        -- Move directly toward target
+        local movePos = rootPart.Position + (direction * Config.WaypointDistance)
+        if IsPositionSafe(movePos, humanoid.Parent) then
+            humanoid:MoveTo(movePos)
         end
-        if i < Config.ComboAttacks then
-            SafeWait(Config.ComboDelay)
+    elseif combatMode == "Balanced" then
+        -- Strafing movement
+        data.StrafingDirection = data.StrafingDirection * -1
+        local strafeDir = direction:Cross(Vector3.new(0, data.StrafingDirection, 0)).Unit
+        local movePos = rootPart.Position + (strafeDir * Config.StrafeDistance) + (direction * 2)
+        
+        if IsPositionSafe(movePos, humanoid.Parent) then
+            humanoid:MoveTo(movePos)
+        end
+    else -- Aggressive
+        -- Close combat - minimal movement
+        if distance > 3 then
+            humanoid:MoveTo(targetPos)
         end
     end
     
-    return newAttackTime
+    -- Attack if in range
+    if distance <= Config.AttackRange and sword then
+        if currentTime - lastAttackTime >= Config.AttackCooldown then
+            -- Execute combo attack
+            for i = 1, Config.ComboAttacks do
+                if sword and sword.Parent then
+                    pcall(function() sword:Activate() end)
+                end
+                if i < Config.ComboAttacks then
+                    SafeWait(Config.ComboDelay)
+                end
+            end
+            return currentTime -- Return new attack time
+        end
+    end
+    
+    return lastAttackTime -- Return unchanged attack time
 end
 
--- Main AI Controller
-function LinkedSwordAI.Start()
-    if LinkedSwordAI.IsRunning then
-        DebugPrint("AI is already running")
-        return false
+-- Main AI update function
+local function AIUpdate(data)
+    if not data.IsActive or not data.Character or not data.Humanoid or not data.RootPart then
+        return
     end
     
-    DebugPrint("Starting LinkedSwordAI...")
+    local currentTime = tick()
     
-    local localPlayer = game:GetService("Players").LocalPlayer
-    if not localPlayer then
-        DebugPrint("No local player found")
-        return false
+    -- Performance throttling
+    if currentTime - data.LastUpdateTime < Config.UpdateThrottle then
+        return
     end
+    data.LastUpdateTime = currentTime
+    
+    -- Memory cleanup
+    if currentTime - data.LastCleanup > Config.CleanupInterval then
+        collectgarbage("step")
+        data.LastCleanup = currentTime
+    end
+    
+    -- Update health display
+    if data.StatusGUI then
+        local healthPercent = math.floor((data.Humanoid.Health / data.Humanoid.MaxHealth) * 100)
+        data.StatusGUI.Update("Health", healthPercent .. "%")
+    end
+    
+    -- Target acquisition
+    if currentTime - data.LastTargetUpdate > Config.TargetRefreshRate then
+        data.LastTargetUpdate = currentTime
+        data.CurrentTarget = FindBestTarget(Players.LocalPlayer, data.RootPart.Position)
+        
+        if data.StatusGUI then
+            if data.CurrentTarget then
+                data.StatusGUI.Update("Target", data.CurrentTarget.Player.Name)
+                data.StatusGUI.Update("Distance", string.format("%.1f", data.CurrentTarget.Distance))
+                data.StatusGUI.Update("Status", "Engaging")
+            else
+                data.StatusGUI.Update("Target", "None")
+                data.StatusGUI.Update("Distance", "0.0")
+                data.StatusGUI.Update("Status", "Searching")
+                data.StatusGUI.Update("Action", "Idle")
+            end
+        end
+    end
+    
+    -- Skip if no target
+    if not data.CurrentTarget or not data.CurrentTarget.RootPart or not data.CurrentTarget.Humanoid or data.CurrentTarget.Humanoid.Health <= 0 then
+        data.CurrentTarget = nil
+        return
+    end
+    
+    -- Navigation and movement
+    if currentTime - data.LastNavigationUpdate > Config.NavigationUpdate then
+        data.LastNavigationUpdate = currentTime
+        
+        local movePos, pathType = CalculateMovement(
+            data.RootPart.Position,
+            data.CurrentTarget.Position,
+            data.Character,
+            data
+        )
+        
+        if data.StatusGUI then
+            data.StatusGUI.Update("Action", data.CombatMode .. " - " .. pathType)
+        end
+        
+        -- Execute combat behavior (which includes movement)
+        data.LastAttackTime = ExecuteCombat(
+            data.Humanoid,
+            data.RootPart,
+            data.CurrentTarget.Position,
+            data.CurrentTarget.Distance,
+            data.Sword,
+            data.LastAttackTime,
+            data
+        )
+    end
+end
+
+-- Character setup
+local function SetupCharacter(data)
+    local player = Players.LocalPlayer
+    if not player then return false end
     
     -- Wait for character
-    local character = localPlayer.Character
-    if not character then
+    data.Character = player.Character
+    if not data.Character then
         DebugPrint("Waiting for character...")
-        local charAdded = localPlayer.CharacterAdded:Wait()
-        character = charAdded
+        data.Character = player.CharacterAdded:Wait()
         SafeWait(1) -- Allow character to load
     end
     
     -- Get character components
-    local humanoid = character:WaitForChild("Humanoid", 5)
-    local rootPart = character:WaitForChild("HumanoidRootPart", 5)
+    data.Humanoid = data.Character:WaitForChild("Humanoid", 5)
+    data.RootPart = data.Character:WaitForChild("HumanoidRootPart", 5)
     
-    if not humanoid or not rootPart then
+    if not data.Humanoid or not data.RootPart then
         DebugPrint("Failed to find character components")
         return false
     end
     
-    -- Set up AI state
-    local AIState = {
-        Character = character,
-        Humanoid = humanoid,
-        RootPart = rootPart,
-        Sword = nil,
-        Target = nil,
-        StatusGUI = nil,
-        LastAttack = 0,
-        LastTargetUpdate = 0,
-        LastNavigationUpdate = 0,
-        LastCleanup = tick(),
-        Connections = {},
-        IsActive = true
-    }
-    
-    -- Create status GUI
-    AIState.StatusGUI = CreateStatusGUI()
-    if AIState.StatusGUI then
-        AIState.StatusGUI.Update("Status", "Active")
-    end
+    -- Set movement speed
+    data.Humanoid.WalkSpeed = 16 * Config.MoveSpeedMultiplier
     
     -- Equip sword
-    AIState.Sword = EquipSword(character, humanoid)
-    if AIState.Sword then
-        DebugPrint("Sword equipped: " .. AIState.Sword.Name)
-        if AIState.StatusGUI then
-            AIState.StatusGUI.Update("Action", "Sword ready")
-        end
-    else
-        DebugPrint("No sword found")
-        if AIState.StatusGUI then
-            AIState.StatusGUI.Update("Action", "No sword")
-        end
+    data.Sword = EquipSword(data.Character, data.Humanoid)
+    if data.Sword and data.StatusGUI then
+        data.StatusGUI.Update("Action", "Sword equipped")
     end
     
-    -- Death handling
-    AIState.Connections.death = humanoid.Died:Connect(function()
-        DebugPrint("Character died - stopping AI")
-        LinkedSwordAI.Stop()
+    -- Set up death handling (but don't stop the AI)
+    if data.Connections.characterDeath then
+        data.Connections.characterDeath:Disconnect()
+    end
+    
+    data.Connections.characterDeath = data.Humanoid.Died:Connect(function()
+        DebugPrint("Character died - will respawn and continue")
+        if data.StatusGUI then
+            data.StatusGUI.Update("Status", "Respawning...")
+            data.StatusGUI.Update("Health", "0%")
+        end
     end)
+    
+    return true
+end
+
+-- Main control functions
+function LinkedSwordAI.Start()
+    local data = InitializeAIState()
+    
+    if data.IsActive then
+        DebugPrint("AI is already running")
+        return true
+    end
+    
+    DebugPrint("Starting LinkedSwordAI...")
+    
+    -- Create GUI if needed
+    if not data.StatusGUI then
+        data.StatusGUI = CreateStatusGUI()
+    end
+    
+    -- Setup character
+    if not SetupCharacter(data) then
+        DebugPrint("Failed to setup character")
+        return false
+    end
+    
+    data.IsActive = true
+    data.LastUpdateTime = 0
     
     -- Main update loop
-    AIState.Connections.heartbeat = game:GetService("RunService").Heartbeat:Connect(function()
-        if not AIState.IsActive or not AIState.RootPart then
-            return
-        end
+    if data.Connections.heartbeat then
+        data.Connections.heartbeat:Disconnect()
+    end
+    
+    data.Connections.heartbeat = RunService.Heartbeat:Connect(function()
+        AIUpdate(data)
+    end)
+    
+    -- Auto-respawn handling (this is key for persistence)
+    if data.Connections.respawn then
+        data.Connections.respawn:Disconnect()
+    end
+    
+    data.Connections.respawn = Players.LocalPlayer.CharacterAdded:Connect(function(newCharacter)
+        DebugPrint("Character respawned - reinitializing...")
+        SafeWait(1.5) -- Wait for character to fully load
         
-        local currentTime = tick()
-        
-        -- Performance throttling
-        if currentTime - AIState.LastUpdateTime < Config.UpdateThrottle then
-            return
-        end
-        AIState.LastUpdateTime = currentTime
-        
-        -- Memory cleanup
-        if currentTime - AIState.LastCleanup > Config.CleanupInterval then
-            collectgarbage("step")
-            AIState.LastCleanup = currentTime
-        end
-        
-        -- Target acquisition
-        if currentTime - AIState.LastTargetUpdate > Config.TargetRefreshRate then
-            AIState.LastTargetUpdate = currentTime
-            AIState.Target = FindBestTarget(localPlayer, AIState.RootPart.Position)
-            
-            if AIState.StatusGUI then
-                if AIState.Target then
-                    AIState.StatusGUI.Update("Target", AIState.Target.Player.Name)
-                    AIState.StatusGUI.Update("Distance", string.format("%.1f", AIState.Target.Distance))
-                else
-                    AIState.StatusGUI.Update("Target", "None")
-                    AIState.StatusGUI.Update("Distance", "0.0")
-                    AIState.StatusGUI.Update("Action", "Searching")
-                end
-            end
-        end
-        
-        -- Skip if no target
-        if not AIState.Target or not AIState.Target.RootPart or not AIState.Target.Humanoid or AIState.Target.Humanoid.Health <= 0 then
-            AIState.Target = nil
-            return
-        end
-        
-        -- Navigation
-        if currentTime - AIState.LastNavigationUpdate > Config.NavigationUpdate then
-            AIState.LastNavigationUpdate = currentTime
-            
-            local safePosition, pathType = CalculateSafeMovement(
-                AIState.RootPart.Position,
-                AIState.Target.RootPart.Position,
-                AIState.Character
-            )
-            
-            if AIState.StatusGUI then
-                AIState.StatusGUI.Update("Action", "Moving: " .. pathType)
-            end
-            
-            -- Move to safe position
-            pcall(function()
-                AIState.Humanoid:MoveTo(safePosition)
-            end)
-        end
-        
-        -- Face target
-        local lookVector = (AIState.Target.RootPart.Position - AIState.RootPart.Position).Unit
-        pcall(function()
-            AIState.Humanoid:MoveTo(AIState.RootPart.Position + lookVector * 0.1)
-        end)
-        
-        -- Attack if in range
-        if AIState.Target.Distance <= Config.AttackRange then
-            AIState.LastAttack = ExecuteAttack(AIState.Sword, AIState.LastAttack)
-            if AIState.StatusGUI then
-                AIState.StatusGUI.Update("Action", "Attacking")
+        -- Update character references but keep AI running
+        if data.IsActive then
+            data.Character = newCharacter
+            SetupCharacter(data) -- Re-setup with new character
+            if data.StatusGUI then
+                data.StatusGUI.Update("Status", "Respawned - Active")
             end
         end
     end)
     
-    -- Store state for cleanup
-    _G.LinkedSwordAIState = AIState
-    LinkedSwordAI.IsRunning = true
+    if data.StatusGUI then
+        data.StatusGUI.Update("Status", "Active")
+    end
     
+    LinkedSwordAI.IsRunning = true
     DebugPrint("LinkedSwordAI started successfully")
     return true
 end
 
 function LinkedSwordAI.Stop()
-    if not LinkedSwordAI.IsRunning then
-        return false
+    local data = InitializeAIState()
+    
+    if not data.IsActive then
+        return true
     end
     
     DebugPrint("Stopping LinkedSwordAI...")
     
-    local AIState = _G.LinkedSwordAIState
+    data.IsActive = false
+    LinkedSwordAI.IsRunning = false
     
-    if AIState then
-        AIState.IsActive = false
-        
-        -- Disconnect all connections
-        for name, connection in pairs(AIState.Connections) do
-            if connection then
-                connection:Disconnect()
-            end
-        end
-        
-        -- Clean up GUI
-        if AIState.StatusGUI then
-            AIState.StatusGUI.Destroy()
+    -- Disconnect all connections
+    for name, connection in pairs(data.Connections) do
+        if connection then
+            connection:Disconnect()
         end
     end
+    data.Connections = {}
     
-    _G.LinkedSwordAIState = nil
-    LinkedSwordAI.IsRunning = false
+    -- Clear character references
+    data.Character = nil
+    data.Humanoid = nil
+    data.RootPart = nil
+    data.Sword = nil
+    data.CurrentTarget = nil
+    
+    if data.StatusGUI then
+        data.StatusGUI.Update("Status", "Stopped")
+        data.StatusGUI.Update("Target", "None")
+        data.StatusGUI.Update("Action", "Inactive")
+    end
     
     DebugPrint("LinkedSwordAI stopped")
     return true
@@ -456,52 +545,35 @@ function LinkedSwordAI.Toggle()
     end
 end
 
-function LinkedSwordAI.GetStatus()
-    return LinkedSwordAI.IsRunning
-end
-
--- Auto-initialization with error handling
-local function SafeInitialize()
-    local success, errorMsg = pcall(function()
+-- Auto-initialization with proper error handling
+local function Initialize()
+    pcall(function()
         -- Wait for game to load
         if not game:IsLoaded() then
             game.Loaded:Wait()
         end
         
         -- Wait for player
-        local players = game:GetService("Players")
-        if not players.LocalPlayer then
-            players.PlayerAdded:Wait()
+        if not Players.LocalPlayer then
+            Players.PlayerAdded:Wait()
         end
         
-        -- Auto-start after delay
-        SafeWait(3)
+        SafeWait(3) -- Initial delay
+        
+        -- Auto-start the AI
         LinkedSwordAI.Start()
         
-        -- Auto-restart on respawn
-        players.LocalPlayer.CharacterAdded:Connect(function()
-            SafeWait(2)
-            if LinkedSwordAI.IsRunning then
-                LinkedSwordAI.Stop()
-                SafeWait(1)
-                LinkedSwordAI.Start()
-            end
-        end)
+        DebugPrint("LinkedSwordAI initialized successfully")
     end)
-    
-    if not success then
-        warn("[LinkedSwordAI] Initialization error: " .. tostring(errorMsg))
-    end
 end
 
--- Start the AI
-spawn(SafeInitialize)
-
--- Create control functions in global scope
+-- Global control functions
 _G.LinkedSwordAI_Start = LinkedSwordAI.Start
-_G.LinkedSwordAI_Stop = LinkedSwordAI.Stop  
+_G.LinkedSwordAI_Stop = LinkedSwordAI.Stop
 _G.LinkedSwordAI_Toggle = LinkedSwordAI.Toggle
+_G.LinkedSwordAI_Debug = function() _G.LinkedSwordAIDebug = true end
 
-DebugPrint("LinkedSwordAI loaded successfully - Version " .. LinkedSwordAI.Version)
+-- Start the AI
+spawn(Initialize)
 
 return LinkedSwordAI
