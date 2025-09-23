@@ -1,8 +1,8 @@
 --[[
-    Linked Sword AI Combat Script (Advanced Optimization)
+    Linked Sword AI Combat Script (Stable Performance Edition)
     
     This script implements autonomous sword fighting AI for the Linked Sword tool in Roblox.
-    Advanced performance optimizations with expanded pathfinding and improved void avoidance.
+    Advanced performance optimizations with stable FPS and vanishing platform support.
 ]]
 
 -- Force print to output console immediately
@@ -40,34 +40,32 @@ if not _G.LinkedSwordAIPersistentData then
         SwordToolName = nil,
         LastMovementDirection = nil,
         LastMovementTime = 0,
-        MovementHistory = {},
-        FailedPaths = {},
-        LastEquipAttempt = 0,
-        EquipmentReady = false,
-        KnownVoidAreas = {},
-        PathCache = {},
-        LastPathfindingTime = 0,
-        PerformanceStats = {
-            PathfindingTime = 0,
-            CombatTime = 0,
-            MovementTime = 0,
-            LastOptimizationTime = 0
-        },
-        -- Enhanced performance optimization fields
+        -- Performance optimization fields
         FrameCounter = 0,
         LastCleanupTime = 0,
         CachedPlayers = {},
         LastPlayerCacheUpdate = 0,
-        SafeTerrainCache = {}, -- NEW: Cache for safe terrain areas
-        LastTerrainScan = 0,   -- NEW: Track last terrain scan
-        PathfindingQueue = {}, -- NEW: Queue for pathfinding operations
-        ImmediateSafeDirections = {} -- NEW: Pre-calculated safe directions
+        SafeTerrainCache = {},
+        LastTerrainScan = 0,
+        ImmediateSafeDirections = {},
+        -- NEW: Memory management
+        ActiveConnections = {},
+        RunningThreads = {},
+        LastGCTime = 0,
+        -- NEW: Vanishing platform detection
+        VanishingPlatforms = {},
+        LastPlatformCheck = 0,
+        FallingDetection = {
+            IsFalling = false,
+            FallStartTime = 0,
+            FallStartPosition = nil
+        }
     }
 end
 
 local persistentData = _G.LinkedSwordAIPersistentData
 
--- Configuration with enhanced performance optimizations
+-- Configuration with maximum performance optimizations
 local CONFIG = {
     DETECTION_RADIUS = 200,
     ATTACK_RANGE = 15,
@@ -77,42 +75,146 @@ local CONFIG = {
     STUCK_CHECK_TIME = 1.0,
     MAX_TARGET_DISTANCE = 250,
     MIN_HEALTH_CHECK = 0,
-    RETARGET_CHECK_TIME = 1.5,
+    RETARGET_CHECK_TIME = 2.0, -- Increased for performance
     VOID_CHECK_DISTANCE = 50,
     VOID_Y_THRESHOLD = -100,
     FORCEFIELD_FLEE_DISTANCE = 0,
-    SWORD_CHECK_INTERVAL = 7,
+    SWORD_CHECK_INTERVAL = 10, -- Increased for performance
     RESPAWN_EQUIP_DELAY = 1.5,
     MOVEMENT_MEMORY_TIME = 0.7,
     SAFE_GAP_DISTANCE = 10,
     PATH_SMOOTHING_FACTOR = 0.7,
     MOVEMENT_RETRY_DELAY = 1.0,
     NARROW_PASSAGE_WIDTH = 3.5,
-    PATHFINDING_STEPS = 10,
     COMBAT_BEHAVIOR_CHANGE_TIME = 4.0,
     COMBAT_DEFENSIVE_CHANCE = 0.25,
     COMBAT_OFFENSIVE_CHANCE = 0.45,
     STRAFE_DISTANCE = 4,
     BRIDGE_CHECK_DISTANCE = 25,
     PERFORMANCE_MODE = true,
-    PATH_CACHE_TIME = 3.0,
     MIN_ATTACK_DISTANCE = 3,
     -- Enhanced performance optimization settings
-    UPDATE_THROTTLE = 2,
-    MAX_PLAYER_CACHE_TIME = 1.0,
-    PATH_CACHE_MAX_SIZE = 12, -- Further reduced
-    FAILED_PATHS_MAX_SIZE = 6, -- Further reduced
-    VOID_AREAS_MAX_SIZE = 25, -- Further reduced
-    GUI_UPDATE_INTERVAL = 15, -- Less frequent GUI updates
-    -- NEW: Enhanced pathfinding and navigation
-    EXPANDED_DIRECTIONS = 16, -- Increased from 7 to 16 directions
-    TERRAIN_SCAN_INTERVAL = 0.5, -- Scan nearby terrain every 0.5 seconds
-    IMMEDIATE_REROUTE_DISTANCE = 8, -- Distance for immediate rerouting
-    PROXIMITY_CHECK_RADIUS = 12, -- Radius for proximity safety checks
-    CONNECTED_GROUND_DEPTH = 5, -- Depth to check for connected ground
-    QUICK_SAFETY_CHECKS = 4, -- Number of quick safety checks per frame
-    PATHFINDING_BATCH_SIZE = 2 -- Process pathfinding in smaller batches
+    UPDATE_THROTTLE = 3, -- Further reduced processing
+    MAX_PLAYER_CACHE_TIME = 2.0, -- Increased cache time
+    GUI_UPDATE_INTERVAL = 20, -- Much less frequent GUI updates
+    -- NEW: Memory management
+    GC_INTERVAL = 10, -- Force garbage collection every 10 seconds
+    MAX_THREADS = 5, -- Maximum concurrent threads
+    CONNECTION_CLEANUP_INTERVAL = 5, -- Cleanup connections every 5 seconds
+    -- NEW: Vanishing platform detection
+    VANISHING_PLATFORM_CHECK = 0.3, -- Check for vanishing platforms
+    FALL_DETECTION_THRESHOLD = 0.5, -- Time threshold for fall detection
+    PLATFORM_RAYCAST_DISTANCE = 10, -- Distance to check for platforms below
+    QUICK_MOVEMENT_UPDATE = 2 -- Movement updates every 2nd frame
 }
+
+-- NEW: Memory management system
+local MemoryManager = {
+    Active = true,
+    ThreadCount = 0,
+    ConnectionCount = 0
+}
+
+function MemoryManager:RegisterThread(thread)
+    if not self.Active then return thread end
+    
+    self.ThreadCount = self.ThreadCount + 1
+    persistentData.RunningThreads[thread] = true
+    
+    -- Limit maximum threads
+    if self.ThreadCount > CONFIG.MAX_THREADS then
+        self:CleanupOldestThread()
+    end
+    
+    return thread
+end
+
+function MemoryManager:RegisterConnection(connection)
+    if not self.Active then return connection end
+    
+    self.ConnectionCount = self.ConnectionCount + 1
+    persistentData.ActiveConnections[connection] = true
+    
+    return connection
+end
+
+function MemoryManager:CleanupOldestThread()
+    local oldestThread, oldestTime = nil, math.huge
+    for thread, _ in pairs(persistentData.RunningThreads) do
+        if thread and type(thread) == "thread" then
+            -- We can't get thread creation time, so we'll remove the first one we find
+            oldestThread = thread
+            break
+        end
+    end
+    
+    if oldestThread then
+        persistentData.RunningThreads[oldestThread] = nil
+        self.ThreadCount = math.max(0, self.ThreadCount - 1)
+    end
+end
+
+function MemoryManager:CleanupAll()
+    self.Active = false
+    
+    -- Disconnect all connections
+    for connection, _ in pairs(persistentData.ActiveConnections) do
+        if connection and typeof(connection) == "RBXScriptConnection" then
+            connection:Disconnect()
+        end
+    end
+    
+    -- Clear all tables
+    persistentData.ActiveConnections = {}
+    persistentData.RunningThreads = {}
+    persistentData.SafeTerrainCache = {}
+    persistentData.CachedPlayers = {}
+    persistentData.VanishingPlatforms = {}
+    
+    self.ThreadCount = 0
+    self.ConnectionCount = 0
+    
+    -- Force garbage collection
+    wait(0.1)
+    game:GetService("RunService"):Heartbeat():Wait()
+    collectgarbage()
+end
+
+function MemoryManager:PeriodicCleanup()
+    local currentTime = tick()
+    if currentTime - persistentData.LastCleanupTime > CONFIG.CONNECTION_CLEANUP_INTERVAL then
+        -- Clean up dead threads
+        local activeThreads = 0
+        for thread, _ in pairs(persistentData.RunningThreads) do
+            if thread and coroutine.status(thread) == "dead" then
+                persistentData.RunningThreads[thread] = nil
+            else
+                activeThreads = activeThreads + 1
+            end
+        end
+        self.ThreadCount = activeThreads
+        
+        -- Clean up disconnected connections
+        local activeConnections = 0
+        for connection, _ in pairs(persistentData.ActiveConnections) do
+            if not connection.Connected then
+                persistentData.ActiveConnections[connection] = nil
+            else
+                activeConnections = activeConnections + 1
+            end
+        end
+        self.ConnectionCount = activeConnections
+        
+        persistentData.LastCleanupTime = currentTime
+    end
+    
+    -- Force garbage collection periodically
+    if currentTime - persistentData.LastGCTime > CONFIG.GC_INTERVAL then
+        wait(0.05)
+        collectgarbage()
+        persistentData.LastGCTime = currentTime
+    end
+end
 
 -- Create status GUI
 local function CreateStatusGUI()
@@ -120,8 +222,7 @@ local function CreateStatusGUI()
     
     local parentOptions = {
         game:GetService("CoreGui"),
-        game:GetService("Players").LocalPlayer:FindFirstChild("PlayerGui"),
-        game:GetService("Players").LocalPlayer.Character
+        game:GetService("Players").LocalPlayer:FindFirstChild("PlayerGui")
     }
     
     local screenGui
@@ -142,26 +243,24 @@ local function CreateStatusGUI()
     end
     
     if not screenGui then
-        forcePrint("LinkedSwordAI: Failed to create GUI - No valid parent found")
         return nil
     end
     
     local frame = Instance.new("Frame")
-    frame.Size = UDim2.new(0, 200, 0, 120)
+    frame.Size = UDim2.new(0, 200, 0, 100)
     frame.Position = UDim2.new(0.8, 0, 0.1, 0)
     frame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-    frame.BackgroundTransparency = 0.5
-    frame.BorderSizePixel = 2
-    frame.BorderColor3 = Color3.fromRGB(255, 255, 255)
+    frame.BackgroundTransparency = 0.7
+    frame.BorderSizePixel = 0
     frame.Parent = screenGui
     
     local status = Instance.new("TextLabel")
-    status.Size = UDim2.new(1, -10, 0, 20)
+    status.Size = UDim2.new(1, -10, 0, 25)
     status.Position = UDim2.new(0, 5, 0, 5)
     status.BackgroundTransparency = 1
     status.TextColor3 = Color3.fromRGB(255, 255, 255)
     status.Text = "Status: Initializing..."
-    status.Font = Enum.Font.SourceSans
+    status.Font = Enum.Font.SourceSansBold
     status.TextSize = 14
     status.TextXAlignment = Enum.TextXAlignment.Left
     status.Parent = frame
@@ -173,31 +272,31 @@ local function CreateStatusGUI()
     target.TextColor3 = Color3.fromRGB(255, 150, 150)
     target.Text = "Target: None"
     target.Font = Enum.Font.SourceSans
-    target.TextSize = 14
+    target.TextSize = 12
     target.TextXAlignment = Enum.TextXAlignment.Left
     target.Parent = frame
     
     local distance = Instance.new("TextLabel")
     distance.Size = UDim2.new(1, -10, 0, 20)
-    distance.Position = UDim2.new(0, 5, 0, 55)
+    distance.Position = UDim2.new(0, 5, 0, 50)
     distance.BackgroundTransparency = 1
     distance.TextColor3 = Color3.fromRGB(150, 255, 150)
     distance.Text = "Distance: N/A"
     distance.Font = Enum.Font.SourceSans
-    distance.TextSize = 14
+    distance.TextSize = 12
     distance.TextXAlignment = Enum.TextXAlignment.Left
     distance.Parent = frame
     
-    local debug = Instance.new("TextLabel")
-    debug.Size = UDim2.new(1, -10, 0, 20)
-    debug.Position = UDim2.new(0, 5, 0, 80)
-    debug.BackgroundTransparency = 1
-    debug.TextColor3 = Color3.fromRGB(255, 255, 0)
-    debug.Text = "Debug: Starting..."
-    debug.Font = Enum.Font.SourceSans
-    debug.TextSize = 14
-    debug.TextXAlignment = Enum.TextXAlignment.Left
-    debug.Parent = frame
+    local performance = Instance.new("TextLabel")
+    performance.Size = UDim2.new(1, -10, 0, 20)
+    performance.Position = UDim2.new(0, 5, 0, 70)
+    performance.BackgroundTransparency = 1
+    performance.TextColor3 = Color3.fromRGB(255, 255, 0)
+    performance.Text = "Performance: Stable"
+    performance.Font = Enum.Font.SourceSans
+    performance.TextSize = 12
+    performance.TextXAlignment = Enum.TextXAlignment.Left
+    performance.Parent = frame
     
     function gui.UpdateStatus(text)
         if status then
@@ -217,13 +316,122 @@ local function CreateStatusGUI()
         end
     end
     
-    function gui.UpdateDebug(text)
-        if debug then
-            debug.Text = "Debug: " .. text
+    function gui.UpdatePerformance(text)
+        if performance then
+            performance.Text = "Performance: " .. text
+        end
+    end
+    
+    function gui.Destroy()
+        if screenGui then
+            screenGui:Destroy()
         end
     end
     
     return gui
+end
+
+-- NEW: Advanced vanishing platform detection
+local function CheckForVanishingPlatforms(character, humanoidRootPart)
+    local currentTime = tick()
+    if currentTime - persistentData.LastPlatformCheck < CONFIG.VANISHING_PLATFORM_CHECK then
+        return persistentData.VanishingPlatforms
+    end
+    
+    persistentData.VanishingPlatforms = {}
+    local workspace = game:GetService("Workspace")
+    
+    -- Check for platforms directly below
+    local ray = Ray.new(humanoidRootPart.Position, Vector3.new(0, -CONFIG.PLATFORM_RAYCAST_DISTANCE, 0))
+    local hit, hitPoint, hitNormal, hitMaterial = workspace:FindPartOnRayWithWhitelist(ray, {workspace.Terrain}, character)
+    
+    if hit then
+        -- Check if this might be a vanishing platform
+        local platformKey = tostring(hitPoint.X) .. "_" .. tostring(hitPoint.Z)
+        
+        -- Store platform information
+        persistentData.VanishingPlatforms[platformKey] = {
+            position = hitPoint,
+            part = hit,
+            material = hitMaterial,
+            lastSeen = currentTime
+        }
+    end
+    
+    -- Clean up old platform entries
+    for key, platform in pairs(persistentData.VanishingPlatforms) do
+        if currentTime - platform.lastSeen > 5 then -- Remove after 5 seconds
+            persistentData.VanishingPlatforms[key] = nil
+        end
+    end
+    
+    persistentData.LastPlatformCheck = currentTime
+    return persistentData.VanishingPlatforms
+end
+
+-- NEW: Improved falling detection for vanishing platforms
+local function UpdateFallingDetection(humanoid, humanoidRootPart)
+    local currentTime = tick()
+    local fallingData = persistentData.FallingDetection
+    
+    if humanoid and humanoid:GetState() == Enum.HumanoidStateType.Freefall then
+        if not fallingData.IsFalling then
+            fallingData.IsFalling = true
+            fallingData.FallStartTime = currentTime
+            fallingData.FallStartPosition = humanoidRootPart.Position
+        end
+        
+        -- Check if we've been falling for too long (possible vanishing platform)
+        if currentTime - fallingData.FallStartTime > CONFIG.FALL_DETECTION_THRESHOLD then
+            return true, currentTime - fallingData.FallStartTime
+        end
+    else
+        fallingData.IsFalling = false
+        fallingData.FallStartTime = 0
+        fallingData.FallStartPosition = nil
+    end
+    
+    return false, 0
+end
+
+-- NEW: Smart void detection that handles vanishing platforms
+local function SmartVoidDetection(position, humanoid, humanoidRootPart)
+    local workspace = game:GetService("Workspace")
+    
+    -- First, check if we're currently falling due to a vanishing platform
+    local isFalling, fallDuration = UpdateFallingDetection(humanoid, humanoidRootPart)
+    if isFalling and fallDuration > CONFIG.FALL_DETECTION_THRESHOLD then
+        return true -- Treat prolonged falling as void
+    end
+    
+    -- Basic Y-threshold check
+    if position.Y < CONFIG.VOID_Y_THRESHOLD then
+        return true
+    end
+    
+    -- Check for solid ground below
+    local ray = Ray.new(position, Vector3.new(0, -CONFIG.VOID_CHECK_DISTANCE, 0))
+    local hit, hitPoint = workspace:FindPartOnRay(ray, humanoid.Parent)
+    
+    if not hit then
+        -- No ground below, check if this might be a vanishing platform area
+        local platforms = CheckForVanishingPlatforms(humanoid.Parent, humanoidRootPart)
+        local nearbyPlatform = false
+        
+        for _, platform in pairs(platforms) do
+            if (position - platform.position).Magnitude < 10 then
+                nearbyPlatform = true
+                break
+            end
+        end
+        
+        -- If no nearby platforms and no ground, it's a void
+        if not nearbyPlatform then
+            return true
+        end
+    end
+    
+    return false
 end
 
 -- Main execution in protected call
@@ -256,11 +464,12 @@ local function InitializeAI()
     
     forcePrint("LinkedSwordAI: Character components found")
     
+    -- Initialize memory manager
+    MemoryManager.Active = true
+    
+    -- Create status GUI if it doesn't exist
     if not persistentData.StatusGUI then
         persistentData.StatusGUI = CreateStatusGUI()
-        if persistentData.StatusGUI then
-            forcePrint("LinkedSwordAI: Status GUI created")
-        end
     end
     
     -- Find the Linked Sword tool (optimized)
@@ -294,7 +503,7 @@ local function InitializeAI()
         return nil
     end
     
-    -- Check for sword periodically (optimized)
+    -- Check for sword periodically (highly optimized)
     local function CheckForSword()
         local currentTime = tick()
         if currentTime - persistentData.LastSwordCheckTime > CONFIG.SWORD_CHECK_INTERVAL then
@@ -342,24 +551,9 @@ local function InitializeAI()
                     local distance = (hrp.Position - myPosition).Magnitude
                     
                     if distance <= CONFIG.DETECTION_RADIUS then
-                        local hasForceField = false
-                        local children = player.Character:GetChildren()
-                        for j = 1, #children do
-                            if children[j]:IsA("ForceField") then
-                                hasForceField = true
-                                persistentData.PlayersWithForceField[player.Name] = player
-                                break
-                            end
-                        end
-                        
-                        if not hasForceField and persistentData.PlayersWithForceField[player.Name] then
-                            persistentData.PlayersWithForceField[player.Name] = nil
-                        end
-                        
                         playersInRange[#playersInRange + 1] = {
                             player = player,
-                            distance = distance,
-                            hasForceField = hasForceField
+                            distance = distance
                         }
                     end
                 end
@@ -373,370 +567,44 @@ local function InitializeAI()
         return playersInRange
     end
     
-    -- NEW: Quick safety check for immediate positions
+    -- NEW: Ultra-fast safety check
     local function QuickSafetyCheck(position)
         -- Fast Y-check first
         if position.Y < CONFIG.VOID_Y_THRESHOLD then
             return false
         end
         
-        -- Quick raycast check
+        -- Quick ground check
         local ray = Ray.new(position, Vector3.new(0, -5, 0))
         return Workspace:FindPartOnRay(ray, Character) ~= nil
     end
     
-    -- NEW: Scan nearby terrain for safe areas
-    local function ScanNearbyTerrain()
-        local currentTime = tick()
-        if currentTime - persistentData.LastTerrainScan < CONFIG.TERRAIN_SCAN_INTERVAL then
-            return persistentData.SafeTerrainCache
-        end
-        
-        persistentData.SafeTerrainCache = {}
-        local basePos = HumanoidRootPart.Position
-        
-        -- Generate expanded directions (16 instead of 7)
-        local directions = {}
-        for i = 0, CONFIG.EXPANDED_DIRECTIONS - 1 do
-            local angle = (i / CONFIG.EXPANDED_DIRECTIONS) * 2 * math.pi
-            local dir = Vector3.new(math.cos(angle), 0, math.sin(angle))
-            directions[#directions + 1] = dir
-        end
-        
-        -- Check each direction for safe terrain
-        for i = 1, #directions do
-            local dir = directions[i]
-            local checkPos = basePos + dir * CONFIG.PROXIMITY_CHECK_RADIUS
-            
-            if QuickSafetyCheck(checkPos) then
-                -- Check if this area is connected to current position
-                local connected = true
-                local stepPos = basePos
-                local steps = math.ceil(CONFIG.PROXIMITY_CHECK_RADIUS / 2)
-                
-                for step = 1, steps do
-                    stepPos = stepPos + dir * 2
-                    if not QuickSafetyCheck(stepPos) then
-                        connected = false
-                        break
-                    end
-                end
-                
-                if connected then
-                    persistentData.SafeTerrainCache[#persistentData.SafeTerrainCache + 1] = {
-                        position = checkPos,
-                        direction = dir,
-                        distance = CONFIG.PROXIMITY_CHECK_RADIUS
-                    }
-                end
-            end
-        end
-        
-        persistentData.LastTerrainScan = currentTime
-        return persistentData.SafeTerrainCache
-    end
-    
-    -- NEW: Get immediate safe directions for instant rerouting
-    local function GetImmediateSafeDirections(targetPosition)
-        local safeDirs = ScanNearbyTerrain()
-        local basePos = HumanoidRootPart.Position
-        local targetDir = (targetPosition - basePos).Unit
-        
-        -- Score each safe direction by how close it is to target direction
-        local scoredDirections = {}
-        
-        for i = 1, #safeDirs do
-            local safeDir = safeDirs[i]
-            local dotProduct = safeDir.direction:Dot(targetDir)
-            local distanceScore = 1 - (safeDir.distance / CONFIG.PROXIMITY_CHECK_RADIUS)
-            local totalScore = (dotProduct + 1) * 0.5 * 0.7 + distanceScore * 0.3 -- Weighted scoring
-            
-            scoredDirections[#scoredDirections + 1] = {
-                position = safeDir.position,
-                direction = safeDir.direction,
-                score = totalScore
-            }
-        end
-        
-        -- Sort by score (highest first)
-        table.sort(scoredDirections, function(a, b)
-            return a.score > b.score
-        end)
-        
-        return scoredDirections
-    end
-    
-    -- Optimized void area check using pre-scanned terrain
-    local function IsVoidArea(position)
-        -- Quick check against known void areas
-        for i = 1, math.min(#persistentData.KnownVoidAreas, 10) do
-            if (position - persistentData.KnownVoidAreas[i]).Magnitude < 5 then
-                return true
-            end
-        end
-        
-        -- Use pre-scanned terrain data when available
-        local safeTerrain = persistentData.SafeTerrainCache
-        for i = 1, #safeTerrain do
-            if (position - safeTerrain[i].position).Magnitude < 3 then
-                return false -- Position is in known safe area
-            end
-        end
-        
-        -- Fallback to standard checks
-        if position.Y < CONFIG.VOID_Y_THRESHOLD then
-            if #persistentData.KnownVoidAreas < CONFIG.VOID_AREAS_MAX_SIZE then
-                persistentData.KnownVoidAreas[#persistentData.KnownVoidAreas + 1] = position
-            else
-                table.remove(persistentData.KnownVoidAreas, 1)
-                persistentData.KnownVoidAreas[#persistentData.KnownVoidAreas + 1] = position
-            end
-            return true
-        end
-        
-        local ray = Ray.new(position, Vector3.new(0, -CONFIG.VOID_CHECK_DISTANCE, 0))
-        local hit = Workspace:FindPartOnRay(ray, Character)
-        
-        if not hit then
-            if #persistentData.KnownVoidAreas < CONFIG.VOID_AREAS_MAX_SIZE then
-                persistentData.KnownVoidAreas[#persistentData.KnownVoidAreas + 1] = position
-            else
-                table.remove(persistentData.KnownVoidAreas, 1)
-                persistentData.KnownVoidAreas[#persistentData.KnownVoidAreas + 1] = position
-            end
-            return true
-        end
-        
-        return false
-    end
-    
-    -- Optimized safe gap check
-    local function IsSafeGap(startPos, endPos)
-        local distance = (endPos - startPos).Magnitude
-        
-        if distance < 3 then
-            return not IsVoidArea(endPos)
-        end
-        
-        if distance < CONFIG.SAFE_GAP_DISTANCE then
-            return QuickSafetyCheck(endPos)
-        end
-        
-        local direction = (endPos - startPos).Unit
-        local checkCount = math.ceil(distance / 3) -- Reduced check frequency
-        
-        for i = 1, checkCount do
-            local checkPoint = startPos + direction * (i * 3)
-            if not QuickSafetyCheck(checkPoint) then
-                return false
-            end
-        end
-        
-        return true
-    end
-    
-    -- Check if a passage is narrow (optimized)
-    local function IsNarrowPassage(position, direction)
-        local leftRay = Ray.new(position, direction:Cross(Vector3.new(0, 1, 0)).Unit * CONFIG.NARROW_PASSAGE_WIDTH)
-        local rightRay = Ray.new(position, direction:Cross(Vector3.new(0, 1, 0)).Unit * -CONFIG.NARROW_PASSAGE_WIDTH)
-        
-        return Workspace:FindPartOnRay(leftRay, Character) and Workspace:FindPartOnRay(rightRay, Character)
-    end
-    
-    -- Find bridge path (optimized)
-    local function FindBridgePath(startPos, endPos)
-        local direction = (endPos - startPos).Unit
-        local distance = (endPos - startPos).Magnitude
-        
-        -- Reduced check frequency for performance
-        for dist = 5, math.min(CONFIG.BRIDGE_CHECK_DISTANCE, distance), 8 do
-            local checkPoint = startPos + direction * dist
-            
-            for y = 0, -20, -4 do -- Reduced y-check frequency
-                local bridgeCheckPoint = checkPoint + Vector3.new(0, y, 0)
-                local ray = Ray.new(bridgeCheckPoint, Vector3.new(0, -5, 0))
-                local hit, hitPos = Workspace:FindPartOnRay(ray, Character)
-                
-                if hit then
-                    local bridgePath = hitPos + Vector3.new(0, 3, 0)
-                    if IsSafeGap(startPos, bridgePath) then
-                        return bridgePath
-                    end
-                end
-            end
-        end
-        
-        return nil
-    end
-    
-    -- NEW: Fast path safety check using pre-computed data
-    local function FastPathSafetyCheck(targetPosition)
+    -- NEW: Smart path safety check with vanishing platform support
+    local function SmartPathSafetyCheck(targetPosition)
         local startPos = HumanoidRootPart.Position
         local distance = (targetPosition - startPos).Magnitude
         
-        -- Use immediate safe directions for quick rerouting
-        if distance < CONFIG.IMMEDIATE_REROUTE_DISTANCE then
-            local safeDirs = GetImmediateSafeDirections(targetPosition)
-            if #safeDirs > 0 then
-                return true, nil, safeDirs[1].position
-            end
+        -- For short distances, use quick checks
+        if distance < 8 then
+            return not SmartVoidDetection(targetPosition, Humanoid, HumanoidRootPart)
         end
         
-        -- Standard path checking for longer distances
+        -- For longer distances, check intermediate points
         local direction = (targetPosition - startPos).Unit
-        local increment = math.min(6, distance / 4) -- Reduced check frequency
+        local steps = math.ceil(distance / 4) -- Reduced check frequency
         
-        for i = increment, distance, increment do
-            local checkPos = startPos + direction * i
-            if IsVoidArea(checkPos) then
+        for i = 1, steps do
+            local checkPos = startPos + direction * (i * 4)
+            if SmartVoidDetection(checkPos, Humanoid, HumanoidRootPart) then
                 return false
             end
         end
         
-        return not IsVoidArea(targetPosition)
+        return not SmartVoidDetection(targetPosition, Humanoid, HumanoidRootPart)
     end
     
-    -- Check if path to target is safe (highly optimized)
-    local function IsSafePath(targetPosition)
-        if CONFIG.PERFORMANCE_MODE then
-            local currentTime = tick()
-            for cachedPath, data in pairs(persistentData.PathCache) do
-                if (Vector3.new(cachedPath.x, cachedPath.y, cachedPath.z) - targetPosition).Magnitude < 5 and 
-                   currentTime - data.time < CONFIG.PATH_CACHE_TIME then
-                    return data.safe, data.bridgePath
-                end
-            end
-        end
-        
-        local startTime = tick()
-        
-        -- Check failed paths
-        for i = 1, #persistentData.FailedPaths do
-            local failedPath = persistentData.FailedPaths[i]
-            if (targetPosition - failedPath.position).Magnitude < 5 and 
-               tick() - failedPath.time < 10 then
-                return false
-            end
-        end
-        
-        -- Use fast safety check first
-        local isSafe, bridgePath, alternativePath = FastPathSafetyCheck(targetPosition)
-        
-        if isSafe and alternativePath then
-            -- We have an immediate safe alternative
-            if CONFIG.PERFORMANCE_MODE then
-                persistentData.PathCache[targetPosition] = {
-                    safe = false,
-                    time = tick(),
-                    bridgePath = nil
-                }
-                persistentData.PerformanceStats.PathfindingTime = tick() - startTime
-            end
-            return false, nil, alternativePath
-        elseif isSafe then
-            -- Path is safe
-            if CONFIG.PERFORMANCE_MODE then
-                persistentData.PathCache[targetPosition] = {
-                    safe = true,
-                    time = tick(),
-                    bridgePath = nil
-                }
-                persistentData.PerformanceStats.PathfindingTime = tick() - startTime
-            end
-            return true
-        end
-        
-        -- Path is unsafe, try bridge finding
-        local bridgePath = FindBridgePath(HumanoidRootPart.Position, targetPosition)
-        if bridgePath then
-            if CONFIG.PERFORMANCE_MODE then
-                persistentData.PathCache[targetPosition] = {
-                    safe = true,
-                    time = tick(),
-                    bridgePath = bridgePath
-                }
-                persistentData.PerformanceStats.PathfindingTime = tick() - startTime
-            end
-            return true, bridgePath
-        end
-        
-        -- Remember failed path
-        if #persistentData.FailedPaths >= CONFIG.FAILED_PATHS_MAX_SIZE then
-            table.remove(persistentData.FailedPaths, 1)
-        end
-        persistentData.FailedPaths[#persistentData.FailedPaths + 1] = {
-            position = targetPosition,
-            time = tick()
-        }
-        
-        if CONFIG.PERFORMANCE_MODE then
-            persistentData.PathCache[targetPosition] = {
-                safe = false,
-                time = tick(),
-                bridgePath = nil
-            }
-            persistentData.PerformanceStats.PathfindingTime = tick() - startTime
-        end
-        
-        return false
-    end
-    
-    -- Check if we're stuck on a player (optimized)
-    local function CheckIfStuck()
-        if not persistentData.LastStuckPosition then
-            persistentData.LastStuckPosition = HumanoidRootPart.Position
-            persistentData.LastStuckTime = tick()
-            return false
-        end
-        
-        local currentTime = tick()
-        local timeDiff = currentTime - persistentData.LastStuckTime
-        
-        if timeDiff > CONFIG.STUCK_CHECK_TIME then
-            local distance = (HumanoidRootPart.Position - persistentData.LastStuckPosition).Magnitude
-            
-            if distance < CONFIG.STUCK_CHECK_DISTANCE then
-                persistentData.IsStuck = true
-                return true
-            end
-            
-            persistentData.LastStuckPosition = HumanoidRootPart.Position
-            persistentData.LastStuckTime = currentTime
-        end
-        
-        return false
-    end
-    
-    -- Handle being stuck on a player (optimized)
-    local function HandleStuckOnPlayer()
-        local directions = {}
-        for i = 0, CONFIG.EXPANDED_DIRECTIONS - 1 do
-            local angle = (i / CONFIG.EXPANDED_DIRECTIONS) * 2 * math.pi
-            local dir = Vector3.new(math.cos(angle), 0, math.sin(angle))
-            directions[#directions + 1] = dir
-        end
-        
-        for i = 1, #directions do
-            local targetPosition = HumanoidRootPart.Position + directions[i] * 5
-            if FastPathSafetyCheck(targetPosition) then
-                Humanoid:MoveTo(targetPosition)
-                return true
-            end
-        end
-        
-        return false
-    end
-    
-    -- NEW: Immediate movement without pauses
-    local function ImmediateMoveTo(targetPosition, bridgePath, alternativePath)
-        if bridgePath then
-            targetPosition = bridgePath
-        end
-        
-        if alternativePath then
-            targetPosition = alternativePath
-        end
-        
+    -- NEW: Immediate movement with vanishing platform awareness
+    local function ImmediateMoveTo(targetPosition)
         local currentDirection = (targetPosition - HumanoidRootPart.Position).Unit
         local currentTime = tick()
         
@@ -748,36 +616,15 @@ local function InitializeAI()
                                currentDirection * (1 - CONFIG.PATH_SMOOTHING_FACTOR)).Unit
         end
         
-        -- Use pre-scanned safe terrain for immediate movement
-        local safeDirs = GetImmediateSafeDirections(targetPosition)
-        if #safeDirs > 0 then
-            -- Choose the best safe direction that's close to our desired direction
-            local bestDir = safeDirs[1].direction
-            local dotWithDesired = bestDir:Dot(smoothedDirection)
-            
-            if dotWithDesired > 0.3 then -- Only use if reasonably aligned
-                smoothedDirection = bestDir
-            end
-        end
-        
-        local moveDistance = math.min(4, (targetPosition - HumanoidRootPart.Position).Magnitude)
+        local moveDistance = math.min(3, (targetPosition - HumanoidRootPart.Position).Magnitude)
         local smoothedTarget = HumanoidRootPart.Position + smoothedDirection * moveDistance
         
-        -- Quick safety check for immediate movement
-        if QuickSafetyCheck(smoothedTarget) then
+        -- Check if path is safe (including vanishing platforms)
+        if SmartPathSafetyCheck(smoothedTarget) then
             persistentData.LastMovementDirection = smoothedDirection
             persistentData.LastMovementTime = currentTime
             Humanoid:MoveTo(smoothedTarget)
             return true
-        else
-            -- Immediate reroute using safe directions
-            for i = 1, math.min(#safeDirs, 3) do
-                local safeTarget = HumanoidRootPart.Position + safeDirs[i].direction * 3
-                if QuickSafetyCheck(safeTarget) then
-                    Humanoid:MoveTo(safeTarget)
-                    return true
-                end
-            end
         end
         
         return false
@@ -818,7 +665,8 @@ local function InitializeAI()
             )
         end
         
-        spawn(function()
+        -- Use memory manager to track this thread
+        local attackThread = coroutine.create(function()
             if persistentData.CurrentCombatBehavior == "defensive" then
                 pcall(function() persistentData.LinkedSword:Activate() end)
                 wait(CONFIG.LUNGE_DELAY * 1.2)
@@ -895,62 +743,39 @@ local function InitializeAI()
             wait(0.2)
             persistentData.AttackSequenceActive = false
         end)
+        
+        MemoryManager:RegisterThread(attackThread)
+        coroutine.resume(attackThread)
     end
     
-    -- Optimized memory cleanup
-    local function PerformMemoryCleanup()
-        local currentTime = tick()
-        
-        -- Clean up path cache
-        local cacheCount = 0
-        local oldestTime = math.huge
-        local oldestKey = nil
-        
-        for k, v in pairs(persistentData.PathCache) do
-            cacheCount = cacheCount + 1
-            if v.time < oldestTime then
-                oldestTime = v.time
-                oldestKey = k
+    -- NEW: Health monitoring for cleanup
+    local function MonitorHealth()
+        if Humanoid.Health <= 0 then
+            forcePrint("LinkedSwordAI: Player died, cleaning up...")
+            MemoryManager:CleanupAll()
+            if persistentData.StatusGUI then
+                persistentData.StatusGUI.UpdatePerformance("Cleaned Up")
             end
+            return true
         end
-        
-        if cacheCount > CONFIG.PATH_CACHE_MAX_SIZE then
-            persistentData.PathCache[oldestKey] = nil
-        end
-        
-        -- Clean up failed paths
-        for i = #persistentData.FailedPaths, 1, -1 do
-            if currentTime - persistentData.FailedPaths[i].time > 15 then -- Reduced from 20
-                table.remove(persistentData.FailedPaths, i)
-            end
-        end
-        
-        -- Clean up void areas
-        if #persistentData.KnownVoidAreas > CONFIG.VOID_AREAS_MAX_SIZE then
-            local removeCount = #persistentData.KnownVoidAreas - CONFIG.VOID_AREAS_MAX_SIZE
-            for i = 1, removeCount do
-                table.remove(persistentData.KnownVoidAreas, 1)
-            end
-        end
-        
-        -- Clean up safe terrain cache (keep it fresh)
-        if #persistentData.SafeTerrainCache > 20 then
-            persistentData.SafeTerrainCache = {}
-        end
-        
-        persistentData.PerformanceStats.LastOptimizationTime = currentTime
+        return false
     end
     
-    -- Main update function with enhanced performance
+    -- Main update function with maximum optimization
     local function Update()
+        if MonitorHealth() then return end
+        
         persistentData.FrameCounter = persistentData.FrameCounter + 1
         
-        -- Process heavy operations in smaller batches
+        -- Process memory management every frame
+        MemoryManager:PeriodicCleanup()
+        
+        -- Only process heavy operations every Nth frame
         local shouldProcessHeavy = (persistentData.FrameCounter % CONFIG.UPDATE_THROTTLE == 0)
-        local shouldProcessPathfinding = (persistentData.FrameCounter % CONFIG.PATHFINDING_BATCH_SIZE == 0)
+        local shouldUpdateMovement = (persistentData.FrameCounter % CONFIG.QUICK_MOVEMENT_UPDATE == 0)
+        local shouldUpdateGUI = (persistentData.FrameCounter % CONFIG.GUI_UPDATE_INTERVAL == 0)
         
         if shouldProcessHeavy then
-            PerformMemoryCleanup()
             CheckForSword()
         end
         
@@ -969,13 +794,13 @@ local function InitializeAI()
                 
                 if newTarget ~= persistentData.CurrentTarget then
                     persistentData.CurrentTarget = newTarget
-                    if persistentData.StatusGUI and (persistentData.FrameCounter % CONFIG.GUI_UPDATE_INTERVAL == 0) then
+                    if persistentData.StatusGUI and shouldUpdateGUI then
                         persistentData.StatusGUI.UpdateTarget(newTarget.Name)
                     end
                 end
             else
                 persistentData.CurrentTarget = nil
-                if persistentData.StatusGUI and (persistentData.FrameCounter % CONFIG.GUI_UPDATE_INTERVAL == 0) then
+                if persistentData.StatusGUI and shouldUpdateGUI then
                     persistentData.StatusGUI.UpdateTarget("None")
                 end
             end
@@ -989,30 +814,23 @@ local function InitializeAI()
             local targetHRP = persistentData.CurrentTarget.Character.HumanoidRootPart
             local distance = (targetHRP.Position - HumanoidRootPart.Position).Magnitude
             
-            if persistentData.StatusGUI and (persistentData.FrameCounter % CONFIG.GUI_UPDATE_INTERVAL == 0) then
+            if persistentData.StatusGUI and shouldUpdateGUI then
                 persistentData.StatusGUI.UpdateDistance(distance)
+                persistentData.StatusGUI.UpdatePerformance("Stable")
             end
             
-            if CheckIfStuck() then
-                if shouldProcessHeavy then
-                    HandleStuckOnPlayer()
-                end
-                return
-            else
-                persistentData.IsStuck = false
-            end
-            
-            -- Always face the target for responsive combat
+            -- Always face the target
             HumanoidRootPart.CFrame = CFrame.lookAt(
                 HumanoidRootPart.Position, 
                 Vector3.new(targetHRP.Position.X, HumanoidRootPart.Position.Y, targetHRP.Position.Z)
             )
             
-            if shouldProcessPathfinding then
-                local isSafe, bridgePath, alternativePath = IsSafePath(targetHRP.Position)
+            if shouldUpdateMovement then
+                -- Check path safety with vanishing platform support
+                local isSafe = SmartPathSafetyCheck(targetHRP.Position)
                 
                 if isSafe then
-                    ImmediateMoveTo(targetHRP.Position, bridgePath)
+                    ImmediateMoveTo(targetHRP.Position)
                     
                     if distance <= CONFIG.ATTACK_RANGE and 
                        persistentData.LinkedSword and 
@@ -1024,43 +842,30 @@ local function InitializeAI()
                         persistentData.CurrentCombatBehavior = "offensive"
                         ExecuteAttack()
                     end
-                elseif alternativePath then
-                    ImmediateMoveTo(alternativePath)
-                    
-                    if distance <= CONFIG.ATTACK_RANGE and 
-                       persistentData.LinkedSword and 
-                       currentTime - persistentData.LastAttackTime > CONFIG.ATTACK_COOLDOWN then
-                        ExecuteAttack()
-                    end
                 else
-                    -- Use immediate safe directions for instant rerouting
-                    local safeDirs = GetImmediateSafeDirections(targetHRP.Position)
-                    if #safeDirs > 0 then
-                        ImmediateMoveTo(safeDirs[1].position)
+                    -- Find safe retreat position
+                    local retreatDir = (HumanoidRootPart.Position - targetHRP.Position).Unit
+                    local retreatPos = HumanoidRootPart.Position + retreatDir * 5
+                    
+                    if SmartPathSafetyCheck(retreatPos) then
+                        ImmediateMoveTo(retreatPos)
                     end
                 end
             else
-                -- Light frame: just maintain movement and face target
+                -- Light frame: just maintain movement
                 if persistentData.LastMovementDirection then
                     Humanoid:Move(persistentData.LastMovementDirection)
                 end
-                
-                -- Quick attack check even in light frames
-                if distance <= CONFIG.ATTACK_RANGE and 
-                   persistentData.LinkedSword and 
-                   currentTime - persistentData.LastAttackTime > CONFIG.ATTACK_COOLDOWN then
-                    ExecuteAttack()
-                end
             end
         else
-            if persistentData.StatusGUI and shouldProcessHeavy then
+            if persistentData.StatusGUI and shouldUpdateGUI then
                 persistentData.StatusGUI.UpdateStatus("Idle")
             end
         end
     end
     
     -- Handle sword equipping on respawn
-    spawn(function()
+    local equipThread = coroutine.create(function()
         wait(CONFIG.RESPAWN_EQUIP_DELAY)
         
         persistentData.LinkedSword = FindLinkedSword()
@@ -1071,13 +876,6 @@ local function InitializeAI()
                 
                 if persistentData.LinkedSword.Parent == Character then
                     persistentData.EquipmentReady = true
-                else
-                    wait(0.5)
-                    if persistentData.LinkedSword then
-                        persistentData.LinkedSword.Parent = Character
-                        wait(0.5)
-                        persistentData.EquipmentReady = true
-                    end
                 end
             else
                 persistentData.EquipmentReady = true
@@ -1085,38 +883,73 @@ local function InitializeAI()
         end
     end)
     
+    MemoryManager:RegisterThread(equipThread)
+    coroutine.resume(equipThread)
+    
     -- Initialize
     persistentData.LinkedSword = FindLinkedSword()
     persistentData.LastSwordCheckTime = tick()
     persistentData.FrameCounter = 0
+    persistentData.LastGCTime = tick()
     
-    -- Connect optimized update function
-    local updateConnection
-    updateConnection = RunService.Heartbeat:Connect(function()
+    -- Connect optimized update function with memory management
+    local updateConnection = RunService.Heartbeat:Connect(function()
         local success, error = pcall(Update)
         if not success then
             forcePrint("LinkedSwordAI: Error in update - " .. tostring(error))
         end
     end)
     
-    -- Handle character respawn
-    LocalPlayer.CharacterAdded:Connect(function(newCharacter)
-        forcePrint("LinkedSwordAI: Character respawned, reinitializing...")
+    MemoryManager:RegisterConnection(updateConnection)
+    
+    -- Handle character respawn with proper cleanup
+    local respawnConnection = LocalPlayer.CharacterAdded:Connect(function(newCharacter)
+        forcePrint("LinkedSwordAI: Character respawned, cleaning up and reinitializing...")
+        
+        -- Clean up before reinitializing
+        MemoryManager:CleanupAll()
         wait(1)
+        
+        -- Reinitialize
         InitializeAI()
     end)
     
+    MemoryManager:RegisterConnection(respawnConnection)
+    
+    -- Handle player removal (leaving game)
+    local playerRemovingConnection = Players.PlayerRemoving:Connect(function(player)
+        if player == LocalPlayer then
+            forcePrint("LinkedSwordAI: Player leaving game, cleaning up...")
+            MemoryManager:CleanupAll()
+        end
+    end)
+    
+    MemoryManager:RegisterConnection(playerRemovingConnection)
+    
     if persistentData.StatusGUI then 
-        persistentData.StatusGUI.UpdateStatus("AI Running (Advanced Opt)")
+        persistentData.StatusGUI.UpdateStatus("AI Running (Stable)")
+        persistentData.StatusGUI.UpdatePerformance("Optimized")
     end
-    forcePrint("LinkedSwordAI: Advanced optimized script initialized successfully")
+    forcePrint("LinkedSwordAI: Stable performance script initialized successfully")
     
     return true
 end
 
--- Start the AI
-local success, errorMsg = pcall(InitializeAI)
+-- Start the AI with enhanced error handling
+local success, errorMsg = pcall(function()
+    -- Initial garbage collection
+    collectgarbage()
+    wait(0.1)
+    
+    InitializeAI()
+end)
 
 if not success then
     forcePrint("LinkedSwordAI: Critical error - " .. tostring(errorMsg))
+    -- Attempt cleanup even on error
+    pcall(function()
+        if persistentData and persistentData.StatusGUI then
+            persistentData.StatusGUI.UpdateStatus("Error: " .. tostring(errorMsg))
+        end
+    end)
 end
