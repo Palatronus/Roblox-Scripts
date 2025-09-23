@@ -1,20 +1,21 @@
 --[[
-    LinkedSword AI - Performance Optimized Version
+    LinkedSword AI - Performance Optimized Version (Fixed)
     
-    This version includes advanced performance optimizations:
-    - Multi-level spatial caching system
-    - Raycast batching and throttling
-    - Adaptive path calculation
-    - Memory-efficient data structures
-    - LRU cache management
-]]
+    Fixed issues:
+    - Missing function definitions
+    - Incomplete logic blocks
+    - Undefined variables
+    - Configuration inconsistencies
+    - Proper error handling
+]]--
 
--- Configuration
+-- Complete Configuration
 local CONFIG = {
     -- Core settings
     DETECTION_RADIUS = 100,
     ATTACK_RANGE = 15,
     ATTACK_COOLDOWN = 0.8,
+    DEBUG_MODE = false,
     
     -- Performance settings
     PERFORMANCE_MODE = true,
@@ -22,21 +23,29 @@ local CONFIG = {
     PATH_CALCULATION_THROTTLE = 0.7,
     RAYCAST_THROTTLE_FACTOR = 0.2,
     RAYCAST_BATCH_SIZE = 5,
+    RAYCAST_CACHE_TIME = 5,
+    MAX_RAYCAST_CACHE_SIZE = 50,
     
     -- Advanced caching
     SPATIAL_GRID_SIZE = 5,
     SPATIAL_CACHE_TIME = 15,
     SPATIAL_CACHE_MAX_SIZE = 100,
     LRU_PRUNE_THRESHOLD = 0.25,
+    MAX_PATH_CACHE_SIZE = 20,
+    CACHE_CLEANUP_RATIO = 0.25,
     
     -- Terrain connectivity
     TERRAIN_CONNECTIVITY_RADIUS = 30,
     TERRAIN_GRID_SIZE = 8,
+    TERRAIN_UPDATE_INTERVAL = 5,
     
     -- Adaptive pathfinding
     ALTERNATIVE_PATH_COUNT = 12,
     ADAPTIVE_INCREMENT_MIN = 2,
-    ADAPTIVE_INCREMENT_MAX = 10
+    ADAPTIVE_INCREMENT_MAX = 10,
+    MIN_PATH_INCREMENT = 2,
+    MAX_PATH_INCREMENT = 8,
+    PATH_SEGMENTS = 10
 }
 
 -- Initialize persistent data if not already done
@@ -46,13 +55,18 @@ _G.LinkedSwordAIPersistentData = _G.LinkedSwordAIPersistentData or {
     LinkedSword = nil,
     CurrentTarget = nil,
     LastAttackTime = 0,
+    Target = nil,
     
     -- Performance tracking
     PathfindingStats = {
         totalTime = 0,
         callCount = 0,
         maxTime = 0,
-        avgTime = 0
+        avgTime = 0,
+        successPaths = 0,
+        failedPaths = 0,
+        safeAreaHits = 0,
+        voidAreaHits = 0
     },
     
     -- Caching systems
@@ -70,6 +84,7 @@ _G.LinkedSwordAIPersistentData = _G.LinkedSwordAIPersistentData or {
     SafeAreaHashes = {},
     TerrainConnectivityMap = {},
     LastTerrainMapUpdate = 0,
+    LastTerrainUpdate = 0,
     
     -- Path calculation
     FailedPaths = {},
@@ -79,10 +94,164 @@ _G.LinkedSwordAIPersistentData = _G.LinkedSwordAIPersistentData or {
     -- Raycast optimization
     RaycastBatch = {},
     RaycastResults = {},
-    LastRaycastBatch = 0
+    LastRaycastBatch = 0,
+    LastCacheCleanup = 0
 }
 
 local persistentData = _G.LinkedSwordAIPersistentData
+
+-- Missing function stubs that need to be implemented
+local function IsVoidArea(position, useCache)
+    useCache = useCache == nil and true or useCache
+    
+    if useCache then
+        local posHash = math.floor(position.X) .. "," .. math.floor(position.Y) .. "," .. math.floor(position.Z)
+        if persistentData.VoidAreaHashes[posHash] then
+            return true
+        end
+        if persistentData.SafeAreaHashes[posHash] then
+            return false
+        end
+    end
+    
+    -- Basic void detection (replace with actual implementation)
+    local rayOrigin = Vector3.new(position.X, position.Y + 5, position.Z)
+    local rayDirection = Vector3.new(0, -10, 0)
+    local raycastParams = RaycastParams.new()
+    raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
+    raycastParams.FilterDescendantsInstances = {workspace.CurrentCamera}
+    
+    local result = workspace:Raycast(rayOrigin, rayDirection, raycastParams)
+    return result == nil
+end
+
+local function IsNarrowPassage(position, direction)
+    -- Basic narrow passage detection (replace with actual implementation)
+    local leftOffset = direction:Cross(Vector3.new(0, 1, 0)).Unit * 3
+    local rightOffset = direction:Cross(Vector3.new(0, -1, 0)).Unit * 3
+    
+    local leftPos = position + leftOffset
+    local rightPos = position + rightOffset
+    
+    return IsVoidArea(leftPos) or IsVoidArea(rightPos)
+end
+
+local function FindBridgePath(voidPosition, direction)
+    -- Basic bridge path finding (replace with actual implementation)
+    local bridgeDirections = {
+        direction:Cross(Vector3.new(0, 1, 0)).Unit,  -- Left
+        direction:Cross(Vector3.new(0, -1, 0)).Unit, -- Right
+        Vector3.new(0, 1, 0), -- Up
+    }
+    
+    for _, dir in ipairs(bridgeDirections) do
+        local testPos = voidPosition + dir * 5
+        if not IsVoidArea(testPos) then
+            return {testPos}
+        end
+    end
+    
+    return nil
+end
+
+local function FindAlternativePath(startPos, targetPos)
+    -- Basic alternative path finding (replace with actual implementation)
+    local direction = (targetPos - startPos).Unit
+    local distance = (targetPos - startPos).Magnitude
+    
+    for i = 1, CONFIG.ALTERNATIVE_PATH_COUNT do
+        local angle = math.rad(i * 30) -- Try different angles
+        local rotatedDir = Vector3.new(
+            direction.X * math.cos(angle) - direction.Z * math.sin(angle),
+            direction.Y,
+            direction.X * math.sin(angle) + direction.Z * math.cos(angle)
+        )
+        
+        local testPos = startPos + rotatedDir * distance
+        if not IsVoidArea(testPos) then
+            return {testPos}
+        end
+    end
+    
+    return nil
+end
+
+local function FindTarget()
+    -- Basic target finding (replace with actual implementation)
+    local characters = workspace:FindFirstChild("Characters") or workspace
+    local closestTarget = nil
+    local closestDistance = CONFIG.DETECTION_RADIUS
+    
+    for _, child in pairs(characters:GetChildren()) do
+        local humanoid = child:FindFirstChild("Humanoid")
+        local rootPart = child:FindFirstChild("HumanoidRootPart")
+        
+        if humanoid and humanoid.Health > 0 and rootPart then
+            local distance = (rootPart.Position - (persistentData.LinkedSword and persistentData.LinkedSword.Position or Vector3.new())).Magnitude
+            if distance < closestDistance then
+                closestTarget = child
+                closestDistance = distance
+            end
+        end
+    end
+    
+    persistentData.Target = closestTarget
+    return closestTarget
+end
+
+local function IsValidTarget(target)
+    return target and target:FindFirstChild("Humanoid") and target.Humanoid.Health > 0
+end
+
+local function CanAttack(target)
+    if not target then return false end
+    
+    local rootPart = target:FindFirstChild("HumanoidRootPart")
+    if not rootPart then return false end
+    
+    local swordPos = persistentData.LinkedSword and persistentData.LinkedSword.Position or Vector3.new()
+    local distance = (rootPart.Position - swordPos).Magnitude
+    
+    return distance <= CONFIG.ATTACK_RANGE and 
+           (tick() - persistentData.LastAttackTime) >= CONFIG.ATTACK_COOLDOWN
+end
+
+local function Attack(target)
+    -- Basic attack implementation (replace with actual implementation)
+    persistentData.LastAttackTime = tick()
+    print("Attacking target: " .. target.Name)
+end
+
+local function MoveToTarget(target)
+    -- Basic movement implementation (replace with actual implementation)
+    if not target then return end
+    
+    local rootPart = target:FindFirstChild("HumanoidRootPart")
+    if not rootPart then return end
+    
+    local targetPos = rootPart.Position
+    local sword = persistentData.LinkedSword
+    
+    if sword then
+        -- Simple movement towards target
+        local direction = (targetPos - sword.Position).Unit
+        local moveDistance = math.min(5, (targetPos - sword.Position).Magnitude)
+        
+        -- Check if path is safe before moving
+        local isSafe, bridgePath, alternativePath = IsSafePath(targetPos)
+        
+        if isSafe then
+            -- Move directly towards target
+            sword.Position = sword.Position + direction * moveDistance
+        elseif bridgePath then
+            -- Use bridge path
+            sword.Position = bridgePath[1]
+        elseif alternativePath then
+            -- Use alternative path
+            sword.Position = alternativePath[1]
+        end
+    end
+end
 
 -- Debug print function
 local function debugPrint(category, message)
@@ -92,499 +261,524 @@ local function debugPrint(category, message)
 end
 
 -- Map terrain connectivity for more efficient pathfinding
-    local function UpdateTerrainConnectivityMap(position)
-        -- Only update occasionally to save performance
-        if not persistentData.LastTerrainMapUpdate or 
-           tick() - persistentData.LastTerrainMapUpdate > 5 then
-            
-            -- Create grid position key
-            local gridX = math.floor(position.X / CONFIG.TERRAIN_GRID_SIZE)
-            local gridZ = math.floor(position.Z / CONFIG.TERRAIN_GRID_SIZE)
-            local gridKey = gridX .. "," .. gridZ
-            
-            -- Skip if we already mapped this area recently
-            if persistentData.TerrainConnectivityMap[gridKey] and 
-               tick() - persistentData.TerrainConnectivityMap[gridKey].timestamp < 30 then
-                return
-            end
-            
-            -- Map connected terrain in a radius
-            local connectedPoints = {}
-            local radius = CONFIG.TERRAIN_CONNECTIVITY_RADIUS
-            local step = CONFIG.TERRAIN_GRID_SIZE
-            
-            -- Scan grid points in the area
-            for x = -radius, radius, step do
-                for z = -radius, radius, step do
-                    -- Skip points too far away (circular radius)
-                    if x*x + z*z > radius*radius then
-                        continue
-                    end
-                    
-                    -- Check if this point is safe terrain
-                    local checkPos = Vector3.new(
-                        position.X + x,
-                        position.Y,
-                        position.Z + z
-                    )
-                    
-                    -- Apply throttling to reduce raycast count
-                    if math.random() <= CONFIG.RAYCAST_THROTTLE_FACTOR then
-                        local isVoid = IsVoidArea(checkPos, false)
-                        if not isVoid then
-                            -- This is safe terrain, add to connected points
-                            table.insert(connectedPoints, {
-                                position = checkPos,
-                                gridX = math.floor(checkPos.X / CONFIG.TERRAIN_GRID_SIZE),
-                                gridZ = math.floor(checkPos.Z / CONFIG.TERRAIN_GRID_SIZE)
-                            })
-                        end
+local function UpdateTerrainConnectivityMap(position)
+    if not position then return end
+    
+    -- Only update occasionally to save performance
+    if not persistentData.LastTerrainMapUpdate or 
+       tick() - persistentData.LastTerrainMapUpdate > 5 then
+        
+        -- Create grid position key
+        local gridX = math.floor(position.X / CONFIG.TERRAIN_GRID_SIZE)
+        local gridZ = math.floor(position.Z / CONFIG.TERRAIN_GRID_SIZE)
+        local gridKey = gridX .. "," .. gridZ
+        
+        -- Skip if we already mapped this area recently
+        if persistentData.TerrainConnectivityMap[gridKey] and 
+           tick() - persistentData.TerrainConnectivityMap[gridKey].timestamp < 30 then
+            return
+        end
+        
+        -- Map connected terrain in a radius
+        local connectedPoints = {}
+        local radius = CONFIG.TERRAIN_CONNECTIVITY_RADIUS
+        local step = CONFIG.TERRAIN_GRID_SIZE
+        
+        -- Scan grid points in the area
+        for x = -radius, radius, step do
+            for z = -radius, radius, step do
+                -- Skip points too far away (circular radius)
+                if x*x + z*z > radius*radius then
+                    continue
+                end
+                
+                -- Check if this point is safe terrain
+                local checkPos = Vector3.new(
+                    position.X + x,
+                    position.Y,
+                    position.Z + z
+                )
+                
+                -- Apply throttling to reduce raycast count
+                if math.random() <= CONFIG.RAYCAST_THROTTLE_FACTOR then
+                    local isVoid = IsVoidArea(checkPos, false)
+                    if not isVoid then
+                        -- This is safe terrain, add to connected points
+                        table.insert(connectedPoints, {
+                            position = checkPos,
+                            gridX = math.floor(checkPos.X / CONFIG.TERRAIN_GRID_SIZE),
+                            gridZ = math.floor(checkPos.Z / CONFIG.TERRAIN_GRID_SIZE)
+                        })
                     end
                 end
             end
-            
-            -- Store the connectivity map
-            persistentData.TerrainConnectivityMap[gridKey] = {
-                center = position,
-                points = connectedPoints,
-                timestamp = tick()
-            }
-            
-            persistentData.LastTerrainMapUpdate = tick()
-            debugPrint("TERRAIN", "Updated terrain connectivity map with " .. #connectedPoints .. " safe points")
         end
+        
+        -- Store the connectivity map
+        persistentData.TerrainConnectivityMap[gridKey] = {
+            center = position,
+            points = connectedPoints,
+            timestamp = tick()
+        }
+        
+        persistentData.LastTerrainMapUpdate = tick()
+        debugPrint("TERRAIN", "Updated terrain connectivity map with " .. #connectedPoints .. " safe points")
+    end
+end
+
+-- Optimized raycast batching system
+local function BatchRaycast(origin, direction, distance)
+    local currentTime = tick()
+    local raycastKey = tostring(origin) .. tostring(direction) .. tostring(distance)
+    
+    -- Check if we have a recent result for this exact raycast
+    if persistentData.RaycastResults[raycastKey] and 
+       currentTime - persistentData.RaycastResults[raycastKey].time < 1 then
+        return persistentData.RaycastResults[raycastKey].result
     end
     
-    -- Optimized raycast batching system
-    local function BatchRaycast(origin, direction, distance)
-        local currentTime = tick()
-        local raycastKey = tostring(origin) .. tostring(direction) .. tostring(distance)
-        
-        -- Check if we have a recent result for this exact raycast
-        if persistentData.RaycastResults[raycastKey] and 
-           currentTime - persistentData.RaycastResults[raycastKey].time < 1 then
-            return persistentData.RaycastResults[raycastKey].result
-        end
-        
-        -- Check if we should batch this raycast
-        if #persistentData.RaycastBatch < CONFIG.RAYCAST_BATCH_SIZE and
-           currentTime - persistentData.LastRaycastBatch < 0.1 then
-            -- Add to batch for processing
-            table.insert(persistentData.RaycastBatch, {
-                origin = origin,
-                direction = direction,
-                distance = distance,
-                key = raycastKey
-            })
-            -- Return nil for now, result will be available next frame
-            return nil
-        else
-            -- Process all batched raycasts at once
-            if #persistentData.RaycastBatch > 0 then
-                for _, raycast in ipairs(persistentData.RaycastBatch) do
-                    -- Perform actual raycast
-                    local result = workspace:Raycast(raycast.origin, raycast.direction * raycast.distance)
-                    -- Store result
-                    persistentData.RaycastResults[raycast.key] = {
-                        result = result,
-                        time = currentTime
-                    }
-                end
-                -- Clear batch
-                persistentData.RaycastBatch = {}
-                persistentData.LastRaycastBatch = currentTime
-            end
-            
-            -- Perform this raycast immediately
-            local result = workspace:Raycast(origin, direction * distance)
-            persistentData.RaycastResults[raycastKey] = {
-                result = result,
-                time = currentTime
-            }
-            return result
-        end
-    end
-    
-    -- Check if path to target is safe (no voids)
-    local function IsSafePath(targetPosition)
-        -- Start performance tracking
-        local startTime = tick()
-        persistentData.CacheMisses = (persistentData.CacheMisses or 0)
-        
-        -- Apply adaptive path calculation throttling based on performance metrics
-        local throttleFactor = CONFIG.PATH_CALCULATION_THROTTLE
-        if persistentData.PathfindingStats and persistentData.PathfindingStats.callCount > 10 then
-            -- Adjust throttle based on average calculation time
-            local avgTime = persistentData.PathfindingStats.totalTime / persistentData.PathfindingStats.callCount
-            if avgTime > 0.01 then -- If calculations are taking more than 10ms
-                throttleFactor = math.min(0.5, throttleFactor) -- More aggressive throttling
-            end
-        end
-        
-        if throttleFactor < 1 and math.random() > throttleFactor then
-            -- Use last known result or default to safe for throttled calculations
-            local lastResult = persistentData.LastPathResult or {safe = true, bridgePath = nil, alternativePath = nil}
-            return lastResult.safe, lastResult.bridgePath, lastResult.alternativePath
-        end
-        
-        -- Advanced caching: Check proximity cache first for ultra-fast lookups
-        -- This uses a spatial grid system for constant-time lookups
-        local currentTime = tick()
-        local gridSize = CONFIG.SPATIAL_GRID_SIZE
-        local gridX = math.floor(targetPosition.X / gridSize)
-        local gridY = math.floor(targetPosition.Y / gridSize)
-        local gridZ = math.floor(targetPosition.Z / gridSize)
-        local spatialKey = gridX .. ":" .. gridY .. ":" .. gridZ
-        
-        -- Check spatial grid cache first (fastest lookup)
-        if persistentData.SpatialPathCache and persistentData.SpatialPathCache[spatialKey] then
-            local spatialData = persistentData.SpatialPathCache[spatialKey]
-            if currentTime - spatialData.time < CONFIG.SPATIAL_CACHE_TIME then
-                -- Update access time for LRU tracking
-                spatialData.lastAccess = currentTime
-                persistentData.SpatialCacheHits = (persistentData.SpatialCacheHits or 0) + 1
-                persistentData.LastPathResult = spatialData
+    -- Check if we should batch this raycast
+    if #persistentData.RaycastBatch < CONFIG.RAYCAST_BATCH_SIZE and
+       currentTime - persistentData.LastRaycastBatch < 0.1 then
+        -- Add to batch for processing
+        table.insert(persistentData.RaycastBatch, {
+            origin = origin,
+            direction = direction,
+            distance = distance,
+            key = raycastKey
+        })
+        -- Return nil for now, result will be available next frame
+        return nil
+    else
+        -- Process all batched raycasts at once
+        if #persistentData.RaycastBatch > 0 then
+            for _, raycast in ipairs(persistentData.RaycastBatch) do
+                -- Perform actual raycast
+                local raycastParams = RaycastParams.new()
+                raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
+                raycastParams.FilterDescendantsInstances = {workspace.CurrentCamera}
                 
-                -- Track performance
-                local endTime = tick()
-                local elapsedTime = endTime - startTime
-                persistentData.PathfindingStats.totalTime = persistentData.PathfindingStats.totalTime + elapsedTime
-                
-                return spatialData.safe, spatialData.bridgePath, spatialData.alternativePath
-            end
-        end
-        
-        -- Performance optimization: Check exact cache using hash-based lookup
-        if CONFIG.PERFORMANCE_MODE then
-            -- Create a hash key for faster lookup (rounded to nearest unit)
-            local hashKey = math.floor(targetPosition.X) .. "," .. 
-                           math.floor(targetPosition.Y) .. "," .. 
-                           math.floor(targetPosition.Z)
-            
-            local data = persistentData.PathCache[hashKey]
-            if data and currentTime - data.time < CONFIG.PATH_CACHE_TIME then
-                -- Update access time for LRU tracking
-                data.lastAccess = currentTime
-                persistentData.ExactCacheHits = (persistentData.ExactCacheHits or 0) + 1
-                debugPrint("PATH", "Using cached path result: " .. (data.safe and "SAFE" or "UNSAFE"))
-                persistentData.LastPathResult = data
-                
-                -- Also update spatial cache for future proximity lookups
-                if not persistentData.SpatialPathCache then
-                    persistentData.SpatialPathCache = {}
-                end
-                persistentData.SpatialPathCache[spatialKey] = {
-                    safe = data.safe,
-                    time = currentTime,
-                    lastAccess = currentTime,
-                    bridgePath = data.bridgePath,
-                    alternativePath = data.alternativePath
+                local result = workspace:Raycast(raycast.origin, raycast.direction * raycast.distance, raycastParams)
+                -- Store result
+                persistentData.RaycastResults[raycast.key] = {
+                    result = result,
+                    time = currentTime
                 }
-                
-                -- Track performance
-                local endTime = tick()
-                local elapsedTime = endTime - startTime
-                persistentData.PathfindingStats.totalTime = persistentData.PathfindingStats.totalTime + elapsedTime
-                
-                return data.safe, data.bridgePath, data.alternativePath
             end
+            -- Clear batch
+            persistentData.RaycastBatch = {}
+            persistentData.LastRaycastBatch = currentTime
         end
         
-        -- Cache miss tracking
-        persistentData.CacheMisses = persistentData.CacheMisses + 1
+        -- Perform this raycast immediately
+        local raycastParams = RaycastParams.new()
+        raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
+        raycastParams.FilterDescendantsInstances = {workspace.CurrentCamera}
         
-        -- Performance metrics: Track calculation frequency
-        persistentData.PathfindingStats.callCount = persistentData.PathfindingStats.callCount + 1
+        local result = workspace:Raycast(origin, direction * distance, raycastParams)
+        persistentData.RaycastResults[raycastKey] = {
+            result = result,
+            time = currentTime
+        }
+        return result
+    end
+end
+
+-- Check if path to target is safe (no voids)
+local function IsSafePath(targetPosition)
+    if not targetPosition then return false end
+    
+    -- Start performance tracking
+    local startTime = tick()
+    
+    -- Get sword position for path calculation
+    local sword = persistentData.LinkedSword
+    local startPos = sword and sword.Position or Vector3.new()
+    
+    -- Apply adaptive path calculation throttling based on performance metrics
+    local throttleFactor = CONFIG.PATH_CALCULATION_THROTTLE
+    if persistentData.PathfindingStats and persistentData.PathfindingStats.callCount > 10 then
+        -- Adjust throttle based on average calculation time
+        local avgTime = persistentData.PathfindingStats.totalTime / persistentData.PathfindingStats.callCount
+        if avgTime > 0.01 then -- If calculations are taking more than 10ms
+            throttleFactor = math.min(0.5, throttleFactor) -- More aggressive throttling
+        end
+    end
+    
+    if throttleFactor < 1 and math.random() > throttleFactor then
+        -- Use last known result or default to safe for throttled calculations
+        local lastResult = persistentData.LastPathResult or {safe = true, bridgePath = nil, alternativePath = nil}
+        return lastResult.safe, lastResult.bridgePath, lastResult.alternativePath
+    end
+    
+    -- Advanced caching: Check proximity cache first for ultra-fast lookups
+    local currentTime = tick()
+    local gridSize = CONFIG.SPATIAL_GRID_SIZE
+    local gridX = math.floor(targetPosition.X / gridSize)
+    local gridY = math.floor(targetPosition.Y / gridSize)
+    local gridZ = math.floor(targetPosition.Z / gridSize)
+    local spatialKey = gridX .. ":" .. gridY .. ":" .. gridZ
+    
+    -- Check spatial grid cache first (fastest lookup)
+    if persistentData.SpatialPathCache and persistentData.SpatialPathCache[spatialKey] then
+        local spatialData = persistentData.SpatialPathCache[spatialKey]
+        if currentTime - spatialData.time < CONFIG.SPATIAL_CACHE_TIME then
+            -- Update access time for LRU tracking
+            spatialData.lastAccess = currentTime
+            persistentData.SpatialCacheHits = (persistentData.SpatialCacheHits or 0) + 1
+            persistentData.LastPathResult = spatialData
+            
+            -- Track performance
+            local endTime = tick()
+            local elapsedTime = endTime - startTime
+            persistentData.PathfindingStats.totalTime = persistentData.PathfindingStats.totalTime + elapsedTime
+            
+            return spatialData.safe, spatialData.bridgePath, spatialData.alternativePath
+        end
+    end
+    
+    -- Performance optimization: Check exact cache using hash-based lookup
+    if CONFIG.PERFORMANCE_MODE then
+        -- Create a hash key for faster lookup (rounded to nearest unit)
+        local hashKey = math.floor(targetPosition.X) .. "," .. 
+                       math.floor(targetPosition.Y) .. "," .. 
+                       math.floor(targetPosition.Z)
         
-        -- Check if target is in a known safe terrain area from connectivity map
-        local gridX = math.floor(targetPosition.X / CONFIG.TERRAIN_GRID_SIZE)
-         local gridZ = math.floor(targetPosition.Z / CONFIG.TERRAIN_GRID_SIZE)
-         local gridKey = gridX .. "," .. gridZ
-         
-         if persistentData.TerrainConnectivityMap[gridKey] then
-             local mapData = persistentData.TerrainConnectivityMap[gridKey]
-             -- If map is recent and has connected points, check if target is in a safe area
-             if tick() - mapData.timestamp < 30 and #mapData.points > 0 then
-                 -- Find closest point in connectivity map
-                 local minDist = math.huge
-                 local isSafe = false
-                 
-                 for _, point in ipairs(mapData.points) do
-                     local dist = (point.position - targetPosition).Magnitude
-                     if dist < minDist then
-                         minDist = dist
-                         -- If point is very close, consider it safe
-                         if dist < CONFIG.TERRAIN_GRID_SIZE * 1.5 then
-                             isSafe = true
-                             break
-                         end
-                     end
-                 end
-                 
-                 if isSafe then
-                     debugPrint("PATH", "Target in known safe terrain area")
-                     -- Cache this result
-                     if CONFIG.PERFORMANCE_MODE then
-                         local hashKey = math.floor(targetPosition.X) .. "," .. 
-                                        math.floor(targetPosition.Y) .. "," .. 
-                                        math.floor(targetPosition.Z)
-                         
-                         persistentData.PathCache[hashKey] = {
-                             safe = true,
-                             time = tick(),
-                             lastAccess = tick(),
-                             bridgePath = nil,
-                             alternativePath = nil
-                         }
-                         persistentData.LastPathResult = persistentData.PathCache[hashKey]
-                         
-                         -- Update spatial cache too for future proximity lookups
-                         if not persistentData.SpatialPathCache then
-                             persistentData.SpatialPathCache = {}
-                         end
-                         persistentData.SpatialPathCache[spatialKey] = persistentData.PathCache[hashKey]
-                         
-                         -- Track performance metrics
-                         persistentData.PathfindingStats.safeAreaHits = (persistentData.PathfindingStats.safeAreaHits or 0) + 1
-                     end
-                     return true, nil, nil
-                 end
-             end
-         end
-         
-         -- Start performance tracking
-         local startTime = tick()
-         
-         -- Check if this path has failed recently using a more efficient approach
-         local failedPathsCount = #persistentData.FailedPaths
-         if failedPathsCount > 0 then
-             -- Check most recent failed paths first (more likely to be relevant)
-             for i = failedPathsCount, math.max(1, failedPathsCount - 3), -1 do
-                 local failedPath = persistentData.FailedPaths[i]
-                 if failedPath and (targetPosition - failedPath.position).Magnitude < 5 and 
-                    tick() - failedPath.time < 10 then
-                     -- Store this result for throttled calculations
-                     persistentData.LastPathResult = {safe = false, bridgePath = nil, alternativePath = nil}
-                     return false
-                 end
-             end
-         end
-         
-         local startPos = HumanoidRootPart.Position
-         local direction = (targetPosition - startPos).Unit
-         local distance = (targetPosition - startPos).Magnitude
-         
-         -- Update terrain connectivity map for current position
-         -- This helps build a map of safe terrain for future pathfinding
-         UpdateTerrainConnectivityMap(startPos)
-         
-         -- Check if we're in a narrow passage
-         local isNarrow = IsNarrowPassage(startPos, direction)
-         
-         -- If in narrow passage, use more careful pathfinding
-         if isNarrow then
-             -- Use smaller increments for narrow passages
-             local narrowIncrement = math.min(2, distance / 8)
-             
-             for i = narrowIncrement, distance, narrowIncrement do
-                 local checkPos = startPos + direction * i
-                 
-                 -- Check for walls on both sides
-                 if not IsNarrowPassage(checkPos, direction) then
-                     -- We've exited the narrow passage, check if it's safe
-                     if IsVoidArea(checkPos) then
-                         if #persistentData.FailedPaths >= 10 then
-                             table.remove(persistentData.FailedPaths, 1)
-                         end
-                         table.insert(persistentData.FailedPaths, {
-                             position = targetPosition,
-                             time = tick()
-                         })
-                         
-                         -- Cache the result with hash key
-                         if CONFIG.PERFORMANCE_MODE then
-                             local hashKey = math.floor(targetPosition.X) .. "," .. 
-                                            math.floor(targetPosition.Y) .. "," .. 
-                                            math.floor(targetPosition.Z)
-                             
-                             persistentData.PathCache[hashKey] = {
-                                 safe = false,
-                                 time = tick(),
-                                 bridgePath = nil
-                             }
-                             persistentData.LastPathResult = persistentData.PathCache[hashKey]
-                             
-                             -- Limit cache size more efficiently
-                             persistentData.PathCacheCount = (persistentData.PathCacheCount or 0) + 1
-                             if persistentData.PathCacheCount > 20 then
-                                 -- Clear oldest 25% of cache when limit reached
-                                 local cacheEntries = {}
-                                 for k, v in pairs(persistentData.PathCache) do
-                                     table.insert(cacheEntries, {key = k, time = v.time})
-                                 end
-                                 
-                                 -- Sort by time (oldest first)
-                                 table.sort(cacheEntries, function(a, b) return a.time < b.time end)
-                                 
-                                 -- Remove oldest 25%
-                                 local removeCount = math.floor(persistentData.PathCacheCount * 0.25)
-                                 for i = 1, removeCount do
-                                     if cacheEntries[i] then
-                                         persistentData.PathCache[cacheEntries[i].key] = nil
-                                     end
-                                 end
-                                 persistentData.PathCacheCount = persistentData.PathCacheCount - removeCount
-                             end
-                         end
-                         
-                         return false
-                     end
-                     
-                     -- We've found a safe exit from the narrow passage
-                     break
-                 end
-             end
-         else
-             -- Standard path checking with optimized increments
-            -- Use adaptive increment based on distance for better performance
-            local adaptiveIncrement = math.max(CONFIG.MIN_PATH_INCREMENT, math.min(CONFIG.MAX_PATH_INCREMENT, distance / CONFIG.PATH_SEGMENTS))
-            local checkPoints = {}
-            local voidPoints = {}
+        local data = persistentData.PathCache[hashKey]
+        if data and currentTime - data.time < CONFIG.PATH_CACHE_TIME then
+            -- Update access time for LRU tracking
+            data.lastAccess = currentTime
+            persistentData.ExactCacheHits = (persistentData.ExactCacheHits or 0) + 1
+            debugPrint("PATH", "Using cached path result: " .. (data.safe and "SAFE" or "UNSAFE"))
+            persistentData.LastPathResult = data
             
-            -- Pre-calculate check positions for batch processing
-            for i = adaptiveIncrement, distance, adaptiveIncrement do
-                table.insert(checkPoints, startPos + direction * i)
+            -- Also update spatial cache for future proximity lookups
+            if not persistentData.SpatialPathCache then
+                persistentData.SpatialPathCache = {}
             end
+            persistentData.SpatialPathCache[spatialKey] = {
+                safe = data.safe,
+                time = currentTime,
+                lastAccess = currentTime,
+                bridgePath = data.bridgePath,
+                alternativePath = data.alternativePath
+            }
             
-            -- Add target position as final check point if not already included
-            if #checkPoints == 0 or (checkPoints[#checkPoints] - targetPosition).Magnitude > adaptiveIncrement * 0.5 then
-                table.insert(checkPoints, targetPosition)
-            end
+            -- Track performance
+            local endTime = tick()
+            local elapsedTime = endTime - startTime
+            persistentData.PathfindingStats.totalTime = persistentData.PathfindingStats.totalTime + elapsedTime
             
-            -- Batch process raycast checks for better performance
-            for _, checkPos in ipairs(checkPoints) do
-                if IsVoidArea(checkPos) then
-                    table.insert(voidPoints, checkPos)
+            return data.safe, data.bridgePath, data.alternativePath
+        end
+    end
+    
+    -- Cache miss tracking
+    persistentData.CacheMisses = (persistentData.CacheMisses or 0) + 1
+    
+    -- Performance metrics: Track calculation frequency
+    persistentData.PathfindingStats.callCount = persistentData.PathfindingStats.callCount + 1
+    
+    -- Check if target is in a known safe terrain area from connectivity map
+    local terrainGridX = math.floor(targetPosition.X / CONFIG.TERRAIN_GRID_SIZE)
+    local terrainGridZ = math.floor(targetPosition.Z / CONFIG.TERRAIN_GRID_SIZE)
+    local terrainGridKey = terrainGridX .. "," .. terrainGridZ
+    
+    if persistentData.TerrainConnectivityMap[terrainGridKey] then
+        local mapData = persistentData.TerrainConnectivityMap[terrainGridKey]
+        -- If map is recent and has connected points, check if target is in a safe area
+        if tick() - mapData.timestamp < 30 and #mapData.points > 0 then
+            -- Find closest point in connectivity map
+            local minDist = math.huge
+            local isSafe = false
+            
+            for _, point in ipairs(mapData.points) do
+                local dist = (point.position - targetPosition).Magnitude
+                if dist < minDist then
+                    minDist = dist
+                    -- If point is very close, consider it safe
+                    if dist < CONFIG.TERRAIN_GRID_SIZE * 1.5 then
+                        isSafe = true
+                        break
+                    end
                 end
             end
             
-            -- If any void points found, path is unsafe
-            if #voidPoints > 0 then
-                -- Try to find bridge path around the first void point
-                local bridgePath = FindBridgePath(voidPoints[1], direction)
-                
-                -- Try to find alternative path if bridge path fails
-                local alternativePath = nil
-                if not bridgePath then
-                    alternativePath = FindAlternativePath(startPos, targetPosition)
-                end
-                
-                -- Cache the result with hash key
+            if isSafe then
+                debugPrint("PATH", "Target in known safe terrain area")
+                -- Cache this result
                 if CONFIG.PERFORMANCE_MODE then
                     local hashKey = math.floor(targetPosition.X) .. "," .. 
                                    math.floor(targetPosition.Y) .. "," .. 
                                    math.floor(targetPosition.Z)
                     
-                    local result = {
-                        safe = false,
+                    persistentData.PathCache[hashKey] = {
+                        safe = true,
                         time = tick(),
                         lastAccess = tick(),
-                        bridgePath = bridgePath,
-                        alternativePath = alternativePath
+                        bridgePath = nil,
+                        alternativePath = nil
                     }
-                    
-                    persistentData.PathCache[hashKey] = result
-                    persistentData.LastPathResult = result
+                    persistentData.LastPathResult = persistentData.PathCache[hashKey]
                     
                     -- Update spatial cache too for future proximity lookups
                     if not persistentData.SpatialPathCache then
                         persistentData.SpatialPathCache = {}
                     end
-                    persistentData.SpatialPathCache[spatialKey] = result
+                    persistentData.SpatialPathCache[spatialKey] = persistentData.PathCache[hashKey]
                     
                     -- Track performance metrics
-                    persistentData.PathfindingStats.voidAreaHits = (persistentData.PathfindingStats.voidAreaHits or 0) + 1
-                    
-                    -- Use LRU (Least Recently Used) cache management instead of time-based
-                    if persistentData.PathCacheCount and persistentData.PathCacheCount > CONFIG.MAX_PATH_CACHE_SIZE then
-                        -- Find least recently accessed entries
-                        local cacheEntries = {}
-                        for k, v in pairs(persistentData.PathCache) do
-                            table.insert(cacheEntries, {key = k, lastAccess = v.lastAccess or 0})
-                        end
-                        
-                        -- Sort by last access time (oldest first)
-                        table.sort(cacheEntries, function(a, b) return a.lastAccess < b.lastAccess end)
-                        
-                        -- Remove oldest entries
-                        local removeCount = math.floor(persistentData.PathCacheCount * CONFIG.CACHE_CLEANUP_RATIO)
-                        for i = 1, removeCount do
-                            if cacheEntries[i] then
-                                persistentData.PathCache[cacheEntries[i].key] = nil
-                            end
-                        end
-                        persistentData.PathCacheCount = persistentData.PathCacheCount - removeCount
-                    end
+                    persistentData.PathfindingStats.safeAreaHits = (persistentData.PathfindingStats.safeAreaHits or 0) + 1
                 end
                 
-                -- Track performance before returning
                 local endTime = tick()
                 local elapsedTime = endTime - startTime
                 persistentData.PathfindingStats.totalTime = persistentData.PathfindingStats.totalTime + elapsedTime
-                persistentData.PathfindingStats.failedPaths = (persistentData.PathfindingStats.failedPaths or 0) + 1
                 
-                return false, bridgePath, alternativePath
+                return true, nil, nil
             end
-                 
-                 -- Path is safe, cache the result
-        if CONFIG.PERFORMANCE_MODE then
-            local hashKey = math.floor(targetPosition.X) .. "," .. 
-                           math.floor(targetPosition.Y) .. "," .. 
-                           math.floor(targetPosition.Z)
-            
-            local result = {
-                safe = true,
-                time = tick(),
-                lastAccess = tick(),
-                bridgePath = nil,
-                alternativePath = nil
-            }
-            
-            persistentData.PathCache[hashKey] = result
-            persistentData.LastPathResult = result
-            
-            -- Update spatial cache too for future proximity lookups
-            if not persistentData.SpatialPathCache then
-                persistentData.SpatialPathCache = {}
-            end
-            persistentData.SpatialPathCache[spatialKey] = result
-            
-            -- Track cache statistics
-            persistentData.PathCacheCount = (persistentData.PathCacheCount or 0) + 1
-            persistentData.PathfindingStats.successPaths = (persistentData.PathfindingStats.successPaths or 0) + 1
         end
-        
-        -- Track performance before returning
-        local endTime = tick()
-        local elapsedTime = endTime - startTime
-        persistentData.PathfindingStats.totalTime = persistentData.PathfindingStats.totalTime + elapsedTime
-        
-        -- Update terrain connectivity map with this safe path
-        if not persistentData.TerrainConnectivityMap[gridKey] then
-            persistentData.TerrainConnectivityMap[gridKey] = {
-                safe = true,
-                timestamp = tick(),
-                points = {}
-            }
-        end
-        table.insert(persistentData.TerrainConnectivityMap[gridKey].points, {
-            position = targetPosition,
-            timestamp = tick()
-        })
-        
-        return true, nil, nil
     end
-                 -- Performance monitoring and reporting function
+    
+    -- Check if this path has failed recently using a more efficient approach
+    local failedPathsCount = #persistentData.FailedPaths
+    if failedPathsCount > 0 then
+        -- Check most recent failed paths first (more likely to be relevant)
+        for i = failedPathsCount, math.max(1, failedPathsCount - 3), -1 do
+            local failedPath = persistentData.FailedPaths[i]
+            if failedPath and (targetPosition - failedPath.position).Magnitude < 5 and 
+               tick() - failedPath.time < 10 then
+                -- Store this result for throttled calculations
+                persistentData.LastPathResult = {safe = false, bridgePath = nil, alternativePath = nil}
+                
+                local endTime = tick()
+                local elapsedTime = endTime - startTime
+                persistentData.PathfindingStats.totalTime = persistentData.PathfindingStats.totalTime + elapsedTime
+                
+                return false
+            end
+        end
+    end
+    
+    local direction = (targetPosition - startPos).Unit
+    local distance = (targetPosition - startPos).Magnitude
+    
+    -- Update terrain connectivity map for current position
+    UpdateTerrainConnectivityMap(startPos)
+    
+    -- Check if we're in a narrow passage
+    local isNarrow = IsNarrowPassage(startPos, direction)
+    
+    -- If in narrow passage, use more careful pathfinding
+    if isNarrow then
+        -- Use smaller increments for narrow passages
+        local narrowIncrement = math.min(2, distance / 8)
+        
+        for i = narrowIncrement, distance, narrowIncrement do
+            local checkPos = startPos + direction * i
+            
+            -- Check for walls on both sides
+            if not IsNarrowPassage(checkPos, direction) then
+                -- We've exited the narrow passage, check if it's safe
+                if IsVoidArea(checkPos) then
+                    if #persistentData.FailedPaths >= 10 then
+                        table.remove(persistentData.FailedPaths, 1)
+                    end
+                    table.insert(persistentData.FailedPaths, {
+                        position = targetPosition,
+                        time = tick()
+                    })
+                    
+                    -- Cache the result with hash key
+                    if CONFIG.PERFORMANCE_MODE then
+                        local hashKey = math.floor(targetPosition.X) .. "," .. 
+                                      math.floor(targetPosition.Y) .. "," .. 
+                                      math.floor(targetPosition.Z)
+                        
+                        persistentData.PathCache[hashKey] = {
+                            safe = false,
+                            time = tick(),
+                            bridgePath = nil
+                        }
+                        persistentData.LastPathResult = persistentData.PathCache[hashKey]
+                        
+                        -- Limit cache size more efficiently
+                        persistentData.PathCacheCount = (persistentData.PathCacheCount or 0) + 1
+                        if persistentData.PathCacheCount > 20 then
+                            -- Clear oldest 25% of cache when limit reached
+                            local cacheEntries = {}
+                            for k, v in pairs(persistentData.PathCache) do
+                                table.insert(cacheEntries, {key = k, time = v.time})
+                            end
+                            
+                            -- Sort by time (oldest first)
+                            table.sort(cacheEntries, function(a, b) return a.time < b.time end)
+                            
+                            -- Remove oldest 25%
+                            local removeCount = math.floor(persistentData.PathCacheCount * 0.25)
+                            for i = 1, removeCount do
+                                if cacheEntries[i] then
+                                    persistentData.PathCache[cacheEntries[i].key] = nil
+                                end
+                            end
+                            persistentData.PathCacheCount = persistentData.PathCacheCount - removeCount
+                        end
+                    end
+                    
+                    local endTime = tick()
+                    local elapsedTime = endTime - startTime
+                    persistentData.PathfindingStats.totalTime = persistentData.PathfindingStats.totalTime + elapsedTime
+                    
+                    return false
+                end
+                
+                -- We've found a safe exit from the narrow passage
+                break
+            end
+        end
+    else
+        -- Standard path checking with optimized increments
+        -- Use adaptive increment based on distance for better performance
+        local adaptiveIncrement = math.max(CONFIG.MIN_PATH_INCREMENT, math.min(CONFIG.MAX_PATH_INCREMENT, distance / CONFIG.PATH_SEGMENTS))
+        local checkPoints = {}
+        local voidPoints = {}
+        
+        -- Pre-calculate check positions for batch processing
+        for i = adaptiveIncrement, distance, adaptiveIncrement do
+            table.insert(checkPoints, startPos + direction * i)
+        end
+        
+        -- Add target position as final check point if not already included
+        if #checkPoints == 0 or (checkPoints[#checkPoints] - targetPosition).Magnitude > adaptiveIncrement * 0.5 then
+            table.insert(checkPoints, targetPosition)
+        end
+        
+        -- Batch process void checks for better performance
+        for _, checkPos in ipairs(checkPoints) do
+            if IsVoidArea(checkPos) then
+                table.insert(voidPoints, checkPos)
+            end
+        end
+        
+        -- If any void points found, path is unsafe
+        if #voidPoints > 0 then
+            -- Try to find bridge path around the first void point
+            local bridgePath = FindBridgePath(voidPoints[1], direction)
+            
+            -- Try to find alternative path if bridge path fails
+            local alternativePath = nil
+            if not bridgePath then
+                alternativePath = FindAlternativePath(startPos, targetPosition)
+            end
+            
+            -- Cache the result with hash key
+            if CONFIG.PERFORMANCE_MODE then
+                local hashKey = math.floor(targetPosition.X) .. "," .. 
+                              math.floor(targetPosition.Y) .. "," .. 
+                              math.floor(targetPosition.Z)
+                
+                local result = {
+                    safe = false,
+                    time = tick(),
+                    lastAccess = tick(),
+                    bridgePath = bridgePath,
+                    alternativePath = alternativePath
+                }
+                
+                persistentData.PathCache[hashKey] = result
+                persistentData.LastPathResult = result
+                
+                -- Update spatial cache too for future proximity lookups
+                if not persistentData.SpatialPathCache then
+                    persistentData.SpatialPathCache = {}
+                end
+                persistentData.SpatialPathCache[spatialKey] = result
+                
+                -- Track performance metrics
+                persistentData.PathfindingStats.voidAreaHits = (persistentData.PathfindingStats.voidAreaHits or 0) + 1
+                
+                -- Use LRU (Least Recently Used) cache management instead of time-based
+                if persistentData.PathCacheCount and persistentData.PathCacheCount > CONFIG.MAX_PATH_CACHE_SIZE then
+                    -- Find least recently accessed entries
+                    local cacheEntries = {}
+                    for k, v in pairs(persistentData.PathCache) do
+                        table.insert(cacheEntries, {key = k, lastAccess = v.lastAccess or 0})
+                    end
+                    
+                    -- Sort by last access time (oldest first)
+                    table.sort(cacheEntries, function(a, b) return a.lastAccess < b.lastAccess end)
+                    
+                    -- Remove oldest entries
+                    local removeCount = math.floor(persistentData.PathCacheCount * CONFIG.CACHE_CLEANUP_RATIO)
+                    for i = 1, removeCount do
+                        if cacheEntries[i] then
+                            persistentData.PathCache[cacheEntries[i].key] = nil
+                        end
+                    end
+                    persistentData.PathCacheCount = persistentData.PathCacheCount - removeCount
+                end
+            end
+            
+            -- Track performance before returning
+            local endTime = tick()
+            local elapsedTime = endTime - startTime
+            persistentData.PathfindingStats.totalTime = persistentData.PathfindingStats.totalTime + elapsedTime
+            persistentData.PathfindingStats.failedPaths = (persistentData.PathfindingStats.failedPaths or 0) + 1
+            
+            return false, bridgePath, alternativePath
+        end
+    end
+    
+    -- Path is safe, cache the result
+    if CONFIG.PERFORMANCE_MODE then
+        local hashKey = math.floor(targetPosition.X) .. "," .. 
+                      math.floor(targetPosition.Y) .. "," .. 
+                      math.floor(targetPosition.Z)
+        
+        local result = {
+            safe = true,
+            time = tick(),
+            lastAccess = tick(),
+            bridgePath = nil,
+            alternativePath = nil
+        }
+        
+        persistentData.PathCache[hashKey] = result
+        persistentData.LastPathResult = result
+        
+        -- Update spatial cache too for future proximity lookups
+        if not persistentData.SpatialPathCache then
+            persistentData.SpatialPathCache = {}
+        end
+        persistentData.SpatialPathCache[spatialKey] = result
+        
+        -- Track cache statistics
+        persistentData.PathCacheCount = (persistentData.PathCacheCount or 0) + 1
+        persistentData.PathfindingStats.successPaths = (persistentData.PathfindingStats.successPaths or 0) + 1
+    end
+    
+    -- Track performance before returning
+    local endTime = tick()
+    local elapsedTime = endTime - startTime
+    persistentData.PathfindingStats.totalTime = persistentData.PathfindingStats.totalTime + elapsedTime
+    
+    -- Update terrain connectivity map with this safe path
+    if not persistentData.TerrainConnectivityMap[terrainGridKey] then
+        persistentData.TerrainConnectivityMap[terrainGridKey] = {
+            safe = true,
+            timestamp = tick(),
+            points = {}
+        }
+    end
+    table.insert(persistentData.TerrainConnectivityMap[terrainGridKey].points, {
+        position = targetPosition,
+        timestamp = tick()
+    })
+    
+    return true, nil, nil
+end
+
+-- Performance monitoring and reporting function
 local function ReportPerformanceMetrics()
     if not persistentData.PathfindingStats then return end
     
@@ -671,153 +865,56 @@ local function CleanupCaches()
     
     -- Report performance metrics during cleanup
     ReportPerformanceMetrics()
-end 
-                               -- Main update function that runs every frame
+end
+
+-- Main update function that runs every frame
 local function Update(dt)
     -- Run cache cleanup periodically
     CleanupCaches()
     
     -- Update terrain connectivity map periodically
     local currentTime = tick()
-    if not persistentData.LastTerrainUpdate or 
-       currentTime - persistentData.LastTerrainUpdate > CONFIG.TERRAIN_UPDATE_INTERVAL then
-        UpdateTerrainConnectivityMap(HumanoidRootPart.Position)
+    local sword = persistentData.LinkedSword
+    if sword and (not persistentData.LastTerrainUpdate or 
+       currentTime - persistentData.LastTerrainUpdate > CONFIG.TERRAIN_UPDATE_INTERVAL) then
+        UpdateTerrainConnectivityMap(sword.Position)
         persistentData.LastTerrainUpdate = currentTime
     end
     
     -- Main AI logic
-    if not Target then
+    if not persistentData.Target then
         -- Find new target
         FindTarget()
     else
         -- Check if target is still valid
-        if not IsValidTarget(Target) then
-            Target = nil
+        if not IsValidTarget(persistentData.Target) then
+            persistentData.Target = nil
             return
         end
         
         -- Check if we can attack
-        if CanAttack(Target) then
-            Attack(Target)
+        if CanAttack(persistentData.Target) then
+            Attack(persistentData.Target)
         else
             -- Move towards target using optimized pathfinding
-            MoveToTarget(Target)
+            MoveToTarget(persistentData.Target)
         end
     end
 end
-                               
-                 if persistentData.VoidAreaHashes[posHash] then
-                     -- Known void area, no need for expensive raycast
-                     if #persistentData.FailedPaths >= 10 then
-                         table.remove(persistentData.FailedPaths, 1)
-                     end
-                     table.insert(persistentData.FailedPaths, {
-                         position = targetPosition,
-                         time = tick()
-                     })
-                     
-                     -- Cache the result with hash key
-                     if CONFIG.PERFORMANCE_MODE then
-                         local hashKey = math.floor(targetPosition.X) .. "," .. 
-                                        math.floor(targetPosition.Y) .. "," .. 
-                                        math.floor(targetPosition.Z)
-                         
-                         persistentData.PathCache[hashKey] = {
-                             safe = false,
-                             time = tick(),
-                             bridgePath = nil
-                         }
-                         persistentData.LastPathResult = persistentData.PathCache[hashKey]
-                     end
-                     
-                     -- Try to find a bridge path or alternative path immediately
-                     local bridgePath = FindBridgePath(startPos, targetPosition)
-                     if bridgePath then
-                         return false, bridgePath, nil
-                     end
-                     
-                     local alternativePath = FindAlternativePath(startPos, targetPosition)
-                     if alternativePath then
-                         return false, nil, alternativePath
-                     end
-                     
-                     return false
-                 end
-                 
-                 -- Check if position is in known safe area
-                 if persistentData.SafeAreaHashes[posHash] then
-                     -- Known safe area, skip expensive checks
-                     continue
-                 end
-                 
-                 -- Only perform expensive void check if not in known areas
-                 if IsVoidArea(checkPos) then
-                     if #persistentData.FailedPaths >= 10 then
-                         table.remove(persistentData.FailedPaths, 1)
-                     end
-                     table.insert(persistentData.FailedPaths, {
-                         position = targetPosition,
-                         time = tick()
-                     })
-                     
-                     -- Cache the result with hash key
-                     if CONFIG.PERFORMANCE_MODE then
-                         local hashKey = math.floor(targetPosition.X) .. "," .. 
-                                        math.floor(targetPosition.Y) .. "," .. 
-                                        math.floor(targetPosition.Z)
-                         
-                         persistentData.PathCache[hashKey] = {
-                             safe = false,
-                             time = tick(),
-                             bridgePath = nil
-                         }
-                         persistentData.LastPathResult = persistentData.PathCache[hashKey]
-                     end
-                     
-                     -- Try to find a bridge path immediately
-                     local bridgePath = FindBridgePath(startPos, targetPosition)
-                     if bridgePath then
-                         return false, bridgePath, nil
-                     end
-                     
-                     -- Try to find an alternative path immediately
-                     local alternativePath = FindAlternativePath(startPos, targetPosition)
-                     if alternativePath then
-                         return false, nil, alternativePath
-                     end
-                     
-                     return false
-                 end
-             end
-             
-             -- Path is safe
-             -- Cache the result with hash key
-             if CONFIG.PERFORMANCE_MODE then
-                 local hashKey = math.floor(targetPosition.X) .. "," .. 
-                               math.floor(targetPosition.Y) .. "," .. 
-                               math.floor(targetPosition.Z)
-                 
-                 persistentData.PathCache[hashKey] = {
-                     safe = true,
-                     time = tick(),
-                     bridgePath = nil,
-                     alternativePath = nil
-                 }
-                 persistentData.LastPathResult = persistentData.PathCache[hashKey]
-             end
-             
-             -- Track performance
-             local endTime = tick()
-             local elapsedTime = endTime - startTime
-             persistentData.PathfindingStats = persistentData.PathfindingStats or {
-                 totalTime = 0,
-                 callCount = 0,
-                 maxTime = 0
-             }
-             persistentData.PathfindingStats.totalTime = persistentData.PathfindingStats.totalTime + elapsedTime
-             persistentData.PathfindingStats.callCount = persistentData.PathfindingStats.callCount + 1
-             persistentData.PathfindingStats.maxTime = math.max(persistentData.PathfindingStats.maxTime, elapsedTime)
-             
-             return true, nil, nil
-         end
-         end
+
+-- Initialize the AI system
+local function Initialize(linkedSword)
+    persistentData.LinkedSword = linkedSword
+    print("LinkedSword AI initialized successfully")
+    
+    -- Start the update loop
+    local RunService = game:GetService("RunService")
+    RunService.Heartbeat:Connect(Update)
+end
+
+return {
+    Initialize = Initialize,
+    Update = Update,
+    IsSafePath = IsSafePath,
+    ReportPerformanceMetrics = ReportPerformanceMetrics
+}
