@@ -1,37 +1,39 @@
--- LinkedSwordAI_HealthTargetFix.lua
--- Fixed health display and active target switching
+-- LinkedSwordAI_Optimized.lua
+-- Optimized version with better performance, pathfinding, and combat
 
 local LinkedSwordAI = {}
-LinkedSwordAI.Version = "3.1"
+LinkedSwordAI.Version = "4.0"
 LinkedSwordAI.IsRunning = false
 
--- Configuration
+-- Optimized Configuration
 local Config = {
-    -- Targeting
-    DetectionRadius = 100,
-    MaxTargetDistance = 150,
-    TargetRefreshRate = 0.3,
-    TargetSwitchDistanceThreshold = 10, -- Switch if new target is this much closer
+    -- Targeting (Increased ranges)
+    DetectionRadius = 200,  -- Increased from 100
+    MaxTargetDistance = 250, -- Increased from 150
+    TargetRefreshRate = 0.5, -- Reduced frequency for performance
     
-    -- Combat
-    AttackRange = 16,
-    LungeRange = 12,
-    AttackCooldown = 0.9,
-    ComboAttacks = 3,
-    ComboDelay = 0.1,
+    -- Combat (More aggressive)
+    AttackRange = 18,
+    LungeRange = 14,
+    AttackCooldown = 0.7,   -- Faster attacks
+    ComboAttacks = 4,       -- More aggressive combos
+    ComboDelay = 0.08,      -- Faster combo
     
-    -- Movement
-    WaypointDistance = 10,
-    NavigationUpdate = 0.2,
-    StrafeDistance = 4,
-    MoveSpeedMultiplier = 1.2,
+    -- Movement & Pathfinding
+    WaypointDistance = 12,
+    NavigationUpdate = 0.3,  -- Reduced frequency
+    StrafeDistance = 5,
+    MoveSpeedMultiplier = 1.3, -- Faster movement
     
     -- Safety
-    VoidThreshold = -20,
+    VoidThreshold = -25,
     
-    -- Performance
-    UpdateThrottle = 0.08,
-    CleanupInterval = 15
+    -- Performance Optimizations
+    UpdateThrottle = 0.15,   -- Reduced update frequency (was 0.08)
+    CleanupInterval = 30,    -- Less frequent garbage collection
+    MaxTargetsToTrack = 3,   -- Limit target tracking
+    RaycastBudget = 5,       -- Max raycasts per frame
+    PathfindingSteps = 6     -- Reduced pathfinding complexity
 }
 
 -- Services
@@ -39,14 +41,22 @@ local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 
--- Debug output
+-- Performance counters
+local Performance = {
+    RaycastsThisFrame = 0,
+    LastRaycastReset = tick(),
+    UpdateCount = 0,
+    AverageUpdateTime = 0
+}
+
+-- Optimized debug output
 local function DebugPrint(message)
     if _G.LinkedSwordAIDebug then
         print("[LinkedSwordAI]: " .. tostring(message))
     end
 end
 
--- Safe wait that respects Heartbeat
+-- Performance-optimized wait
 local function SafeWait(seconds)
     local start = tick()
     while tick() - start < seconds do
@@ -54,7 +64,7 @@ local function SafeWait(seconds)
     end
 end
 
--- Initialize persistent AI state
+-- Initialize persistent AI state with performance optimizations
 local function InitializeAIState()
     if not _G.LinkedSwordAIData then
         _G.LinkedSwordAIData = {
@@ -68,18 +78,26 @@ local function InitializeAIState()
             LastHealthUpdate = 0,
             Connections = {},
             StrafingDirection = 1,
-            CombatMode = "Approaching",
-            KnownTargets = {} -- Track multiple targets
+            CombatMode = "Aggressive", -- Start aggressive
+            KnownTargets = {},
+            PerformanceStats = {
+                FrameTime = 0,
+                UpdatesPerSecond = 0,
+                TargetSwitches = 0
+            },
+            PathMemory = {}, -- Cache successful paths
+            FailedPaths = {}, -- Cache failed paths
+            LastPathRecalculation = 0
         }
     end
     return _G.LinkedSwordAIData
 end
 
--- Status GUI
+-- Lightweight Status GUI
 local function CreateStatusGUI()
     local success, screenGui = pcall(function()
         local gui = Instance.new("ScreenGui")
-        gui.Name = "LinkedSwordAI_Status_v3"
+        gui.Name = "LinkedSwordAI_Optimized"
         gui.Parent = game:GetService("CoreGui")
         return gui
     end)
@@ -87,10 +105,10 @@ local function CreateStatusGUI()
     if not success then return nil end
     
     local frame = Instance.new("Frame")
-    frame.Size = UDim2.new(0, 220, 0, 100)
+    frame.Size = UDim2.new(0, 240, 0, 120) -- Slightly larger for performance stats
     frame.Position = UDim2.new(0, 10, 0, 10)
-    frame.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
-    frame.BackgroundTransparency = 0.2
+    frame.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+    frame.BackgroundTransparency = 0.1
     frame.BorderSizePixel = 0
     
     local corner = Instance.new("UICorner")
@@ -102,8 +120,9 @@ local function CreateStatusGUI()
         {"Status", "Initializing"},
         {"Target", "None"},
         {"Distance", "0.0"},
-        {"Action", "Idle"},
-        {"Health", "100%"}
+        {"Mode", "Idle"},
+        {"Performance", "0ms"},
+        {"Targets", "0"}
     }
     
     for i, info in ipairs(labelInfo) do
@@ -114,7 +133,7 @@ local function CreateStatusGUI()
         label.TextColor3 = Color3.fromRGB(220, 220, 220)
         label.Text = info[1] .. ": " .. info[2]
         label.Font = Enum.Font.SourceSansSemibold
-        label.TextSize = 12
+        label.TextSize = 11 -- Smaller for performance
         label.TextXAlignment = Enum.TextXAlignment.Left
         label.Parent = frame
         labels[info[1]] = label
@@ -134,26 +153,45 @@ local function CreateStatusGUI()
     }
 end
 
--- Sword equipping
+-- Optimized sword equipping
 local function EquipSword(character, humanoid)
     if not character or not humanoid then return nil end
     
-    -- Check character first
+    -- Quick check character first
+    for _, item in ipairs(character:GetChildren()) do
+        if item:IsA("Tool") and (item.Name:lower():find("sword") or item.Name:lower():find("blade")) then
+            return item
+        end
+    end
+    
+    -- Check backpack with timeout
+    local player = Players.LocalPlayer
+    local backpack = player:FindFirstChild("Backpack")
+    if backpack then
+        for _, item in ipairs(backpack:GetChildren()) do
+            if item:IsA("Tool") and (item.Name:lower():find("sword") or item.Name:lower():find("blade")) then
+                pcall(function()
+                    humanoid:EquipTool(item)
+                    SafeWait(0.2) -- Reduced wait
+                end)
+                return character:FindFirstChild(item.Name) or item
+            end
+        end
+    end
+    
+    -- Last resort: any tool
     for _, item in ipairs(character:GetChildren()) do
         if item:IsA("Tool") then
             return item
         end
     end
     
-    -- Check backpack
-    local player = Players.LocalPlayer
-    local backpack = player:FindFirstChild("Backpack")
     if backpack then
         for _, item in ipairs(backpack:GetChildren()) do
             if item:IsA("Tool") then
                 pcall(function()
                     humanoid:EquipTool(item)
-                    SafeWait(0.3)
+                    SafeWait(0.2)
                 end)
                 return character:FindFirstChild(item.Name) or item
             end
@@ -163,13 +201,18 @@ local function EquipSword(character, humanoid)
     return nil
 end
 
--- Improved target finding that considers multiple targets
+-- Performance-optimized target finding
 local function FindBestTarget(localPlayer, localPosition, currentTarget, data)
     local allTargets = {}
     local currentDistance = currentTarget and currentTarget.Distance or math.huge
     
-    for _, player in ipairs(Players:GetPlayers()) do
-        if player ~= localPlayer and player.Character then
+    -- Limit the number of players we check for performance
+    local players = Players:GetPlayers()
+    local maxChecks = math.min(#players, 8) -- Limit checks for performance
+    
+    for i = 1, maxChecks do
+        local player = players[i]
+        if player and player ~= localPlayer and player.Character then
             local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
             local rootPart = player.Character:FindFirstChild("HumanoidRootPart")
             
@@ -199,167 +242,265 @@ local function FindBestTarget(localPlayer, localPosition, currentTarget, data)
         return a.Distance < b.Distance
     end)
     
-    -- Store known targets for switching logic
+    -- Store known targets (limited for performance)
     data.KnownTargets = {}
-    for _, target in ipairs(allTargets) do
-        data.KnownTargets[target.Player] = target
+    for i = 1, math.min(#allTargets, Config.MaxTargetsToTrack) do
+        data.KnownTargets[allTargets[i].Player] = allTargets[i]
     end
     
-    -- If we have a current target, check if we should switch
-    if currentTarget then
-        local closestTarget = allTargets[1]
-        
-        -- Switch target if:
-        -- 1. New target is significantly closer
-        -- 2. Current target is no longer valid
-        -- 3. Random chance to switch for unpredictability
-        local shouldSwitch = false
-        
-        if closestTarget.Distance < currentDistance - Config.TargetSwitchDistanceThreshold then
-            shouldSwitch = true
-            DebugPrint("Switching to closer target: " .. closestTarget.Player.Name)
-        elseif not currentTarget.RootPart or not currentTarget.Humanoid or currentTarget.Humanoid.Health <= 0 then
-            shouldSwitch = true
-            DebugPrint("Current target invalid, switching")
-        elseif math.random(1, 100) <= 10 then -- 10% chance to randomly switch
-            shouldSwitch = true
-            DebugPrint("Random target switch for unpredictability")
-        end
-        
-        if shouldSwitch then
-            return closestTarget
-        else
-            return currentTarget -- Keep current target
-        end
+    -- Always switch to closest target for aggression
+    local closestTarget = allTargets[1]
+    
+    if not currentTarget or closestTarget.Distance < currentDistance - 5 or closestTarget.Player ~= currentTarget.Player then
+        data.PerformanceStats.TargetSwitches = (data.PerformanceStats.TargetSwitches or 0) + 1
+        DebugPrint("Switching to closer target: " .. closestTarget.Player.Name)
+        return closestTarget
     end
     
-    -- No current target, return closest
-    return allTargets[1]
+    return currentTarget
 end
 
--- Improved navigation with movement
+-- Optimized raycast with budget management
+local function SafeRaycast(origin, direction, params)
+    if Performance.RaycastsThisFrame >= Config.RaycastBudget then
+        return nil -- Skip if over budget
+    end
+    
+    Performance.RaycastsThisFrame = Performance.RaycastsThisFrame + 1
+    return Workspace:Raycast(origin, direction, params)
+end
+
+-- Performance-optimized position safety check
 local function IsPositionSafe(position, character)
     if position.Y < Config.VoidThreshold then
         return false, "void"
     end
     
-    local rayOrigin = position + Vector3.new(0, 3, 0)
-    local rayDirection = Vector3.new(0, -25, 0)
+    -- Reset raycast counter if needed
+    if tick() - Performance.LastRaycastReset > 0.1 then
+        Performance.RaycastsThisFrame = 0
+        Performance.LastRaycastReset = tick()
+    end
+    
+    local rayOrigin = position + Vector3.new(0, 2, 0)
+    local rayDirection = Vector3.new(0, -20, 0)
     
     local raycastParams = RaycastParams.new()
     raycastParams.FilterDescendantsInstances = {character}
     raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
     
-    local result = Workspace:Raycast(rayOrigin, rayDirection, raycastParams)
+    local result = SafeRaycast(rayOrigin, rayDirection, raycastParams)
     
     return result ~= nil, result and "safe" or "no ground"
 end
 
-local function CalculateMovement(currentPos, targetPos, character, data)
+-- Enhanced pathfinding with memory
+local function CalculateSmartPath(currentPos, targetPos, character, data)
     local direction = (targetPos - currentPos).Unit
     local distance = (targetPos - currentPos).Magnitude
     
-    -- Always try direct path first
+    -- Check path memory first
+    local memoryKey = math.floor(currentPos.X/10) .. "_" .. math.floor(currentPos.Z/10) .. 
+                     "_" .. math.floor(targetPos.X/10) .. "_" .. math.floor(targetPos.Z/10)
+    
+    if data.PathMemory[memoryKey] and tick() - data.PathMemory[memoryKey].time < 30 then
+        local memory = data.PathMemory[memoryKey]
+        if IsPositionSafe(memory.position, character) then
+            return memory.position, "cached"
+        end
+    end
+    
+    -- Check failed paths
+    if data.FailedPaths[memoryKey] and tick() - data.FailedPaths[memoryKey] < 15 then
+        -- This path failed recently, try alternative
+        return CalculateAlternativePath(currentPos, targetPos, character, data, "avoid_failed")
+    end
+    
+    -- Try direct path first
     local moveDistance = math.min(Config.WaypointDistance, distance)
     local testPos = currentPos + (direction * moveDistance)
     
     local isSafe, reason = IsPositionSafe(testPos, character)
     
     if isSafe then
+        -- Cache successful path
+        data.PathMemory[memoryKey] = {
+            position = testPos,
+            time = tick()
+        }
         return testPos, "direct"
     end
     
-    -- Try different strategies for Heights map
-    local strategies = {
-        -- Elevated path (for bridges)
-        currentPos + Vector3.new(0, 6, 0) + (direction * moveDistance),
-        -- Left strafe
-        currentPos + (direction:Cross(Vector3.new(0, 1, 0)) * 3) + (direction * moveDistance * 0.8),
-        -- Right strafe
-        currentPos + (direction:Cross(Vector3.new(0, -1, 0)) * 3) + (direction * moveDistance * 0.8),
-        -- Small step forward
-        currentPos + (direction * 3)
+    -- Try alternative paths
+    return CalculateAlternativePath(currentPos, targetPos, character, data, reason)
+end
+
+-- Improved alternative path calculation
+local function CalculateAlternativePath(currentPos, targetPos, character, data, reason)
+    local direction = (targetPos - currentPos).Unit
+    local distance = (targetPos - currentPos).Magnitude
+    
+    -- Strategy 1: Elevated path (for bridges)
+    local elevatedPos = currentPos + Vector3.new(0, 8, 0) + (direction * math.min(10, distance))
+    if IsPositionSafe(elevatedPos, character) then
+        return elevatedPos, "elevated"
+    end
+    
+    -- Strategy 2: Side paths with progressive distance
+    local sideStrategies = {
+        {dir = direction:Cross(Vector3.new(0, 1, 0)), dist = 4, name = "left"},
+        {dir = direction:Cross(Vector3.new(0, -1, 0)), dist = 4, name = "right"},
+        {dir = direction:Cross(Vector3.new(0, 1, 0)), dist = 8, name = "left_far"},
+        {dir = direction:Cross(Vector3.new(0, -1, 0)), dist = 8, name = "right_far"}
     }
     
-    for i, pos in ipairs(strategies) do
-        if IsPositionSafe(pos, character) then
-            return pos, "strategy_" .. i
+    for _, strategy in ipairs(sideStrategies) do
+        local sidePos = currentPos + (strategy.dir * strategy.dist) + (direction * math.min(8, distance * 0.7))
+        if IsPositionSafe(sidePos, character) then
+            return sidePos, strategy.name
         end
     end
     
-    -- If all else fails, retreat slightly
-    local retreatPos = currentPos - (direction * 2)
-    if IsPositionSafe(retreatPos, character) then
-        return retreatPos, "retreat"
+    -- Strategy 3: Step-based approach for complex navigation
+    for step = 1, Config.PathfindingSteps do
+        local stepDistance = math.min(6, distance / Config.PathfindingSteps * step)
+        local stepPos = currentPos + (direction * stepDistance)
+        
+        -- Try slight variations at each step
+        local variations = {
+            stepPos,
+            stepPos + Vector3.new(0, 3, 0),
+            stepPos + direction:Cross(Vector3.new(0, 1, 0)) * 2,
+            stepPos + direction:Cross(Vector3.new(0, -1, 0)) * 2
+        }
+        
+        for _, varPos in ipairs(variations) do
+            if IsPositionSafe(varPos, character) then
+                return varPos, "step_" .. step
+            end
+        end
     end
     
-    -- Last resort: stay put but look at target
-    return currentPos, "hold"
+    -- Strategy 4: Fallback - small steps forward
+    for i = 1, 3 do
+        local smallStep = currentPos + (direction * i * 2)
+        if IsPositionSafe(smallStep, character) then
+            return smallStep, "small_step"
+        end
+    end
+    
+    -- Last resort: minimal movement
+    local minimalPos = currentPos + (direction * 1)
+    if IsPositionSafe(minimalPos, character) then
+        return minimalPos, "minimal"
+    end
+    
+    -- Mark as failed path
+    local memoryKey = math.floor(currentPos.X/10) .. "_" .. math.floor(currentPos.Z/10) .. 
+                     "_" .. math.floor(targetPos.X/10) .. "_" .. math.floor(targetPos.Z/10)
+    data.FailedPaths[memoryKey] = tick()
+    
+    return currentPos, "stuck"
 end
 
--- Combat behavior that actually moves
+-- Aggressive combat behavior
 local function ExecuteCombat(humanoid, rootPart, targetPos, distance, sword, lastAttackTime, data)
     local currentTime = tick()
     local direction = (targetPos - rootPart.Position).Unit
     
-    -- Face the target
+    -- Always face target aggressively
     humanoid:MoveTo(rootPart.Position + direction * 0.1)
     
-    -- Determine combat mode
+    -- Aggressive combat mode selection
     local combatMode
     if distance <= Config.LungeRange then
-        combatMode = "Aggressive"
+        combatMode = "UltraAggressive"
     elseif distance <= Config.AttackRange then
-        combatMode = "Balanced"
+        combatMode = "Aggressive"
     else
-        combatMode = "Approaching"
+        combatMode = "Chasing"
     end
     
     data.CombatMode = combatMode
     
-    -- Execute movement based on mode
-    if combatMode == "Approaching" then
-        -- Move directly toward target
-        local movePos = rootPart.Position + (direction * Config.WaypointDistance)
-        if IsPositionSafe(movePos, humanoid.Parent) then
-            humanoid:MoveTo(movePos)
+    -- Execute movement based on aggressive mode
+    if combatMode == "Chasing" then
+        -- Chase directly toward target
+        local chasePos = rootPart.Position + (direction * Config.WaypointDistance)
+        if IsPositionSafe(chasePos, humanoid.Parent) then
+            humanoid:MoveTo(chasePos)
         end
-    elseif combatMode == "Balanced" then
-        -- Strafing movement
-        data.StrafingDirection = data.StrafingDirection * -1
-        local strafeDir = direction:Cross(Vector3.new(0, data.StrafingDirection, 0)).Unit
-        local movePos = rootPart.Position + (strafeDir * Config.StrafeDistance) + (direction * 2)
-        
-        if IsPositionSafe(movePos, humanoid.Parent) then
-            humanoid:MoveTo(movePos)
+    elseif combatMode == "Aggressive" then
+        -- Close-range aggressive movement
+        if distance > 5 then
+            humanoid:MoveTo(targetPos)
+        else
+            -- Circle strafing when very close
+            data.StrafingDirection = data.StrafingDirection * -1
+            local strafeDir = direction:Cross(Vector3.new(0, data.StrafingDirection, 0)).Unit
+            local strafePos = rootPart.Position + (strafeDir * Config.StrafeDistance)
+            
+            if IsPositionSafe(strafePos, humanoid.Parent) then
+                humanoid:MoveTo(strafePos)
+            end
         end
-    else -- Aggressive
-        -- Close combat - minimal movement
+    else -- UltraAggressive
+        -- Point-blank range - maintain close distance with minimal movement
         if distance > 3 then
             humanoid:MoveTo(targetPos)
         end
+        -- Don't back away when too close - stay aggressive
     end
     
-    -- Attack if in range
+    -- Aggressive attacking - attack whenever in range
     if distance <= Config.AttackRange and sword then
         if currentTime - lastAttackTime >= Config.AttackCooldown then
-            -- Execute combo attack
+            -- Fast, aggressive combo
             for i = 1, Config.ComboAttacks do
                 if sword and sword.Parent then
-                    pcall(function() sword:Activate() end)
+                    pcall(function() 
+                        sword:Activate() 
+                        -- Slight movement during combo for aggression
+                        if i % 2 == 0 and distance > 2 then
+                            local lungePos = rootPart.Position + (direction * 2)
+                            if IsPositionSafe(lungePos, humanoid.Parent) then
+                                humanoid:MoveTo(lungePos)
+                            end
+                        end
+                    end)
                 end
                 if i < Config.ComboAttacks then
                     SafeWait(Config.ComboDelay)
                 end
             end
-            return currentTime -- Return new attack time
+            return currentTime
         end
     end
     
-    return lastAttackTime -- Return unchanged attack time
+    return lastAttackTime
 end
 
--- Health monitoring function
+-- Performance monitoring
+local function UpdatePerformanceStats(data, updateTime)
+    data.PerformanceStats.FrameTime = updateTime * 1000
+    data.PerformanceStats.UpdatesPerSecond = 1 / updateTime
+    
+    -- Update performance display every 10 frames
+    if data.StatusGUI and data.UpdateCount % 10 == 0 then
+        local perfText = string.format("%.1fms (%.0f/s)", 
+            data.PerformanceStats.FrameTime, 
+            data.PerformanceStats.UpdatesPerSecond)
+        data.StatusGUI.Update("Performance", perfText)
+        
+        local targetCount = 0
+        for _ in pairs(data.KnownTargets) do
+            targetCount = targetCount + 1
+        end
+        data.StatusGUI.Update("Targets", targetCount)
+    end
+end
+
+-- Health monitoring
 local function UpdateHealthDisplay(data)
     if not data.Humanoid or not data.StatusGUI then return end
     
@@ -367,44 +508,58 @@ local function UpdateHealthDisplay(data)
     local maxHealth = data.Humanoid.MaxHealth
     local healthPercent = math.floor((health / maxHealth) * 100)
     
-    data.StatusGUI.Update("Health", healthPercent .. "%")
-    
-    -- Color code health display
-    if healthPercent <= 25 then
-        data.StatusGUI.Update("Health", healthPercent .. "% [LOW]")
-    elseif healthPercent <= 50 then
-        data.StatusGUI.Update("Health", healthPercent .. "% [MEDIUM]")
-    else
-        data.StatusGUI.Update("Health", healthPercent .. "% [HIGH]")
+    -- Only update if changed significantly (for performance)
+    if not data.LastHealthPercent or math.abs(data.LastHealthPercent - healthPercent) > 5 then
+        data.StatusGUI.Update("Health", healthPercent .. "%")
+        data.LastHealthPercent = healthPercent
     end
 end
 
--- Main AI update function
+-- Optimized main AI update function
 local function AIUpdate(data)
     if not data.IsActive or not data.Character or not data.Humanoid or not data.RootPart then
         return
     end
     
-    local currentTime = tick()
+    local updateStart = tick()
     
     -- Performance throttling
-    if currentTime - data.LastUpdateTime < Config.UpdateThrottle then
+    if updateStart - data.LastUpdateTime < Config.UpdateThrottle then
         return
     end
-    data.LastUpdateTime = currentTime
     
-    -- Memory cleanup
-    if currentTime - data.LastCleanup > Config.CleanupInterval then
+    data.LastUpdateTime = updateStart
+    data.UpdateCount = (data.UpdateCount or 0) + 1
+    
+    -- Reset performance counters
+    Performance.RaycastsThisFrame = 0
+    
+    -- Memory cleanup (less frequent)
+    if updateStart - data.LastCleanup > Config.CleanupInterval then
         collectgarbage("step")
-        data.LastCleanup = currentTime
+        
+        -- Clean up old path memory
+        for key, memory in pairs(data.PathMemory) do
+            if updateStart - memory.time > 60 then -- Keep for 60 seconds
+                data.PathMemory[key] = nil
+            end
+        end
+        
+        for key, time in pairs(data.FailedPaths) do
+            if updateStart - time > 30 then -- Keep for 30 seconds
+                data.FailedPaths[key] = nil
+            end
+        end
+        
+        data.LastCleanup = updateStart
     end
     
-    -- Update health display every frame (fixed the health issue)
+    -- Update health display
     UpdateHealthDisplay(data)
     
-    -- Target acquisition with improved switching
-    if currentTime - data.LastTargetUpdate > Config.TargetRefreshRate then
-        data.LastTargetUpdate = currentTime
+    -- Target acquisition (less frequent for performance)
+    if updateStart - data.LastTargetUpdate > Config.TargetRefreshRate then
+        data.LastTargetUpdate = updateStart
         data.CurrentTarget = FindBestTarget(Players.LocalPlayer, data.RootPart.Position, data.CurrentTarget, data)
         
         if data.StatusGUI then
@@ -412,20 +567,11 @@ local function AIUpdate(data)
                 data.StatusGUI.Update("Target", data.CurrentTarget.Player.Name)
                 data.StatusGUI.Update("Distance", string.format("%.1f", data.CurrentTarget.Distance))
                 data.StatusGUI.Update("Status", "Engaging")
-                
-                -- Show how many targets are known
-                local targetCount = 0
-                for _ in pairs(data.KnownTargets) do
-                    targetCount = targetCount + 1
-                end
-                if targetCount > 1 then
-                    data.StatusGUI.Update("Action", "Engaging (" .. targetCount .. " targets)")
-                end
             else
                 data.StatusGUI.Update("Target", "None")
                 data.StatusGUI.Update("Distance", "0.0")
                 data.StatusGUI.Update("Status", "Searching")
-                data.StatusGUI.Update("Action", "Idle")
+                data.StatusGUI.Update("Mode", "Idle")
             end
         end
     end
@@ -436,15 +582,15 @@ local function AIUpdate(data)
         return
     end
     
-    -- Update target distance (in case target moved)
-    data.CurrentTarget.Distance = (data.CurrentTarget.Position - data.RootPart.Position).Magnitude
+    -- Update target position and distance
+    data.CurrentTarget.Distance = (data.CurrentTarget.RootPart.Position - data.RootPart.Position).Magnitude
     data.CurrentTarget.Position = data.CurrentTarget.RootPart.Position
     
-    -- Navigation and movement
-    if currentTime - data.LastNavigationUpdate > Config.NavigationUpdate then
-        data.LastNavigationUpdate = currentTime
+    -- Navigation and movement (optimized frequency)
+    if updateStart - data.LastNavigationUpdate > Config.NavigationUpdate then
+        data.LastNavigationUpdate = updateStart
         
-        local movePos, pathType = CalculateMovement(
+        local movePos, pathType = CalculateSmartPath(
             data.RootPart.Position,
             data.CurrentTarget.Position,
             data.Character,
@@ -452,10 +598,10 @@ local function AIUpdate(data)
         )
         
         if data.StatusGUI then
-            data.StatusGUI.Update("Action", data.CombatMode .. " - " .. pathType)
+            data.StatusGUI.Update("Mode", data.CombatMode .. " - " .. pathType)
         end
         
-        -- Execute combat behavior (which includes movement)
+        -- Execute aggressive combat behavior
         data.LastAttackTime = ExecuteCombat(
             data.Humanoid,
             data.RootPart,
@@ -466,6 +612,10 @@ local function AIUpdate(data)
             data
         )
     end
+    
+    -- Update performance stats
+    local updateTime = tick() - updateStart
+    UpdatePerformanceStats(data, updateTime)
 end
 
 -- Character setup
@@ -478,40 +628,36 @@ local function SetupCharacter(data)
     if not data.Character then
         DebugPrint("Waiting for character...")
         data.Character = player.CharacterAdded:Wait()
-        SafeWait(1) -- Allow character to load
+        SafeWait(1.5) -- Allow character to load
     end
     
-    -- Get character components
-    data.Humanoid = data.Character:WaitForChild("Humanoid", 5)
-    data.RootPart = data.Character:WaitForChild("HumanoidRootPart", 5)
+    -- Get character components with timeout
+    local startTime = tick()
+    while tick() - startTime < 5 do
+        data.Humanoid = data.Character:FindFirstChildOfClass("Humanoid")
+        data.RootPart = data.Character:FindFirstChild("HumanoidRootPart")
+        
+        if data.Humanoid and data.RootPart then
+            break
+        end
+        RunService.Heartbeat:Wait()
+    end
     
     if not data.Humanoid or not data.RootPart then
         DebugPrint("Failed to find character components")
         return false
     end
     
-    -- Set movement speed
+    -- Set movement speed for aggression
     data.Humanoid.WalkSpeed = 16 * Config.MoveSpeedMultiplier
     
     -- Equip sword
     data.Sword = EquipSword(data.Character, data.Humanoid)
     if data.Sword and data.StatusGUI then
-        data.StatusGUI.Update("Action", "Sword equipped")
+        data.StatusGUI.Update("Status", "Armed & Ready")
     end
     
-    -- Set up death handling (but don't stop the AI)
-    if data.Connections.characterDeath then
-        data.Connections.characterDeath:Disconnect()
-    end
-    
-    data.Connections.characterDeath = data.Humanoid.Died:Connect(function()
-        DebugPrint("Character died - will respawn and continue")
-        if data.StatusGUI then
-            data.StatusGUI.Update("Status", "Respawning...")
-        end
-    end)
-    
-    -- Health monitoring connection
+    -- Health monitoring
     if data.Connections.healthChange then
         data.Connections.healthChange:Disconnect()
     end
@@ -532,9 +678,9 @@ function LinkedSwordAI.Start()
         return true
     end
     
-    DebugPrint("Starting LinkedSwordAI...")
+    DebugPrint("Starting Optimized LinkedSwordAI...")
     
-    -- Create GUI if needed
+    -- Create lightweight GUI
     if not data.StatusGUI then
         data.StatusGUI = CreateStatusGUI()
     end
@@ -547,6 +693,7 @@ function LinkedSwordAI.Start()
     
     data.IsActive = true
     data.LastUpdateTime = 0
+    data.UpdateCount = 0
     
     -- Main update loop
     if data.Connections.heartbeat then
@@ -557,19 +704,18 @@ function LinkedSwordAI.Start()
         AIUpdate(data)
     end)
     
-    -- Auto-respawn handling (this is key for persistence)
+    -- Auto-respawn handling
     if data.Connections.respawn then
         data.Connections.respawn:Disconnect()
     end
     
     data.Connections.respawn = Players.LocalPlayer.CharacterAdded:Connect(function(newCharacter)
         DebugPrint("Character respawned - reinitializing...")
-        SafeWait(1.5) -- Wait for character to fully load
+        SafeWait(2) -- Wait for character to fully load
         
-        -- Update character references but keep AI running
         if data.IsActive then
             data.Character = newCharacter
-            SetupCharacter(data) -- Re-setup with new character
+            SetupCharacter(data)
             if data.StatusGUI then
                 data.StatusGUI.Update("Status", "Respawned - Active")
             end
@@ -577,12 +723,11 @@ function LinkedSwordAI.Start()
     end)
     
     if data.StatusGUI then
-        data.StatusGUI.Update("Status", "Active")
-        UpdateHealthDisplay(data) -- Initial health update
+        data.StatusGUI.Update("Status", "Active - Optimized")
     end
     
     LinkedSwordAI.IsRunning = true
-    DebugPrint("LinkedSwordAI started successfully")
+    DebugPrint("Optimized LinkedSwordAI started successfully")
     return true
 end
 
@@ -606,7 +751,7 @@ function LinkedSwordAI.Stop()
     end
     data.Connections = {}
     
-    -- Clear character references
+    -- Clear data
     data.Character = nil
     data.Humanoid = nil
     data.RootPart = nil
@@ -617,8 +762,7 @@ function LinkedSwordAI.Stop()
     if data.StatusGUI then
         data.StatusGUI.Update("Status", "Stopped")
         data.StatusGUI.Update("Target", "None")
-        data.StatusGUI.Update("Action", "Inactive")
-        data.StatusGUI.Update("Health", "N/A")
+        data.StatusGUI.Update("Mode", "Inactive")
     end
     
     DebugPrint("LinkedSwordAI stopped")
@@ -633,22 +777,18 @@ function LinkedSwordAI.Toggle()
     end
 end
 
--- Auto-initialization with proper error handling
+-- Auto-initialization
 local function Initialize()
     pcall(function()
-        -- Wait for game to load
         if not game:IsLoaded() then
             game.Loaded:Wait()
         end
         
-        -- Wait for player
         if not Players.LocalPlayer then
             Players.PlayerAdded:Wait()
         end
         
-        SafeWait(3) -- Initial delay
-        
-        -- Auto-start the AI
+        SafeWait(3)
         LinkedSwordAI.Start()
         
         DebugPrint("LinkedSwordAI initialized successfully")
