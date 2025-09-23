@@ -23,7 +23,7 @@ local CONFIG = {
     PATHFINDING_UPDATE_RATE = 0.1,   -- How often to update pathfinding in seconds
     MAX_TARGET_DISTANCE = 20,        -- Maximum effective reach in studs
     MIN_HEALTH_CHECK = 0,            -- Minimum health to consider player valid (for god mode detection)
-    DEBUG_MODE = false               -- Enable debug visualization and logging
+    DEBUG_MODE = true                -- Enable debug visualization and logging
 }
 
 -- Services
@@ -34,9 +34,9 @@ local UserInputService = game:GetService("UserInputService")
 
 -- Variables
 local LocalPlayer = Players.LocalPlayer
-local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
-local Humanoid = Character:WaitForChild("Humanoid")
-local HumanoidRootPart = Character:WaitForChild("HumanoidRootPart")
+local Character
+local Humanoid
+local HumanoidRootPart
 local LinkedSword = nil
 local CurrentTarget = nil
 local LastAttackTime = 0
@@ -46,6 +46,13 @@ local CurrentWaypointIndex = 0
 local CurrentTactic = "Approach" -- "Approach", "Attack", "Feint", "Defensive"
 local IsExecuting = false
 local JumpCooldown = 0
+
+-- Debug function
+local function DebugPrint(message)
+    if CONFIG.DEBUG_MODE then
+        print("[LinkedSwordAI] " .. message)
+    end
+end
 
 -- Find the Linked Sword tool
 local function FindLinkedSword()
@@ -303,25 +310,64 @@ end
 
 -- Initialize the script
 local function Initialize()
-    print("Linked Sword AI Combat Script initialized")
+    DebugPrint("Linked Sword AI Combat Script initializing...")
+    
+    -- Wait for LocalPlayer to be available
+    if not LocalPlayer then
+        DebugPrint("Waiting for LocalPlayer...")
+        repeat wait(0.1) until Players.LocalPlayer
+        LocalPlayer = Players.LocalPlayer
+        DebugPrint("LocalPlayer found: " .. LocalPlayer.Name)
+    end
+    
+    -- Wait for Character to be available
+    if not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild("Humanoid") then
+        DebugPrint("Waiting for Character...")
+        
+        if LocalPlayer.Character then
+            Character = LocalPlayer.Character
+        else
+            Character = LocalPlayer.CharacterAdded:Wait()
+        end
+        
+        DebugPrint("Character loaded")
+    else
+        Character = LocalPlayer.Character
+        DebugPrint("Character already available")
+    end
+    
+    -- Get Humanoid and HumanoidRootPart
+    Humanoid = Character:WaitForChild("Humanoid")
+    HumanoidRootPart = Character:WaitForChild("HumanoidRootPart")
+    DebugPrint("Humanoid and HumanoidRootPart found")
     
     -- Find the Linked Sword
     LinkedSword = FindLinkedSword()
-    if not LinkedSword then
-        warn("Linked Sword not found! Please equip it first.")
+    if LinkedSword then
+        DebugPrint("Linked Sword found: " .. LinkedSword.Name)
+    else
+        DebugPrint("Linked Sword not found! Please equip it first.")
     end
     
     -- Connect to RunService for the main loop
+    DebugPrint("Connecting to RunService...")
     RunService:BindToRenderStep("LinkedSwordAI", Enum.RenderPriority.Character.Value, Update)
     
     -- Handle character respawning
     LocalPlayer.CharacterAdded:Connect(function(newCharacter)
+        DebugPrint("Character respawned")
         Character = newCharacter
         Humanoid = Character:WaitForChild("Humanoid")
         HumanoidRootPart = Character:WaitForChild("HumanoidRootPart")
         LinkedSword = FindLinkedSword()
     end)
+    
+    DebugPrint("Initialization complete!")
 end
 
--- Start the script
-Initialize()
+-- Start the script with pcall to catch any errors
+pcall(function()
+    DebugPrint("Starting script execution...")
+    Initialize()
+    DebugPrint("Script started successfully")
+end)
