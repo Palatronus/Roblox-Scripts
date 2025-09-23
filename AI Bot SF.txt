@@ -1,60 +1,63 @@
--- AI Sword Fighting Script for Roblox Executors
--- Designed for games with Linked Sword tool
-
-local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
-local PathfindingService = game:GetService("PathfindingService")
-local TweenService = game:GetService("TweenService")
-
-local LocalPlayer = Players.LocalPlayer
-local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
-local Humanoid = Character:WaitForChild("Humanoid")
-local RootPart = Character:WaitForChild("HumanoidRootPart")
+--[[
+    Linked Sword AI Combat Script
+    
+    This script implements autonomous sword fighting AI for the Linked Sword tool in Roblox.
+    Designed for external executor usage.
+    
+    Features:
+    - Autonomous sword swinging when players enter 15-stud radius
+    - Advanced pathfinding for smooth navigation
+    - Tactical AI behaviors with RNG-based decision making
+    - Target validation (excludes god mode players and those beyond reach)
+    - Strategic jumping mechanics accounting for Linked Sword physics
+]]
 
 -- Configuration
 local CONFIG = {
-    ATTACK_RANGE = 15, -- Studs within which to attack
-    SWING_RANGE = 5.5, -- Actual sword reach
-    CHARGE_RANGE = 25, -- Range to initiate charge
-    RETREAT_RANGE = 3, -- Too close, back up
-    PATH_UPDATE_RATE = 0.3, -- How often to update pathfinding
-    SWING_COOLDOWN = 0.8, -- Time between swings
-    JUMP_CHANCE = 0.05, -- 5% chance to jump strategically
-    BEHAVIOR_CHANGE_TIME = 5 -- Seconds before changing tactics
+    DETECTION_RADIUS = 15,           -- Stud radius for detecting players
+    ATTACK_COOLDOWN = 1.2,           -- Time between attacks in seconds
+    FEINT_CHANCE = 0.3,              -- Probability of performing a feint (0-1)
+    CHARGE_ATTACK_CHANCE = 0.25,     -- Probability of charging an attack (0-1)
+    DEFENSIVE_CHANCE = 0.2,          -- Probability of taking defensive posture (0-1)
+    JUMP_CHANCE = 0.15,              -- Probability of tactical jumping (0-1)
+    PATHFINDING_UPDATE_RATE = 0.1,   -- How often to update pathfinding in seconds
+    MAX_TARGET_DISTANCE = 20,        -- Maximum effective reach in studs
+    MIN_HEALTH_CHECK = 0,            -- Minimum health to consider player valid (for god mode detection)
+    DEBUG_MODE = false               -- Enable debug visualization and logging
 }
 
--- AI State Management
-local AIState = {
-    AGGRESSIVE = "aggressive",
-    DEFENSIVE = "defensive",
-    LURING = "luring",
-    CHARGING = "charging",
-    RETREATING = "retreating"
-}
+-- Services
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local PathfindingService = game:GetService("PathfindingService")
+local UserInputService = game:GetService("UserInputService")
 
-local currentState = AIState.AGGRESSIVE
-local lastStateChange = tick()
-local lastSwing = 0
-local currentTarget = nil
-local isEnabled = true
-local currentPath = nil
-local pathWaypoints = {}
-local currentWaypointIndex = 1
+-- Variables
+local LocalPlayer = Players.LocalPlayer
+local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+local Humanoid = Character:WaitForChild("Humanoid")
+local HumanoidRootPart = Character:WaitForChild("HumanoidRootPart")
+local LinkedSword = nil
+local CurrentTarget = nil
+local LastAttackTime = 0
+local CurrentPath = nil
+local Waypoints = {}
+local CurrentWaypointIndex = 0
+local CurrentTactic = "Approach" -- "Approach", "Attack", "Feint", "Defensive"
+local IsExecuting = false
+local JumpCooldown = 0
 
--- Find Linked Sword tool
-local function findSword()
-    local backpack = LocalPlayer:WaitForChild("Backpack")
-    
-    -- Check character first
+-- Find the Linked Sword tool
+local function FindLinkedSword()
     for _, tool in pairs(Character:GetChildren()) do
-        if tool:IsA("Tool") and (tool.Name:lower():find("sword") or tool.Name:find("LinkedSword")) then
+        if tool:IsA("Tool") and tool.Name:find("Sword") then
             return tool
         end
     end
     
-    -- Check backpack
-    for _, tool in pairs(backpack:GetChildren()) do
-        if tool:IsA("Tool") and (tool.Name:lower():find("sword") or tool.Name:find("LinkedSword")) then
+    -- If not found in character, check backpack
+    for _, tool in pairs(LocalPlayer.Backpack:GetChildren()) do
+        if tool:IsA("Tool") and tool.Name:find("Sword") then
             return tool
         end
     end
@@ -62,309 +65,263 @@ local function findSword()
     return nil
 end
 
--- Equip sword
-local function equipSword()
-    local sword = findSword()
-    if sword and sword.Parent ~= Character then
-        Humanoid:EquipTool(sword)
-        wait(0.1)
-    end
-    return sword
-end
-
--- Check if player is valid target
-local function isValidTarget(targetCharacter)
-    if not targetCharacter or targetCharacter == Character then
-        return false
-    end
+-- Validate target (check if they have god mode or are too far)
+local function IsValidTarget(player)
+    if not player or not player.Character then return false end
     
-    local targetHumanoid = targetCharacter:FindFirstChild("Humanoid")
-    local targetRootPart = targetCharacter:FindFirstChild("HumanoidRootPart")
+    local playerHumanoid = player.Character:FindFirstChild("Humanoid")
+    local playerHRP = player.Character:FindFirstChild("HumanoidRootPart")
     
-    if not targetHumanoid or not targetRootPart then
-        return false
-    end
+    if not playerHumanoid or not playerHRP then return false end
     
     -- Check for god mode (negative or extremely high health)
-    if targetHumanoid.Health <= 0 or targetHumanoid.Health > 1000000 then
-        return false
-    end
+    if playerHumanoid.Health <= CONFIG.MIN_HEALTH_CHECK then return false end
     
-    -- Check if player is within reasonable distance
-    local distance = (targetRootPart.Position - RootPart.Position).Magnitude
-    if distance > 100 then -- Too far away
-        return false
-    end
+    -- Check distance
+    local distance = (playerHRP.Position - HumanoidRootPart.Position).Magnitude
+    if distance > CONFIG.MAX_TARGET_DISTANCE then return false end
     
     return true
 end
 
--- Find nearest valid target
-local function findNearestTarget()
-    local nearestTarget = nil
-    local nearestDistance = math.huge
+-- Find the nearest valid player
+local function FindNearestPlayer()
+    local nearestPlayer = nil
+    local shortestDistance = CONFIG.DETECTION_RADIUS
     
     for _, player in pairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer and player.Character then
-            if isValidTarget(player.Character) then
-                local targetRootPart = player.Character:FindFirstChild("HumanoidRootPart")
-                if targetRootPart then
-                    local distance = (targetRootPart.Position - RootPart.Position).Magnitude
-                    if distance < nearestDistance then
-                        nearestDistance = distance
-                        nearestTarget = player.Character
-                    end
+        if player ~= LocalPlayer then
+            if player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+                local distance = (player.Character.HumanoidRootPart.Position - HumanoidRootPart.Position).Magnitude
+                
+                if distance <= shortestDistance and IsValidTarget(player) then
+                    shortestDistance = distance
+                    nearestPlayer = player
                 end
             end
         end
     end
     
-    return nearestTarget, nearestDistance
+    return nearestPlayer
 end
 
--- Swing sword
-local function swingSword()
-    local sword = equipSword()
-    if sword and tick() - lastSwing >= CONFIG.SWING_COOLDOWN then
-        sword:Activate()
-        lastSwing = tick()
-        
-        -- Small delay for combo potential
-        wait(0.3)
-        if math.random() > 0.6 then -- 40% chance for double swing
-            sword:Activate()
-        end
-    end
-end
-
--- Determine AI behavior based on RNG and situation
-local function determineState(distance)
-    if tick() - lastStateChange < CONFIG.BEHAVIOR_CHANGE_TIME then
-        return currentState
+-- Pathfinding to target
+local function PathfindToTarget(target)
+    if not target or not target.Character or not target.Character:FindFirstChild("HumanoidRootPart") then
+        return
     end
     
-    local rng = math.random()
-    lastStateChange = tick()
+    local targetPosition = target.Character.HumanoidRootPart.Position
     
-    if distance < CONFIG.RETREAT_RANGE then
-        return AIState.RETREATING
-    elseif distance > CONFIG.CHARGE_RANGE then
-        return AIState.CHARGING
-    else
-        -- Random tactical behavior
-        if rng < 0.3 then
-            return AIState.AGGRESSIVE
-        elseif rng < 0.5 then
-            return AIState.DEFENSIVE
-        elseif rng < 0.7 then
-            return AIState.LURING
-        else
-            return AIState.AGGRESSIVE
-        end
-    end
-end
-
--- Create path to target
-local function createPath(targetPosition)
+    -- Create a new path
     local path = PathfindingService:CreatePath({
         AgentRadius = 2,
         AgentHeight = 5,
-        AgentCanJump = true,
-        AgentJumpHeight = 7.5,
-        AgentMaxSlope = 45,
-        WaypointSpacing = 3
+        AgentCanJump = true
     })
     
+    -- Compute the path
     local success, errorMessage = pcall(function()
-        path:ComputeAsync(RootPart.Position, targetPosition)
+        path:ComputeAsync(HumanoidRootPart.Position, targetPosition)
     end)
     
     if success and path.Status == Enum.PathStatus.Success then
-        return path:GetWaypoints()
-    end
-    
-    return nil
-end
-
--- Move along path
-local function moveAlongPath()
-    if not pathWaypoints or #pathWaypoints == 0 then
-        return
-    end
-    
-    if currentWaypointIndex <= #pathWaypoints then
-        local waypoint = pathWaypoints[currentWaypointIndex]
-        local waypointPosition = waypoint.Position
+        CurrentPath = path
+        Waypoints = path:GetWaypoints()
+        CurrentWaypointIndex = 1
         
-        -- Move to waypoint
-        Humanoid:MoveTo(waypointPosition)
-        
-        -- Check if need to jump (rare due to sword gravity)
-        if waypoint.Action == Enum.PathWaypointAction.Jump and math.random() < CONFIG.JUMP_CHANCE then
-            Humanoid.Jump = true
+        if CONFIG.DEBUG_MODE then
+            print("Path created with " .. #Waypoints .. " waypoints")
         end
-        
-        -- Check if reached waypoint
-        local distance = (waypointPosition - Vector3.new(RootPart.Position.X, waypointPosition.Y, RootPart.Position.Z)).Magnitude
-        if distance < 5 then
-            currentWaypointIndex = currentWaypointIndex + 1
-        end
-    end
-end
-
--- Execute tactical movement based on state
-local function executeTacticalMovement(target, distance)
-    local targetRootPart = target:FindFirstChild("HumanoidRootPart")
-    if not targetRootPart then return end
-    
-    if currentState == AIState.AGGRESSIVE then
-        -- Direct approach
-        pathWaypoints = createPath(targetRootPart.Position)
-        currentWaypointIndex = 1
-        
-    elseif currentState == AIState.DEFENSIVE then
-        -- Circle around target
-        local angle = tick() * 2
-        local circleRadius = 8
-        local circlePosition = targetRootPart.Position + Vector3.new(
-            math.sin(angle) * circleRadius,
-            0,
-            math.cos(angle) * circleRadius
-        )
-        Humanoid:MoveTo(circlePosition)
-        
-    elseif currentState == AIState.LURING then
-        -- Move back and forth
-        local direction = (RootPart.Position - targetRootPart.Position).Unit
-        local retreatPosition = RootPart.Position + direction * 5
-        local advancePosition = RootPart.Position - direction * 3
-        
-        if tick() % 3 < 1.5 then
-            Humanoid:MoveTo(retreatPosition)
-        else
-            Humanoid:MoveTo(advancePosition)
-        end
-        
-    elseif currentState == AIState.CHARGING then
-        -- Sprint directly at target
-        Humanoid.WalkSpeed = 20 -- Temporary speed boost
-        pathWaypoints = createPath(targetRootPart.Position)
-        currentWaypointIndex = 1
-        
-    elseif currentState == AIState.RETREATING then
-        -- Back away from target
-        local direction = (RootPart.Position - targetRootPart.Position).Unit
-        local retreatPosition = RootPart.Position + direction * 10
-        Humanoid:MoveTo(retreatPosition)
-        Humanoid.WalkSpeed = 16
-    end
-end
-
--- Main AI loop
-local mainLoop
-mainLoop = RunService.Heartbeat:Connect(function()
-    if not isEnabled or not Character or not Character.Parent then
-        return
-    end
-    
-    -- Ensure sword is equipped
-    equipSword()
-    
-    -- Find and validate target
-    currentTarget, targetDistance = findNearestTarget()
-    
-    if currentTarget then
-        local targetRootPart = currentTarget:FindFirstChild("HumanoidRootPart")
-        if targetRootPart and targetDistance <= CONFIG.ATTACK_RANGE then
-            -- Update state
-            currentState = determineState(targetDistance)
-            
-            -- Execute movement
-            executeTacticalMovement(currentTarget, targetDistance)
-            
-            -- Move along computed path
-            if pathWaypoints and #pathWaypoints > 0 then
-                moveAlongPath()
-            end
-            
-            -- Attack if in range
-            if targetDistance <= CONFIG.SWING_RANGE then
-                swingSword()
-            end
-            
-            -- Reset walk speed if not charging
-            if currentState ~= AIState.CHARGING then
-                Humanoid.WalkSpeed = 16
-            end
-        else
-            -- No target in range, idle or patrol
-            Humanoid:MoveTo(RootPart.Position)
-            currentState = AIState.AGGRESSIVE
-        end
-    end
-end)
-
--- GUI for control
-local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "AIControlGui"
-ScreenGui.ResetOnSpawn = false
-ScreenGui.Parent = game:GetService("CoreGui")
-
-local Frame = Instance.new("Frame")
-Frame.Size = UDim2.new(0, 200, 0, 100)
-Frame.Position = UDim2.new(0, 10, 0.5, -50)
-Frame.BackgroundColor3 = Color3.new(0.1, 0.1, 0.1)
-Frame.BorderSizePixel = 0
-Frame.Parent = ScreenGui
-
-local ToggleButton = Instance.new("TextButton")
-ToggleButton.Size = UDim2.new(1, -20, 0, 30)
-ToggleButton.Position = UDim2.new(0, 10, 0, 10)
-ToggleButton.Text = "AI: ON"
-ToggleButton.TextColor3 = Color3.new(0, 1, 0)
-ToggleButton.BackgroundColor3 = Color3.new(0.2, 0.2, 0.2)
-ToggleButton.Parent = Frame
-
-local StateLabel = Instance.new("TextLabel")
-StateLabel.Size = UDim2.new(1, -20, 0, 30)
-StateLabel.Position = UDim2.new(0, 10, 0, 50)
-StateLabel.Text = "State: " .. currentState
-StateLabel.TextColor3 = Color3.new(1, 1, 1)
-StateLabel.BackgroundTransparency = 1
-StateLabel.Parent = Frame
-
-ToggleButton.MouseButton1Click:Connect(function()
-    isEnabled = not isEnabled
-    if isEnabled then
-        ToggleButton.Text = "AI: ON"
-        ToggleButton.TextColor3 = Color3.new(0, 1, 0)
     else
-        ToggleButton.Text = "AI: OFF"
-        ToggleButton.TextColor3 = Color3.new(1, 0, 0)
-        Humanoid:MoveTo(RootPart.Position)
+        if CONFIG.DEBUG_MODE then
+            warn("Path computation failed: " .. tostring(errorMessage))
+        end
+        CurrentPath = nil
+        Waypoints = {}
     end
-end)
+end
 
--- Update state label
-spawn(function()
-    while true do
-        wait(0.5)
-        if StateLabel and StateLabel.Parent then
-            StateLabel.Text = "State: " .. currentState
+-- Move to waypoint
+local function MoveToWaypoint(waypoint)
+    if not waypoint then return end
+    
+    Humanoid:MoveTo(waypoint.Position)
+    
+    -- Handle jumping at waypoints that require it
+    if waypoint.Action == Enum.PathWaypointAction.Jump and JumpCooldown <= 0 then
+        Humanoid.Jump = true
+        JumpCooldown = 1 -- 1 second cooldown on jumps
+    end
+end
+
+-- Tactical decision making with RNG
+local function DecideTactic()
+    local rand = math.random()
+    
+    -- If target is close enough for attack
+    if CurrentTarget and CurrentTarget.Character and 
+       (CurrentTarget.Character.HumanoidRootPart.Position - HumanoidRootPart.Position).Magnitude < 8 then
+        
+        -- Chance to perform a charged attack
+        if rand < CONFIG.CHARGE_ATTACK_CHANCE then
+            return "ChargeAttack"
+        -- Chance to perform a feint
+        elseif rand < CONFIG.CHARGE_ATTACK_CHANCE + CONFIG.FEINT_CHANCE then
+            return "Feint"
+        -- Otherwise regular attack
+        else
+            return "Attack"
+        end
+    else
+        -- If target is further away, decide between approach and defensive
+        if rand < CONFIG.DEFENSIVE_CHANCE then
+            return "Defensive"
+        else
+            return "Approach"
         end
     end
-end)
+end
 
--- Cleanup on character death/respawn
-Humanoid.Died:Connect(function()
-    mainLoop:Disconnect()
-    ScreenGui:Destroy()
-end)
+-- Execute attack with the Linked Sword
+local function ExecuteAttack(attackType)
+    if not LinkedSword then
+        LinkedSword = FindLinkedSword()
+        if not LinkedSword then return end
+    end
+    
+    -- Equip the sword if it's not already equipped
+    if LinkedSword.Parent ~= Character then
+        LinkedSword.Parent = Character
+    end
+    
+    -- Different attack types
+    if attackType == "Attack" then
+        -- Regular attack - simple click
+        LinkedSword:Activate()
+        LastAttackTime = tick()
+    elseif attackType == "ChargeAttack" then
+        -- Charged attack - hold and release
+        mouse1press()
+        wait(0.5) -- Hold for half a second
+        mouse1release()
+        LastAttackTime = tick() + 0.5 -- Additional cooldown for charged attacks
+    elseif attackType == "Feint" then
+        -- Feint - start attack motion but cancel with movement
+        LinkedSword:Activate()
+        wait(0.1)
+        -- Quick direction change to simulate feint
+        local targetPos = HumanoidRootPart.Position + HumanoidRootPart.CFrame.LookVector * -3
+        Humanoid:MoveTo(targetPos)
+        wait(0.2)
+        -- Re-engage after feint
+        if CurrentTarget and CurrentTarget.Character then
+            Humanoid:MoveTo(CurrentTarget.Character.HumanoidRootPart.Position)
+        end
+        LastAttackTime = tick() - 0.5 -- Reduced cooldown for feints to allow quick follow-up
+    end
+end
 
-LocalPlayer.CharacterAdded:Connect(function(newCharacter)
-    Character = newCharacter
-    Humanoid = newCharacter:WaitForChild("Humanoid")
-    RootPart = newCharacter:WaitForChild("HumanoidRootPart")
-end)
+-- Strategic jumping with physics consideration
+local function ExecuteStrategicJump()
+    if JumpCooldown <= 0 and math.random() < CONFIG.JUMP_CHANCE then
+        -- Calculate jump direction based on target position
+        if CurrentTarget and CurrentTarget.Character then
+            local targetPos = CurrentTarget.Character.HumanoidRootPart.Position
+            local direction = (targetPos - HumanoidRootPart.Position).Unit
+            
+            -- Jump toward or away from target based on situation
+            if (targetPos - HumanoidRootPart.Position).Magnitude < 5 then
+                -- Jump backward if too close
+                Humanoid:MoveTo(HumanoidRootPart.Position - direction * 5)
+            else
+                -- Jump toward target
+                Humanoid:MoveTo(HumanoidRootPart.Position + direction * 5)
+            end
+            
+            Humanoid.Jump = true
+            JumpCooldown = 2 -- 2 second cooldown on strategic jumps
+        end
+    end
+end
 
-print("AI Sword Fighter loaded! Toggle with GUI button.")
+-- Main update loop
+local function Update()
+    -- Update cooldowns
+    if JumpCooldown > 0 then
+        JumpCooldown = JumpCooldown - RunService.Heartbeat:Wait()
+    end
+    
+    -- Find or validate current target
+    if not CurrentTarget or not IsValidTarget(CurrentTarget) then
+        CurrentTarget = FindNearestPlayer()
+    end
+    
+    -- If we have a target, execute AI behavior
+    if CurrentTarget then
+        -- Update pathfinding periodically
+        if not CurrentPath or tick() % CONFIG.PATHFINDING_UPDATE_RATE < 0.01 then
+            PathfindToTarget(CurrentTarget)
+        end
+        
+        -- Follow current path
+        if CurrentPath and CurrentWaypointIndex <= #Waypoints then
+            local currentWaypoint = Waypoints[CurrentWaypointIndex]
+            MoveToWaypoint(currentWaypoint)
+            
+            -- Check if we've reached the waypoint
+            if (HumanoidRootPart.Position - currentWaypoint.Position).Magnitude < 3 then
+                CurrentWaypointIndex = CurrentWaypointIndex + 1
+            end
+        end
+        
+        -- Face the target
+        if CurrentTarget.Character and CurrentTarget.Character:FindFirstChild("HumanoidRootPart") then
+            local targetPosition = CurrentTarget.Character.HumanoidRootPart.Position
+            HumanoidRootPart.CFrame = CFrame.lookAt(HumanoidRootPart.Position, Vector3.new(targetPosition.X, HumanoidRootPart.Position.Y, targetPosition.Z))
+        end
+        
+        -- Execute combat tactics
+        if tick() - LastAttackTime > CONFIG.ATTACK_COOLDOWN then
+            local tactic = DecideTactic()
+            
+            if tactic == "Attack" or tactic == "ChargeAttack" or tactic == "Feint" then
+                ExecuteAttack(tactic)
+            elseif tactic == "Defensive" then
+                -- In defensive mode, wait for player to approach
+                -- Occasionally perform strategic jumps
+                if math.random() < CONFIG.JUMP_CHANCE * 2 then -- Double jump chance in defensive mode
+                    ExecuteStrategicJump()
+                end
+            end
+        end
+        
+        -- Consider strategic jumping
+        ExecuteStrategicJump()
+    end
+end
+
+-- Initialize the script
+local function Initialize()
+    print("Linked Sword AI Combat Script initialized")
+    
+    -- Find the Linked Sword
+    LinkedSword = FindLinkedSword()
+    if not LinkedSword then
+        warn("Linked Sword not found! Please equip it first.")
+    end
+    
+    -- Connect to RunService for the main loop
+    RunService:BindToRenderStep("LinkedSwordAI", Enum.RenderPriority.Character.Value, Update)
+    
+    -- Handle character respawning
+    LocalPlayer.CharacterAdded:Connect(function(newCharacter)
+        Character = newCharacter
+        Humanoid = Character:WaitForChild("Humanoid")
+        HumanoidRootPart = Character:WaitForChild("HumanoidRootPart")
+        LinkedSword = FindLinkedSword()
+    end)
+end
+
+-- Start the script
+Initialize()
