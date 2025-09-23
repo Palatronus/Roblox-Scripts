@@ -482,26 +482,34 @@ local function InitializeAI()
     
     -- Check if path to target is safe (no voids)
     local function IsSafePath(targetPosition)
-        -- Performance optimization: Check cache first
+        -- Performance optimization: Check cache first using hash-based lookup
         if CONFIG.PERFORMANCE_MODE then
             local currentTime = tick()
-            for cachedPath, data in pairs(persistentData.PathCache) do
-                if (Vector3.new(cachedPath.x, cachedPath.y, cachedPath.z) - targetPosition).Magnitude < 5 and 
-                   currentTime - data.time < CONFIG.PATH_CACHE_TIME then
-                    debugPrint("PATH", "Using cached path result: " .. (data.safe and "SAFE" or "UNSAFE"))
-                    return data.safe, data.bridgePath, data.alternativePath
-                end
+            -- Create a hash key for faster lookup (rounded to nearest unit)
+            local hashKey = math.floor(targetPosition.X) .. "," .. 
+                           math.floor(targetPosition.Y) .. "," .. 
+                           math.floor(targetPosition.Z)
+            
+            local data = persistentData.PathCache[hashKey]
+            if data and currentTime - data.time < CONFIG.PATH_CACHE_TIME then
+                debugPrint("PATH", "Using cached path result: " .. (data.safe and "SAFE" or "UNSAFE"))
+                return data.safe, data.bridgePath, data.alternativePath
             end
         end
         
         -- Start performance tracking
         local startTime = tick()
         
-        -- Check if this path has failed recently
-        for _, failedPath in ipairs(persistentData.FailedPaths) do
-            if (targetPosition - failedPath.position).Magnitude < 5 and 
-               tick() - failedPath.time < 10 then
-                return false
+        -- Check if this path has failed recently using a more efficient approach
+        local failedPathsCount = #persistentData.FailedPaths
+        if failedPathsCount > 0 then
+            -- Check most recent failed paths first (more likely to be relevant)
+            for i = failedPathsCount, math.max(1, failedPathsCount - 3), -1 do
+                local failedPath = persistentData.FailedPaths[i]
+                if failedPath and (targetPosition - failedPath.position).Magnitude < 5 and 
+                   tick() - failedPath.time < 10 then
+                    return false
+                end
             end
         end
         
@@ -532,27 +540,38 @@ local function InitializeAI()
                             time = tick()
                         })
                         
-                        -- Cache the result
+                        -- Cache the result with hash key
                         if CONFIG.PERFORMANCE_MODE then
-                            persistentData.PathCache[targetPosition] = {
+                            local hashKey = math.floor(targetPosition.X) .. "," .. 
+                                           math.floor(targetPosition.Y) .. "," .. 
+                                           math.floor(targetPosition.Z)
+                            
+                            persistentData.PathCache[hashKey] = {
                                 safe = false,
                                 time = tick(),
                                 bridgePath = nil
                             }
                             
-                            -- Limit cache size
-                            local cacheSize = 0
-                            for _ in pairs(persistentData.PathCache) do cacheSize = cacheSize + 1 end
-                            if cacheSize > 20 then
-                                local oldestTime = math.huge
-                                local oldestKey = nil
+                            -- Limit cache size more efficiently
+                            persistentData.PathCacheCount = (persistentData.PathCacheCount or 0) + 1
+                            if persistentData.PathCacheCount > 20 then
+                                -- Clear oldest 25% of cache when limit reached
+                                local cacheEntries = {}
                                 for k, v in pairs(persistentData.PathCache) do
-                                    if v.time < oldestTime then
-                                        oldestTime = v.time
-                                        oldestKey = k
+                                    table.insert(cacheEntries, {key = k, time = v.time})
+                                end
+                                
+                                -- Sort by time (oldest first)
+                                table.sort(cacheEntries, function(a, b) return a.time < b.time end)
+                                
+                                -- Remove oldest 25%
+                                local removeCount = math.floor(persistentData.PathCacheCount * 0.25)
+                                for i = 1, removeCount do
+                                    if cacheEntries[i] then
+                                        persistentData.PathCache[cacheEntries[i].key] = nil
                                     end
                                 end
-                                if oldestKey then persistentData.PathCache[oldestKey] = nil end
+                                persistentData.PathCacheCount = persistentData.PathCacheCount - removeCount
                             end
                         end
                         
@@ -589,12 +608,17 @@ local function InitializeAI()
                         return true, bridgePath
                     end
                     
-                    -- Try alternative paths if direct path is unsafe
+                    -- Try alternative paths if direct path is unsafe (optimized)
+                    -- Pre-calculate common values outside the loop
+                    local halfDistance = distance * 0.5
+                    local piDivided = math.pi / CONFIG.ALTERNATIVE_PATH_COUNT
+                    local upVector = Vector3.new(0, 1, 0)
+                    
                     for altIndex = 1, CONFIG.ALTERNATIVE_PATH_COUNT do
-                        -- Try different angles
-                        local angle = (altIndex / CONFIG.ALTERNATIVE_PATH_COUNT) * math.pi
-                        local altDirection = CFrame.fromAxisAngle(Vector3.new(0, 1, 0), angle) * direction
-                        local altTargetPos = startPos + altDirection * (distance * 0.5)
+                        -- Try different angles (optimized calculation)
+                        local angle = altIndex * piDivided
+                        local altDirection = CFrame.fromAxisAngle(upVector, angle) * direction
+                        local altTargetPos = startPos + altDirection * halfDistance
                         
                         -- Check if this alternative path is safe
                         local altSafe = true
