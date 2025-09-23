@@ -1,5 +1,5 @@
--- LinkedSwordAI_Professional.lua
--- Professional version with smart pathfinding and advanced combat behaviors
+-- LinkedSwordAI_Optimized.lua
+-- Optimized version with robust navigation and performance improvements
 
 -- Force print function to ensure output is visible
 local function forcePrint(...)
@@ -9,489 +9,346 @@ local function forcePrint(...)
         message = message .. tostring(v) .. (i < #args and " " or "")
     end
     
-    -- Try multiple output methods to ensure visibility
     print(message)
     warn(message)
-    
-    -- Also try rconsoleprint if available (for some executors)
     pcall(function() rconsoleprint(message .. "\n") end)
 end
 
-forcePrint("LinkedSwordAI: Professional script starting...")
+forcePrint("LinkedSwordAI: Optimized script starting...")
 
--- Professional Configuration
+-- Optimized Configuration
 local CONFIG = {
     DETECTION_RADIUS = 100,
     ATTACK_RANGE = 15,
     ATTACK_COOLDOWN = 0.8,
     LUNGE_DELAY = 0.1,
-    STUCK_CHECK_DISTANCE = 1.5,
-    STUCK_CHECK_TIME = 1.0,
     MAX_TARGET_DISTANCE = 150,
     RETARGET_CHECK_TIME = 1.0,
     VOID_CHECK_DISTANCE = 50,
-    VOID_Y_THRESHOLD = -10,
+    VOID_Y_THRESHOLD = -20, -- More conservative threshold
     FORCEFIELD_FLEE_DISTANCE = 30,
     SWORD_CHECK_INTERVAL = 5,
-    -- Professional settings
     EQUIP_DELAY = 1.0,
-    PATH_REFRESH_RATE = 0.3,
-    COMBAT_MODE_DURATION = 3, -- Seconds before switching combat style
-    STRAFING_RANGE = 10,
-    AGGRESSIVE_CHARGE_DISTANCE = 8,
-    RETREAT_DISTANCE = 5,
-    NAVIGATION_RAYCAST_DISTANCE = 30,
-    BRIDGE_DETECTION_WIDTH = 5,
-    OBSTACLE_AVOIDANCE_DISTANCE = 3
+    PATH_REFRESH_RATE = 0.5, -- Reduced frequency for performance
+    NAVIGATION_UPDATE_INTERVAL = 0.3,
+    WAYPOINT_DISTANCE = 8,
+    HILL_NAVIGATION_ANGLE = 35 -- Degrees for hill climbing
 }
 
--- Create a status GUI with combat mode display
+-- Lightweight status GUI
 local function CreateStatusGUI()
-    forcePrint("LinkedSwordAI: Creating professional status GUI...")
+    local success, ScreenGui = pcall(function()
+        local gui = Instance.new("ScreenGui")
+        gui.Name = "LinkedSwordAI_Optimized"
+        gui.Parent = game:GetService("CoreGui")
+        return gui
+    end)
     
-    local ScreenGui = Instance.new("ScreenGui")
-    ScreenGui.Name = "LinkedSwordAI_Professional"
-    
-    local success = false
-    local parentMethods = {
-        function() ScreenGui.Parent = game:GetService("CoreGui") end,
-        function() ScreenGui.Parent = game.Players.LocalPlayer.PlayerGui end,
-        function() ScreenGui.Parent = game.Players.LocalPlayer:FindFirstChildOfClass("PlayerGui") end
-    }
-    
-    for _, method in ipairs(parentMethods) do
-        success = pcall(method)
-        if success then
-            forcePrint("LinkedSwordAI: Successfully parented GUI")
-            break
-        end
-    end
-    
-    if not success then
-        forcePrint("LinkedSwordAI: WARNING - Could not create GUI, continuing without visual feedback")
-        return nil
-    end
+    if not success then return nil end
     
     local Frame = Instance.new("Frame")
-    Frame.Size = UDim2.new(0, 220, 0, 140) -- Increased height for combat mode
+    Frame.Size = UDim2.new(0, 200, 0, 80)
     Frame.Position = UDim2.new(0, 10, 0, 10)
     Frame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
     Frame.BackgroundTransparency = 0.5
     Frame.BorderSizePixel = 2
     Frame.Parent = ScreenGui
     
-    local Title = Instance.new("TextLabel")
-    Title.Size = UDim2.new(1, 0, 0, 20)
-    Title.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
-    Title.TextColor3 = Color3.fromRGB(255, 255, 255)
-    Title.Text = "LinkedSword AI (Professional)"
-    Title.Font = Enum.Font.SourceSansBold
-    Title.TextSize = 14
-    Title.Parent = Frame
+    local labels = {}
+    local labelNames = {"Status", "Target", "Distance", "Navigation"}
     
-    local Status = Instance.new("TextLabel")
-    local Target = Instance.new("TextLabel")
-    local Distance = Instance.new("TextLabel")
-    local CombatMode = Instance.new("TextLabel") -- New combat mode display
-    
-    Status.Size = UDim2.new(1, 0, 0, 20)
-    Status.Position = UDim2.new(0, 0, 0, 20)
-    Status.BackgroundTransparency = 1
-    Status.TextColor3 = Color3.fromRGB(255, 255, 255)
-    Status.Text = "Status: Initializing..."
-    Status.Font = Enum.Font.SourceSans
-    Status.TextSize = 14
-    Status.TextXAlignment = Enum.TextXAlignment.Left
-    Status.Parent = Frame
-    
-    Target.Size = UDim2.new(1, 0, 0, 20)
-    Target.Position = UDim2.new(0, 0, 0, 40)
-    Target.BackgroundTransparency = 1
-    Target.TextColor3 = Color3.fromRGB(255, 255, 255)
-    Target.Text = "Target: None"
-    Target.Font = Enum.Font.SourceSans
-    Target.TextSize = 14
-    Target.TextXAlignment = Enum.TextXAlignment.Left
-    Target.Parent = Frame
-    
-    Distance.Size = UDim2.new(1, 0, 0, 20)
-    Distance.Position = UDim2.new(0, 0, 0, 60)
-    Distance.BackgroundTransparency = 1
-    Distance.TextColor3 = Color3.fromRGB(255, 255, 255)
-    Distance.Text = "Distance: N/A"
-    Distance.Font = Enum.Font.SourceSans
-    Distance.TextSize = 14
-    Distance.TextXAlignment = Enum.TextXAlignment.Left
-    Distance.Parent = Frame
-    
-    CombatMode.Size = UDim2.new(1, 0, 0, 20)
-    CombatMode.Position = UDim2.new(0, 0, 0, 80)
-    CombatMode.BackgroundTransparency = 1
-    CombatMode.TextColor3 = Color3.fromRGB(0, 255, 255)
-    CombatMode.Text = "Combat: None"
-    CombatMode.Font = Enum.Font.SourceSans
-    CombatMode.TextSize = 14
-    CombatMode.TextXAlignment = Enum.TextXAlignment.Left
-    CombatMode.Parent = Frame
-    
-    local Debug = Instance.new("TextLabel")
-    Debug.Size = UDim2.new(1, 0, 0, 20)
-    Debug.Position = UDim2.new(0, 0, 0, 100)
-    Debug.BackgroundTransparency = 1
-    Debug.TextColor3 = Color3.fromRGB(255, 255, 0)
-    Debug.Text = "Debug: Ready"
-    Debug.Font = Enum.Font.SourceSans
-    Debug.TextSize = 14
-    Debug.TextXAlignment = Enum.TextXAlignment.Left
-    Debug.Parent = Frame
+    for i, name in ipairs(labelNames) do
+        local label = Instance.new("TextLabel")
+        label.Size = UDim2.new(1, 0, 0, 20)
+        label.Position = UDim2.new(0, 0, 0, (i-1)*20)
+        label.BackgroundTransparency = 1
+        label.TextColor3 = Color3.fromRGB(255, 255, 255)
+        label.Text = name .. ": N/A"
+        label.Font = Enum.Font.SourceSans
+        label.TextSize = 12
+        label.TextXAlignment = Enum.TextXAlignment.Left
+        label.Parent = Frame
+        labels[name] = label
+    end
     
     local statusInterface = {}
-    
-    function statusInterface.UpdateStatus(text)
-        if Status then
-            Status.Text = "Status: " .. text
-        end
-    end
-    
-    function statusInterface.UpdateTarget(text)
-        if Target then
-            Target.Text = "Target: " .. text
-        end
-    end
-    
-    function statusInterface.UpdateDistance(distance)
-        if Distance then
-            Distance.Text = "Distance: " .. (distance and string.format("%.1f", distance) or "N/A")
-        end
-    end
-    
-    function statusInterface.UpdateCombatMode(mode)
-        if CombatMode then
-            CombatMode.Text = "Combat: " .. mode
-        end
-    end
-    
-    function statusInterface.UpdateDebug(text)
-        if Debug then
-            Debug.Text = "Debug: " .. text
+    for name, label in pairs(labels) do
+        statusInterface["Update" .. name] = function(text)
+            if label then
+                label.Text = name .. ": " .. (text or "N/A")
+            end
         end
     end
     
     return statusInterface
 end
 
--- Smart pathfinding system
-local function CreatePathfinder()
-    local pathfinder = {}
+-- Robust navigation system for Heights map
+local function CreateNavigationSystem()
+    local nav = {}
+    nav.LastNavigationUpdate = 0
+    nav.CurrentWaypoint = nil
+    nav.AlternativeRouteActive = false
+    nav.KnownSafePaths = {}
     
-    -- Improved void detection that's less paranoid
-    function pathfinder.IsVoidArea(position, character)
-        -- Less strict Y threshold check
+    -- Performance-optimized void detection
+    function nav.IsPositionSafe(position, character)
         if position.Y < CONFIG.VOID_Y_THRESHOLD then
-            return true
+            return false, "below threshold"
         end
         
-        -- Check for immediate ground below (more lenient)
+        -- Quick ground check
         local rayOrigin = position + Vector3.new(0, 2, 0)
-        local rayDirection = Vector3.new(0, -10, 0) -- Shorter ray
+        local rayDirection = Vector3.new(0, -15, 0)
         local rayParams = RaycastParams.new()
         rayParams.FilterDescendantsInstances = {character}
         rayParams.FilterType = Enum.RaycastFilterType.Blacklist
         
-        local raycastResult = workspace:Raycast(rayOrigin, rayDirection, rayParams)
-        return raycastResult == nil
+        local result = workspace:Raycast(rayOrigin, rayDirection, rayParams)
+        if not result then
+            return false, "no ground"
+        end
+        
+        return true, "safe"
     end
     
-    -- Smart path assessment for bridges and narrow passages
-    function pathfinder.FindSafePath(startPos, targetPos, character)
+    -- Height map navigation for hill and bridge areas
+    function nav.FindSafePathToTarget(startPos, targetPos, character)
         local direction = (targetPos - startPos).Unit
         local distance = (targetPos - startPos).Magnitude
         
-        -- Check for bridges by testing multiple points across potential gap
-        local function IsBridgePresent(checkDistance)
-            local checkPoint = startPos + direction * checkDistance
-            
-            -- Test multiple points across potential bridge width
-            for offset = -CONFIG.BRIDGE_DETECTION_WIDTH, CONFIG.BRIDGE_DETECTION_WIDTH, 2 do
-                local perpendicular = direction:Cross(Vector3.new(0, 1, 0)).Unit * offset
-                local testPoint = checkPoint + perpendicular
-                
-                if not pathfinder.IsVoidArea(testPoint, character) then
-                    return true -- Bridge detected
-                end
-            end
-            return false
+        -- Check immediate path
+        local immediateCheck = startPos + direction * math.min(10, distance)
+        local isSafe, reason = nav.IsPositionSafe(immediateCheck, character)
+        
+        if not isSafe then
+            -- Try alternative routes for Heights map
+            return nav.FindAlternativeRoute(startPos, targetPos, character)
         end
         
-        -- Check critical points along path
-        local checkPoints = {5, 10, 15, 20, 25}
-        
-        for _, checkDist in ipairs(checkPoints) do
-            if checkDist > distance then break end
+        -- Check intermediate points (reduced frequency for performance)
+        for i = 15, math.min(distance, 50), 15 do
+            local checkPoint = startPos + direction * i
+            isSafe, reason = nav.IsPositionSafe(checkPoint, character)
             
-            local checkPoint = startPos + direction * checkDist
-            
-            -- If this point is void, check if there's a bridge
-            if pathfinder.IsVoidArea(checkPoint, character) then
-                if not IsBridgePresent(checkDist) then
-                    return false, "Unsafe path at distance " .. checkDist
-                else
-                    forcePrint("LinkedSwordAI: Bridge detected, proceeding safely")
-                end
+            if not isSafe then
+                return nav.FindAlternativeRoute(startPos, targetPos, character)
             end
         end
         
-        return true, "Path clear"
+        return targetPos, "direct"
     end
     
-    -- Obstacle avoidance for narrow passages
-    function pathfinder.AvoidObstacles(currentPos, targetPos, character)
-        local direction = (targetPos - currentPos).Unit
+    -- Alternative route finding for Heights map
+    function nav.FindAlternativeRoute(startPos, targetPos, character)
+        local direction = (targetPos - startPos).Unit
+        local distance = (targetPos - startPos).Magnitude
         
-        -- Check for immediate obstacles
-        local rayParams = RaycastParams.new()
-        rayParams.FilterDescendantsInstances = {character}
-        rayParams.FilterType = Enum.RaycastFilterType.Blacklist
+        -- Strategy 1: Hill navigation (go around through interior)
+        local hillRoute = nav.AttemptHillNavigation(startPos, targetPos, character)
+        if hillRoute then
+            return hillRoute, "hill route"
+        end
         
-        local obstacleCheck = workspace:Raycast(currentPos, direction * CONFIG.OBSTACLE_AVOIDANCE_DISTANCE, rayParams)
+        -- Strategy 2: Bridge detection and navigation
+        local bridgeRoute = nav.AttemptBridgeNavigation(startPos, targetPos, character)
+        if bridgeRoute then
+            return bridgeRoute, "bridge route"
+        end
         
-        if obstacleCheck then
-            -- Try alternative paths
-            local alternatives = {
-                direction:Cross(Vector3.new(0, 1, 0)), -- Left
-                direction:Cross(Vector3.new(0, -1, 0)), -- Right
-                (direction + Vector3.new(0, 0.3, 0)).Unit -- Upward
-            }
+        -- Strategy 3: Conservative approach (don't fall)
+        local safeRetreat = startPos - direction * 5
+        if nav.IsPositionSafe(safeRetreat, character) then
+            return safeRetreat, "safe retreat"
+        end
+        
+        -- Last resort: Stay put
+        return startPos, "no safe path"
+    end
+    
+    -- Hill navigation for accessing bridge through interior
+    function nav.AttemptHillNavigation(startPos, targetPos, character)
+        local direction = (targetPos - startPos).Unit
+        local horizontalDir = Vector3.new(direction.X, 0, direction.Z).Unit
+        
+        -- Try angled approach for hills
+        local hillAngles = {30, -30, 45, -45} -- Degrees
+        
+        for _, angle in ipairs(hillAngles) do
+            local radians = math.rad(angle)
+            local hillDir = horizontalDir * math.cos(radians) + Vector3.new(0, math.sin(radians), 0)
+            local testPos = startPos + hillDir * 12
             
-            for _, altDir in ipairs(alternatives) do
-                local altCheck = workspace:Raycast(currentPos, altDir * CONFIG.OBSTACLE_AVOIDANCE_DISTANCE, rayParams)
-                if not altCheck then
-                    forcePrint("LinkedSwordAI: Avoiding obstacle by moving " .. (altDir == alternatives[1] and "left" or altDir == alternatives[2] and "right" or "up"))
-                    return currentPos + altDir * 3 -- Small adjustment
-                end
+            if nav.IsPositionSafe(testPos, character) then
+                return testPos
             end
         end
         
-        return targetPos -- No obstacles, proceed normally
+        return nil
     end
     
-    return pathfinder
-end
-
--- Professional combat system
-local function CreateCombatManager()
-    local combat = {}
-    combat.CurrentMode = "Defensive"
-    combat.LastModeChange = 0
-    combat.StrafeDirection = 1 -- 1 for right, -1 for left
-    
-    -- Randomly select combat mode
-    function combat.SelectCombatMode()
-        local modes = {"Defensive", "Offensive", "Offensive-Defensive"}
-        local weights = {0.4, 0.3, 0.3} -- Defensive slightly more common
+    -- Bridge navigation detection
+    function nav.AttemptBridgeNavigation(startPos, targetPos, character)
+        local direction = (targetPos - startPos).Unit
+        local horizontalDir = Vector3.new(direction.X, 0, direction.Z).Unit
         
-        local random = math.random()
-        local cumulative = 0
+        -- Check for bridge by testing elevated path
+        local elevatedPos = startPos + Vector3.new(0, 5, 0) + horizontalDir * 15
+        if nav.IsPositionSafe(elevatedPos, character) then
+            return elevatedPos
+        end
         
-        for i, weight in ipairs(weights) do
-            cumulative = cumulative + weight
-            if random <= cumulative then
-                combat.CurrentMode = modes[i]
-                combat.LastModeChange = tick()
-                return modes[i]
+        -- Check side paths (common in Heights map)
+        local sideDirs = {
+            horizontalDir:Cross(Vector3.new(0, 1, 0)), -- Left
+            horizontalDir:Cross(Vector3.new(0, -1, 0)) -- Right
+        }
+        
+        for _, sideDir in ipairs(sideDirs) do
+            local sidePos = startPos + sideDir * 8 + horizontalDir * 10
+            if nav.IsPositionSafe(sidePos, character) then
+                return sidePos
             end
         end
         
-        combat.CurrentMode = "Defensive"
-        combat.LastModeChange = tick()
-        return "Defensive"
+        return nil
     end
     
-    -- Execute behavior based on current combat mode
-    function combat.ExecuteCombatBehavior(humanoid, targetPosition, currentPosition, distance, statusGUI)
+    -- Performance-optimized navigation update
+    function nav.UpdateNavigation(humanoid, targetPos, currentPos, character, statusGUI)
         local currentTime = tick()
         
-        -- Change mode periodically
-        if currentTime - combat.LastModeChange > CONFIG.COMBAT_MODE_DURATION then
-            local newMode = combat.SelectCombatMode()
-            forcePrint("LinkedSwordAI: Switching to " .. newMode .. " combat mode")
-            if statusGUI then
-                statusGUI.UpdateCombatMode(newMode)
-            end
+        -- Throttle navigation updates for performance
+        if currentTime - nav.LastNavigationUpdate < CONFIG.NAVIGATION_UPDATE_INTERVAL then
+            return nav.CurrentWaypoint or currentPos
         end
         
-        -- Face the target naturally
-        combat.FaceTarget(targetPosition, currentPosition, humanoid)
+        nav.LastNavigationUpdate = currentTime
         
-        -- Execute mode-specific behavior
-        if combat.CurrentMode == "Defensive" then
-            return combat.DefensiveBehavior(humanoid, targetPosition, distance)
-        elseif combat.CurrentMode == "Offensive" then
-            return combat.OffensiveBehavior(humanoid, targetPosition, distance)
-        else -- Offensive-Defensive
-            return combat.OffensiveDefensiveBehavior(humanoid, targetPosition, distance, currentTime)
+        local safeTarget, pathType = nav.FindSafePathToTarget(currentPos, targetPos, character)
+        
+        if statusGUI then
+            statusGUI.UpdateNavigation(pathType)
         end
+        
+        nav.CurrentWaypoint = safeTarget
+        return safeTarget
     end
     
-    -- Natural target facing
-    function combat.FaceTarget(targetPosition, currentPosition, humanoid)
-        local lookVector = (targetPosition - currentPosition).Unit
-        humanoid:MoveTo(currentPosition + lookVector * 0.1) -- Tiny movement to face direction
-    end
+    return nav
+end
+
+-- Optimized combat system
+local function CreateCombatManager()
+    local combat = {}
+    combat.LastCombatUpdate = 0
+    combat.CurrentMode = "Balanced"
     
-    -- Defensive behavior: Wait and swing from distance
-    function combat.DefensiveBehavior(humanoid, targetPosition, distance)
-        if distance > CONFIG.STRAFING_RANGE then
-            humanoid:MoveTo(targetPosition) -- Approach cautiously
+    function combat.UpdateCombat(humanoid, targetPos, currentPos, distance, statusGUI)
+        local currentTime = tick()
+        
+        -- Reduced update frequency for performance
+        if currentTime - combat.LastCombatUpdate < 0.5 then
+            return combat.CurrentMode
+        end
+        
+        combat.LastCombatUpdate = currentTime
+        
+        -- Simple mode selection based on distance
+        if distance > 20 then
+            combat.CurrentMode = "Approaching"
+        elseif distance > 8 then
+            combat.CurrentMode = "Balanced"
         else
-            humanoid:MoveTo(humanoid.Parent.HumanoidRootPart.Position) -- Stay in place
-        end
-        return "waiting" -- Don't attack immediately
-    end
-    
-    -- Offensive behavior: Direct aggression
-    function combat.OffensiveBehavior(humanoid, targetPosition, distance)
-        if distance > CONFIG.AGGRESSIVE_CHARGE_DISTANCE then
-            humanoid:MoveTo(targetPosition) -- Charge forward
-        else
-            -- Small movements to maintain optimal distance
-            local direction = (targetPosition - humanoid.Parent.HumanoidRootPart.Position).Unit
-            local optimalPosition = targetPosition - direction * 3
-            humanoid:MoveTo(optimalPosition)
-        end
-        return "attack" -- Always try to attack
-    end
-    
-    -- Offensive-Defensive behavior: Strafing and tactical movement
-    function combat.OffensiveDefensiveBehavior(humanoid, targetPosition, distance, currentTime)
-        local rootPart = humanoid.Parent.HumanoidRootPart
-        local currentPos = rootPart.Position
-        
-        -- Change strafe direction periodically
-        if math.random(1, 100) < 10 then -- 10% chance to change direction
-            combat.StrafeDirection = -combat.StrafeDirection
+            combat.CurrentMode = "Aggressive"
         end
         
-        if distance > CONFIG.STRAFING_RANGE then
-            humanoid:MoveTo(targetPosition) -- Approach
-        else
-            -- Strafing movement
-            local toTarget = (targetPosition - currentPos).Unit
-            local strafeDir = toTarget:Cross(Vector3.new(0, 1, 0)).Unit * combat.StrafeDirection
-            local strafePos = currentPos + strafeDir * 2 + toTarget * 1
-            
-            -- Occasionally retreat
-            if math.random(1, 100) < 15 then -- 15% chance to retreat briefly
-                strafePos = currentPos - toTarget * CONFIG.RETREAT_DISTANCE
-                forcePrint("LinkedSwordAI: Tactical retreat")
-            end
-            
-            humanoid:MoveTo(strafePos)
+        if statusGUI then
+            statusGUI.UpdateStatus(combat.CurrentMode)
         end
-        return "attack" -- Attack while moving
+        
+        return combat.CurrentMode
+    end
+    
+    function combat.ExecuteCombatBehavior(humanoid, targetPos, currentPos, distance, mode)
+        -- Face target
+        local lookVector = (targetPos - currentPos).Unit
+        humanoid:MoveTo(currentPos + lookVector * 0.1)
+        
+        -- Mode-based behavior
+        if mode == "Approaching" then
+            humanoid:MoveTo(targetPos)
+        elseif mode == "Balanced" then
+            -- Small strafing movements
+            local strafeDir = lookVector:Cross(Vector3.new(0, 1, 0)).Unit * (tick() % 2 > 1 and 1 or -1)
+            humanoid:MoveTo(currentPos + strafeDir * 2 + lookVector * 1)
+        else -- Aggressive
+            humanoid:MoveTo(targetPos)
+        end
     end
     
     return combat
 end
 
--- Main execution with professional systems
+-- Main optimized execution
 local function InitializeAI()
-    forcePrint("LinkedSwordAI: Initializing professional AI...")
+    forcePrint("LinkedSwordAI: Initializing optimized AI...")
     
-    -- Persistent data with new professional fields
-    if not _G.LinkedSwordAIPersistentData then
-        _G.LinkedSwordAIPersistentData = {
+    -- Minimal persistent data
+    if not _G.LinkedSwordAIData then
+        _G.LinkedSwordAIData = {
             StatusGUI = nil,
             LinkedSword = nil,
-            SwordToolName = nil,
             CurrentTarget = nil,
             LastAttackTime = 0,
             LastRetargetTime = 0,
-            LastSwordCheckTime = 0,
-            StuckStartTime = 0,
-            IsStuck = false,
-            AttackSequenceActive = false,
-            PlayersWithForceField = {},
-            -- Professional fields
-            Pathfinder = nil,
-            CombatManager = nil,
-            LastPathUpdate = 0,
-            CurrentDestination = nil,
-            IsEquipping = false,
-            LastForceFieldCheck = 0
+            Navigation = nil,
+            Combat = nil,
+            LastCleanup = tick()
         }
     end
     
-    local persistentData = _G.LinkedSwordAIPersistentData
+    local data = _G.LinkedSwordAIData
     
-    -- Initialize professional systems
-    if not persistentData.Pathfinder then
-        persistentData.Pathfinder = CreatePathfinder()
+    -- Initialize systems
+    if not data.Navigation then
+        data.Navigation = CreateNavigationSystem()
     end
     
-    if not persistentData.CombatManager then
-        persistentData.CombatManager = CreateCombatManager()
+    if not data.Combat then
+        data.Combat = CreateCombatManager()
     end
     
-    -- Create or reuse status GUI
-    if not persistentData.StatusGUI then
-        persistentData.StatusGUI = CreateStatusGUI()
+    if not data.StatusGUI then
+        data.StatusGUI = CreateStatusGUI()
     end
     
-    if persistentData.StatusGUI then
-        persistentData.StatusGUI.UpdateStatus("Initializing...")
-        persistentData.StatusGUI.UpdateDebug("Loading systems...")
+    if data.StatusGUI then
+        data.StatusGUI.UpdateStatus("Initializing")
     end
     
-    -- Get necessary services
+    -- Get services
     local Players = game:GetService("Players")
     local LocalPlayer = Players.LocalPlayer
     local RunService = game:GetService("RunService")
     
-    if not LocalPlayer then
-        forcePrint("LinkedSwordAI: ERROR - LocalPlayer not found")
-        return
-    end
+    if not LocalPlayer then return end
     
-    -- Wait for character to load with proper timing
-    local Character = LocalPlayer.Character
-    if not Character then
-        Character = LocalPlayer.CharacterAdded:Wait()
-        wait(0.8) -- Wait for character to fully initialize
-    end
+    -- Wait for character
+    local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+    wait(0.5) -- Reduced wait time
     
-    if not Character then
-        forcePrint("LinkedSwordAI: ERROR - Character not found")
-        return
-    end
+    local Humanoid = Character:WaitForChild("Humanoid", 3)
+    local HumanoidRootPart = Character:WaitForChild("HumanoidRootPart", 3)
     
-    local Humanoid = Character:WaitForChild("Humanoid", 5)
-    local HumanoidRootPart = Character:WaitForChild("HumanoidRootPart", 5)
+    if not Humanoid or not HumanoidRootPart then return end
     
-    if not Humanoid or not HumanoidRootPart then
-        forcePrint("LinkedSwordAI: ERROR - Humanoid or HumanoidRootPart not found")
-        return
-    end
-    
-    -- Enhanced sword equipping (unchanged from previous version)
-    local function EquipLinkedSword()
-        if persistentData.IsEquipping then return persistentData.LinkedSword end
-        persistentData.IsEquipping = true
-        
-        wait(CONFIG.EQUIP_DELAY)
-        
-        local function FindLinkedSword()
-            if persistentData.SwordToolName then
-                local tool = Character:FindFirstChild(persistentData.SwordToolName)
-                if tool and tool:IsA("Tool") then
-                    forcePrint("LinkedSwordAI: Found sword: " .. tool.Name)
-                    return tool
-                end
-            end
-            
+    -- Optimized sword equipping
+    local function EquipSword()
+        local function FindSword()
             for _, item in pairs(Character:GetChildren()) do
                 if item:IsA("Tool") then
-                    persistentData.SwordToolName = item.Name
+                    data.LinkedSword = item
                     return item
                 end
             end
@@ -500,14 +357,10 @@ local function InitializeAI()
             if Backpack then
                 for _, item in pairs(Backpack:GetChildren()) do
                     if item:IsA("Tool") then
-                        persistentData.SwordToolName = item.Name
-                        local success = pcall(function() Humanoid:EquipTool(item) end)
-                        if success then
-                            wait(0.2)
-                            local equippedTool = Character:FindFirstChild(item.Name)
-                            if equippedTool then return equippedTool end
-                        end
-                        return item
+                        pcall(function() Humanoid:EquipTool(item) end)
+                        wait(0.2)
+                        data.LinkedSword = Character:FindFirstChild(item.Name) or item
+                        return data.LinkedSword
                     end
                 end
             end
@@ -515,307 +368,186 @@ local function InitializeAI()
             return nil
         end
         
-        persistentData.LinkedSword = FindLinkedSword()
-        persistentData.IsEquipping = false
-        return persistentData.LinkedSword
-    end
-    
-    local function CheckForSword()
-        local currentTime = tick()
-        if currentTime - persistentData.LastSwordCheckTime > CONFIG.SWORD_CHECK_INTERVAL then
-            persistentData.LastSwordCheckTime = currentTime
-            if not persistentData.LinkedSword or not persistentData.LinkedSword.Parent then
-                return EquipLinkedSword()
-            end
-        end
-        return persistentData.LinkedSword
-    end
-    
-    -- Initial equipment
-    spawn(function()
         wait(CONFIG.EQUIP_DELAY)
-        EquipLinkedSword()
-    end)
+        return FindSword()
+    end
     
-    -- Smart player detection (unchanged)
+    -- Initial equip
+    spawn(EquipSword)
+    
+    -- Performance-optimized player finding
     local function FindPlayersInRange()
         local playersInRange = {}
-        local playersWithFF = {}
-        local currentTime = tick()
-        local shouldUpdateFF = currentTime - persistentData.LastForceFieldCheck > 0.5
+        local currentPos = HumanoidRootPart.Position
         
         for _, player in pairs(Players:GetPlayers()) do
             if player ~= LocalPlayer and player.Character then
-                local humanoidRootPart = player.Character:FindFirstChild("HumanoidRootPart")
-                local humanoid = player.Character:FindFirstChild("Humanoid")
+                local hrp = player.Character:FindFirstChild("HumanoidRootPart")
+                local hum = player.Character:FindFirstChild("Humanoid")
                 
-                if humanoidRootPart and humanoid and humanoid.Health > 0 then
-                    local distance = (humanoidRootPart.Position - HumanoidRootPart.Position).Magnitude
+                if hrp and hum and hum.Health > 0 then
+                    local distance = (hrp.Position - currentPos).Magnitude
                     
                     if distance <= CONFIG.MAX_TARGET_DISTANCE then
-                        local hasForceField = false
-                        if shouldUpdateFF then
-                            hasForceField = player.Character:FindFirstChild("ForceField") ~= nil
-                        else
-                            hasForceField = persistentData.PlayersWithForceField[player] == true
-                        end
-                        
-                        if hasForceField then
-                            playersWithFF[player] = true
-                        else
-                            table.insert(playersInRange, {
-                                Player = player,
-                                Distance = distance,
-                                HumanoidRootPart = humanoidRootPart
-                            })
-                        end
+                        -- Skip forcefield check for performance (assume no forcefield)
+                        table.insert(playersInRange, {
+                            Player = player,
+                            Distance = distance,
+                            Position = hrp.Position
+                        })
                     end
                 end
             end
         end
         
-        if shouldUpdateFF then
-            persistentData.PlayersWithForceField = playersWithFF
-            persistentData.LastForceFieldCheck = currentTime
-        end
+        table.sort(playersInRange, function(a, b)
+            return a.Distance < b.Distance
+        end)
         
-        table.sort(playersInRange, function(a, b) return a.Distance < b.Distance end)
         return playersInRange
     end
     
-    -- Professional movement system
-    local function SmartMoveTo(targetPosition)
-        local currentTime = tick()
-        if currentTime - persistentData.LastPathUpdate < CONFIG.PATH_REFRESH_RATE then
-            return
-        end
-        
-        persistentData.LastPathUpdate = currentTime
-        
-        -- Use smart pathfinding to check safety
-        local isSafe, reason = persistentData.Pathfinder.FindSafePath(
-            HumanoidRootPart.Position, 
-            targetPosition, 
-            Character
-        )
-        
-        if isSafe then
-            -- Avoid obstacles in narrow passages
-            local finalPosition = persistentData.Pathfinder.AvoidObstacles(
-                HumanoidRootPart.Position,
-                targetPosition,
-                Character
-            )
-            
-            Humanoid:MoveTo(finalPosition)
-            persistentData.CurrentDestination = finalPosition
-        else
-            forcePrint("LinkedSwordAI: Path unsafe - " .. reason)
-            -- Try to find alternative path by moving to a safer position first
-            local direction = (targetPosition - HumanoidRootPart.Position).Unit
-            local safeRetreat = HumanoidRootPart.Position - direction * 5
-            if not persistentData.Pathfinder.IsVoidArea(safeRetreat, Character) then
-                Humanoid:MoveTo(safeRetreat)
-            end
-        end
-    end
-    
-    -- Enhanced attack execution
+    -- Optimized attack function
     local function ExecuteAttack()
-        if not persistentData.LinkedSword or persistentData.AttackSequenceActive then
+        if not data.LinkedSword or tick() - data.LastAttackTime < CONFIG.ATTACK_COOLDOWN then
             return
         end
         
-        persistentData.AttackSequenceActive = true
-        persistentData.LastAttackTime = tick()
-        
-        if persistentData.StatusGUI then
-            persistentData.StatusGUI.UpdateStatus("Attacking")
-        end
-        
-        local function PerformAttack(attackNumber)
-            pcall(function() 
-                if persistentData.LinkedSword and persistentData.LinkedSword.Parent then
-                    persistentData.LinkedSword:Activate()
-                end
-            end)
-        end
+        data.LastAttackTime = tick()
         
         spawn(function()
-            PerformAttack(1)
-            wait(CONFIG.LUNGE_DELAY)
-            PerformAttack(2)
-            wait(CONFIG.LUNGE_DELAY)
-            PerformAttack(3)
-            wait(0.1)
-            persistentData.AttackSequenceActive = false
+            for i = 1, 3 do
+                pcall(function() 
+                    if data.LinkedSword and data.LinkedSword.Parent then
+                        data.LinkedSword:Activate()
+                    end
+                end)
+                wait(CONFIG.LUNGE_DELAY)
+            end
         end)
     end
     
-    -- Forcefield handling (unchanged)
-    local function HandleFleeFromForceField()
-        local closestFFPlayer = nil
-        local closestDistance = math.huge
-        
-        for player, _ in pairs(persistentData.PlayersWithForceField) do
-            if player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
-                local distance = (player.Character.HumanoidRootPart.Position - HumanoidRootPart.Position).Magnitude
-                if distance < closestDistance then
-                    closestDistance = distance
-                    closestFFPlayer = player
-                end
-            end
+    -- Performance-optimized cleanup
+    local function PerformCleanup()
+        local currentTime = tick()
+        if currentTime - data.LastCleanup > 10 then -- Cleanup every 10 seconds
+            data.LastCleanup = currentTime
+            collectgarbage("step") -- Minimal garbage collection
         end
-        
-        if closestFFPlayer and closestFFPlayer.Character then
-            local ffHRP = closestFFPlayer.Character.HumanoidRootPart
-            if ffHRP and closestDistance < CONFIG.FORCEFIELD_FLEE_DISTANCE then
-                if persistentData.StatusGUI then 
-                    persistentData.StatusGUI.UpdateStatus("Fleeing from FF")
-                end
-                
-                local fleeDir = (HumanoidRootPart.Position - ffHRP.Position).Unit
-                local fleePos = HumanoidRootPart.Position + fleeDir * 10
-                
-                if not persistentData.Pathfinder.IsVoidArea(fleePos, Character) then
-                    Humanoid:MoveTo(fleePos)
-                    return true
-                end
-            end
-        end
-        
-        return false
     end
     
-    -- Professional update loop
+    -- Main optimized update loop
+    local lastUpdate = 0
+    local updateConnection
+    
     local function Update()
-        CheckForSword()
-        
-        if next(persistentData.PlayersWithForceField) ~= nil then
-            if HandleFleeFromForceField() then return end
-        end
-        
-        local playersInRange = FindPlayersInRange()
         local currentTime = tick()
         
-        -- Target selection with smart pathfinding
-        if #playersInRange > 0 and (not persistentData.CurrentTarget or 
-           currentTime - persistentData.LastRetargetTime > CONFIG.RETARGET_CHECK_TIME) then
+        -- Throttle update frequency for performance
+        if currentTime - lastUpdate < 0.1 then -- 10 FPS max
+            return
+        end
+        lastUpdate = currentTime
+        
+        PerformCleanup()
+        
+        -- Find targets
+        local playersInRange = FindPlayersInRange()
+        
+        -- Target selection
+        if #playersInRange > 0 and (not data.CurrentTarget or 
+           currentTime - data.LastRetargetTime > CONFIG.RETARGET_CHECK_TIME) then
             
-            persistentData.LastRetargetTime = currentTime
+            data.LastRetargetTime = currentTime
+            data.CurrentTarget = playersInRange[1].Player
             
-            for _, playerData in ipairs(playersInRange) do
-                local targetPlayer = playerData.Player
-                local targetHRP = playerData.HumanoidRootPart
-                
-                local isSafe, reason = persistentData.Pathfinder.FindSafePath(
-                    HumanoidRootPart.Position, 
-                    targetHRP.Position, 
-                    Character
-                )
-                
-                if isSafe then
-                    persistentData.CurrentTarget = targetPlayer
-                    
-                    if persistentData.StatusGUI then
-                        persistentData.StatusGUI.UpdateTarget(targetPlayer.Name)
-                        persistentData.StatusGUI.UpdateCombatMode("Selecting...")
-                    end
-                    
-                    forcePrint("LinkedSwordAI: New target - " .. targetPlayer.Name)
-                    persistentData.CombatManager.SelectCombatMode() -- Initialize combat mode
-                    break
-                else
-                    forcePrint("LinkedSwordAI: Path to " .. targetPlayer.Name .. " unsafe - " .. reason)
-                end
+            if data.StatusGUI then
+                data.StatusGUI.UpdateTarget(data.CurrentTarget.Name)
             end
         end
         
-        -- Professional combat engagement
-        if persistentData.CurrentTarget and persistentData.CurrentTarget.Character then
-            local targetChar = persistentData.CurrentTarget.Character
+        -- Target engagement
+        if data.CurrentTarget and data.CurrentTarget.Character then
+            local targetChar = data.CurrentTarget.Character
             local targetHRP = targetChar:FindFirstChild("HumanoidRootPart")
-            local targetHumanoid = targetChar:FindFirstChild("Humanoid")
+            local targetHum = targetChar:FindFirstChild("Humanoid")
             
-            if targetHRP and targetHumanoid and targetHumanoid.Health > 0 then
+            if targetHRP and targetHum and targetHum.Health > 0 then
                 local distance = (targetHRP.Position - HumanoidRootPart.Position).Magnitude
                 
-                if persistentData.StatusGUI then
-                    persistentData.StatusGUI.UpdateDistance(distance)
+                if data.StatusGUI then
+                    data.StatusGUI.UpdateDistance(string.format("%.1f", distance))
                 end
                 
-                -- Execute professional combat behavior
-                local combatAction = persistentData.CombatManager.ExecuteCombatBehavior(
-                    Humanoid, 
-                    targetHRP.Position, 
-                    HumanoidRootPart.Position, 
-                    distance, 
-                    persistentData.StatusGUI
+                -- Robust navigation to target
+                local safePosition = data.Navigation.UpdateNavigation(
+                    Humanoid,
+                    targetHRP.Position,
+                    HumanoidRootPart.Position,
+                    Character,
+                    data.StatusGUI
                 )
                 
-                -- Attack based on combat behavior decision
-                if combatAction == "attack" and distance <= CONFIG.ATTACK_RANGE and 
-                   persistentData.LinkedSword and 
-                   currentTime - persistentData.LastAttackTime > CONFIG.ATTACK_COOLDOWN then
+                -- Combat behavior
+                local combatMode = data.Combat.UpdateCombat(
+                    Humanoid,
+                    targetHRP.Position,
+                    HumanoidRootPart.Position,
+                    distance,
+                    data.StatusGUI
+                )
+                
+                data.Combat.ExecuteCombatBehavior(
+                    Humanoid,
+                    targetHRP.Position,
+                    HumanoidRootPart.Position,
+                    distance,
+                    combatMode
+                )
+                
+                -- Attack if in range
+                if distance <= CONFIG.ATTACK_RANGE then
                     ExecuteAttack()
                 end
             else
-                persistentData.CurrentTarget = nil
+                data.CurrentTarget = nil
             end
         else
-            persistentData.CurrentTarget = nil
-            if persistentData.StatusGUI then
-                persistentData.StatusGUI.UpdateTarget("None")
-                persistentData.StatusGUI.UpdateCombatMode("None")
-                persistentData.StatusGUI.UpdateStatus("Searching")
+            data.CurrentTarget = nil
+            if data.StatusGUI then
+                data.StatusGUI.UpdateTarget("None")
+                data.StatusGUI.UpdateStatus("Searching")
             end
         end
     end
     
-    -- Main loop
-    local updateConnection
-    updateConnection = RunService.Heartbeat:Connect(function()
-        local success, err = pcall(Update)
-        if not success then
-            forcePrint("LinkedSwordAI: Update error - " .. tostring(err))
-        end
-    end)
+    updateConnection = RunService.Heartbeat:Connect(Update)
     
-    -- Handle character death
+    -- Cleanup on death
     Humanoid.Died:Connect(function()
-        forcePrint("LinkedSwordAI: Character died")
         if updateConnection then
             updateConnection:Disconnect()
         end
     end)
     
-    forcePrint("LinkedSwordAI: Professional initialization complete")
-    if persistentData.StatusGUI then
-        persistentData.StatusGUI.UpdateStatus("Ready")
-        persistentData.StatusGUI.UpdateDebug("Professional AI active")
+    if data.StatusGUI then
+        data.StatusGUI.UpdateStatus("Active")
     end
 end
 
--- Enhanced respawn handling
+-- Optimized respawn handling
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 
 if LocalPlayer then
-    LocalPlayer.CharacterAdded:Connect(function(character)
-        forcePrint("LinkedSwordAI: Character respawned, initializing...")
-        wait(1.2) -- Increased wait for full character load
+    LocalPlayer.CharacterAdded:Connect(function()
+        wait(1)
         InitializeAI()
     end)
 end
 
--- Start the AI
-local success, err = pcall(function()
-    wait(1)
-    InitializeAI()
-end)
+-- Start with delay
+wait(2)
+InitializeAI()
 
-if not success then
-    forcePrint("LinkedSwordAI: Failed to initialize - " .. tostring(err))
-end
-
-forcePrint("LinkedSwordAI: Professional script execution complete")
+forcePrint("LinkedSwordAI: Optimized script loaded")
