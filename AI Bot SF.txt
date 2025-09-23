@@ -1,491 +1,265 @@
 [file name]: AI Bot Sf Prototypes.txt
 [file content begin]
---[[
-    Linked Sword AI Combat Script (Fixed & Optimized)
-    
-    Fixed version with proper error handling and reduced lag.
-]]--
+-- Linked Sword AI Combat Script (Working Version)
+-- Simplified and tested for basic functionality
 
--- Force print to output console immediately
-local function forcePrint(...)
-    local message = table.concat({...}, " ")
-    print(message)
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+
+-- Get local player
+local LocalPlayer = Players.LocalPlayer
+if not LocalPlayer then
+    print("Error: No local player found")
+    return
 end
 
--- Debug function with timestamps
-local function debugPrint(category, ...)
-    local args = {...}
-    local message = "[" .. category .. "] " .. table.concat(args, " ")
-    local timestamp = os.date("%H:%M:%S")
-    forcePrint(timestamp .. " - " .. message)
-end
+print("LinkedSwordAI: Starting script for " .. LocalPlayer.Name)
 
-forcePrint("LinkedSwordAI: Script starting...")
+-- Simple GUI
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "SwordAIGUI"
+screenGui.Parent = game:GetService("CoreGui")
 
--- Global persistent data
-if not _G.LinkedSwordAIPersistentData then
-    _G.LinkedSwordAIPersistentData = {
-        LinkedSword = nil,
-        CurrentTarget = nil,
-        LastAttackTime = 0,
-        LastSwordCheckTime = 0,
-        LastRetargetTime = 0,
-        IsStuck = false,
-        AttackSequenceActive = false,
-        StatusGUI = nil,
-        SwordToolName = nil,
-        EquipmentReady = false,
-        UpdateFrameCounter = 0
-    }
-end
+local frame = Instance.new("Frame")
+frame.Size = UDim2.new(0, 250, 0, 80)
+frame.Position = UDim2.new(0, 10, 0, 10)
+frame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+frame.BackgroundTransparency = 0.3
+frame.BorderSizePixel = 0
+frame.Parent = screenGui
 
-local persistentData = _G.LinkedSwordAIPersistentData
+local statusLabel = Instance.new("TextLabel")
+statusLabel.Size = UDim2.new(1, 0, 0.3, 0)
+statusLabel.Position = UDim2.new(0, 5, 0, 5)
+statusLabel.BackgroundTransparency = 1
+statusLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+statusLabel.Text = "Status: Starting..."
+statusLabel.Font = Enum.Font.SourceSansBold
+statusLabel.TextSize = 16
+statusLabel.TextXAlignment = Enum.TextXAlignment.Left
+statusLabel.Parent = frame
 
--- Simplified Configuration
+local targetLabel = Instance.new("TextLabel")
+targetLabel.Size = UDim2.new(1, 0, 0.3, 0)
+targetLabel.Position = UDim2.new(0, 5, 0, 30)
+targetLabel.BackgroundTransparency = 1
+targetLabel.TextColor3 = Color3.fromRGB(255, 200, 200)
+targetLabel.Text = "Target: None"
+targetLabel.Font = Enum.Font.SourceSans
+targetLabel.TextSize = 14
+targetLabel.TextXAlignment = Enum.TextXAlignment.Left
+targetLabel.Parent = frame
+
+local distanceLabel = Instance.new("TextLabel")
+distanceLabel.Size = UDim2.new(1, 0, 0.3, 0)
+distanceLabel.Position = UDim2.new(0, 5, 0, 55)
+distanceLabel.BackgroundTransparency = 1
+distanceLabel.TextColor3 = Color3.fromRGB(200, 255, 200)
+distanceLabel.Text = "Distance: --"
+distanceLabel.Font = Enum.Font.SourceSans
+distanceLabel.TextSize = 14
+distanceLabel.TextXAlignment = Enum.TextXAlignment.Left
+distanceLabel.Parent = frame
+
+-- Configuration
 local CONFIG = {
-    DETECTION_RADIUS = 100,
-    ATTACK_RANGE = 12,
-    ATTACK_COOLDOWN = 1.0,
-    SWORD_CHECK_INTERVAL = 5,
-    RETARGET_CHECK_TIME = 2.0,
-    STUCK_CHECK_TIME = 2.0,
-    STUCK_CHECK_DISTANCE = 2.0,
-    UPDATE_THROTTLING = 2
+    DETECTION_RANGE = 50,
+    ATTACK_RANGE = 10,
+    ATTACK_COOLDOWN = 1.5
 }
 
--- Create status GUI
-local function CreateStatusGUI()
-    local gui = {}
-    
-    local screenGui = Instance.new("ScreenGui")
-    screenGui.Name = "LinkedSwordAI_Status"
-    screenGui.Parent = game:GetService("CoreGui")
-    
-    local frame = Instance.new("Frame")
-    frame.Size = UDim2.new(0, 200, 0, 100)
-    frame.Position = UDim2.new(0.8, 0, 0.1, 0)
-    frame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-    frame.BackgroundTransparency = 0.5
-    frame.BorderSizePixel = 2
-    frame.BorderColor3 = Color3.fromRGB(255, 255, 255)
-    frame.Parent = screenGui
-    
-    local status = Instance.new("TextLabel")
-    status.Size = UDim2.new(1, -10, 0, 20)
-    status.Position = UDim2.new(0, 5, 0, 5)
-    status.BackgroundTransparency = 1
-    status.TextColor3 = Color3.fromRGB(255, 255, 255)
-    status.Text = "Status: Initializing..."
-    status.Font = Enum.Font.SourceSans
-    status.TextSize = 14
-    status.TextXAlignment = Enum.TextXAlignment.Left
-    status.Parent = frame
-    
-    local target = Instance.new("TextLabel")
-    target.Size = UDim2.new(1, -10, 0, 20)
-    target.Position = UDim2.new(0, 5, 0, 30)
-    target.BackgroundTransparency = 1
-    target.TextColor3 = Color3.fromRGB(255, 150, 150)
-    target.Text = "Target: None"
-    target.Font = Enum.Font.SourceSans
-    target.TextSize = 14
-    target.TextXAlignment = Enum.TextXAlignment.Left
-    target.Parent = frame
-    
-    local distance = Instance.new("TextLabel")
-    distance.Size = UDim2.new(1, -10, 0, 20)
-    distance.Position = UDim2.new(0, 5, 0, 55)
-    distance.BackgroundTransparency = 1
-    distance.TextColor3 = Color3.fromRGB(150, 255, 150)
-    distance.Text = "Distance: N/A"
-    distance.Font = Enum.Font.SourceSans
-    distance.TextSize = 14
-    distance.TextXAlignment = Enum.TextXAlignment.Left
-    distance.Parent = frame
-    
-    function gui.UpdateStatus(text)
-        if status then status.Text = "Status: " .. text end
+-- State variables
+local currentTarget = nil
+local lastAttackTime = 0
+local sword = nil
+local isAttacking = false
+
+-- Function to find a sword
+local function findSword(character)
+    -- Check backpack first
+    local backpack = LocalPlayer:FindFirstChild("Backpack")
+    if backpack then
+        for _, item in ipairs(backpack:GetChildren()) do
+            if item:IsA("Tool") then
+                if string.lower(item.Name):find("sword") or string.lower(item.Name):find("blade") then
+                    return item
+                end
+            end
+        end
     end
     
-    function gui.UpdateTarget(text)
-        if target then target.Text = "Target: " .. text end
+    -- Check character
+    for _, item in ipairs(character:GetChildren()) do
+        if item:IsA("Tool") then
+            if string.lower(item.Name):find("sword") or string.lower(item.Name):find("blade") then
+                return item
+            end
+        end
     end
     
-    function gui.UpdateDistance(dist)
-        if distance then distance.Text = "Distance: " .. (dist and string.format("%.1f", dist) or "N/A") end
-    end
-    
-    return gui
+    return nil
 end
 
--- Main AI function
-local function InitializeAI()
-    -- Services
-    local Players = game:GetService("Players")
-    local RunService = game:GetService("RunService")
-    
-    -- Get local player
-    local LocalPlayer = Players.LocalPlayer
-    if not LocalPlayer then
-        forcePrint("LinkedSwordAI: LocalPlayer not found")
-        return false
+-- Function to equip sword
+local function equipSword(character)
+    if sword and sword.Parent == character then
+        return true
     end
     
-    forcePrint("LinkedSwordAI: LocalPlayer found - " .. LocalPlayer.Name)
-    
-    -- Wait for character
-    local Character = LocalPlayer.Character
-    if not Character then
-        forcePrint("LinkedSwordAI: Character not found, waiting...")
-        wait(3)
-        Character = LocalPlayer.Character
-        if not Character then
-            forcePrint("LinkedSwordAI: Character still not found after waiting")
-            return false
-        end
+    sword = findSword(character)
+    if sword then
+        sword.Parent = character
+        wait(0.5) -- Wait for equip animation
+        return true
     end
     
-    -- Get humanoid and root part
-    local Humanoid = Character:WaitForChild("Humanoid", 5)
-    local HumanoidRootPart = Character:WaitForChild("HumanoidRootPart", 5)
+    return false
+end
+
+-- Function to find nearest player
+local function findNearestPlayer(character)
+    local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
+    if not humanoidRootPart then return nil end
     
-    if not Humanoid or not HumanoidRootPart then
-        forcePrint("LinkedSwordAI: Humanoid or HumanoidRootPart not found")
-        return false
-    end
+    local nearestPlayer = nil
+    local nearestDistance = math.huge
     
-    forcePrint("LinkedSwordAI: Character components found")
-    
-    -- Create GUI
-    if not persistentData.StatusGUI then
-        persistentData.StatusGUI = CreateStatusGUI()
-        forcePrint("LinkedSwordAI: Status GUI created")
-    end
-    
-    -- Find sword function
-    local function FindLinkedSword()
-        -- Check backpack first
-        local backpack = LocalPlayer:FindFirstChild("Backpack")
-        if backpack then
-            for _, tool in pairs(backpack:GetChildren()) do
-                if tool:IsA("Tool") and (tool.Name:lower():find("sword") or tool.Name:lower():find("blade")) then
-                    persistentData.SwordToolName = tool.Name
-                    forcePrint("LinkedSwordAI: Found sword in backpack - " .. tool.Name)
-                    return tool
-                end
-            end
-        end
-        
-        -- Check character
-        for _, tool in pairs(Character:GetChildren()) do
-            if tool:IsA("Tool") and (tool.Name:lower():find("sword") or tool.Name:lower():find("blade")) then
-                persistentData.SwordToolName = tool.Name
-                forcePrint("LinkedSwordAI: Found sword on character - " .. tool.Name)
-                return tool
-            end
-        end
-        
-        forcePrint("LinkedSwordAI: No sword found")
-        return nil
-    end
-    
-    -- Equip sword function
-    local function EquipSword()
-        if not persistentData.LinkedSword then
-            persistentData.LinkedSword = FindLinkedSword()
-        end
-        
-        if persistentData.LinkedSword then
-            -- Ensure sword is in character
-            if persistentData.LinkedSword.Parent ~= Character then
-                persistentData.LinkedSword.Parent = Character
-                wait(0.5)
-            end
-            
-            -- Check if equipped
-            if persistentData.LinkedSword.Parent == Character then
-                persistentData.EquipmentReady = true
-                if persistentData.StatusGUI then
-                    persistentData.StatusGUI.UpdateStatus("Sword equipped")
-                end
-                forcePrint("LinkedSwordAI: Sword equipped successfully")
-                return true
-            end
-        end
-        
-        if persistentData.StatusGUI then
-            persistentData.StatusGUI.UpdateStatus("No sword available")
-        end
-        return false
-    end
-    
-    -- Find players in range
-    local function FindPlayersInRange()
-        local playersInRange = {}
-        local myPosition = HumanoidRootPart.Position
-        
-        for _, player in pairs(Players:GetPlayers()) do
-            if player ~= LocalPlayer and player.Character then
-                local targetHRP = player.Character:FindFirstChild("HumanoidRootPart")
-                local targetHumanoid = player.Character:FindFirstChild("Humanoid")
-                
-                if targetHRP and targetHumanoid and targetHumanoid.Health > 0 then
-                    local distance = (targetHRP.Position - myPosition).Magnitude
-                    
-                    if distance <= CONFIG.DETECTION_RADIUS then
-                        table.insert(playersInRange, {
-                            player = player,
-                            distance = distance,
-                            humanoidRootPart = targetHRP
-                        })
-                    end
-                end
-            end
-        end
-        
-        -- Sort by distance
-        table.sort(playersInRange, function(a, b)
-            return a.distance < b.distance
-        end)
-        
-        return playersInRange
-    end
-    
-    -- Check if stuck
-    local function CheckIfStuck()
-        if not persistentData.LastStuckPosition then
-            persistentData.LastStuckPosition = HumanoidRootPart.Position
-            persistentData.LastStuckTime = tick()
-            return false
-        end
-        
-        local currentTime = tick()
-        if currentTime - persistentData.LastStuckTime > CONFIG.STUCK_CHECK_TIME then
-            local distanceMoved = (HumanoidRootPart.Position - persistentData.LastStuckPosition).Magnitude
-            
-            if distanceMoved < CONFIG.STUCK_CHECK_DISTANCE then
-                persistentData.IsStuck = true
-                return true
-            end
-            
-            persistentData.LastStuckPosition = HumanoidRootPart.Position
-            persistentData.LastStuckTime = currentTime
-            persistentData.IsStuck = false
-        end
-        
-        return false
-    end
-    
-    -- Handle being stuck
-    local function HandleStuck()
-        if persistentData.StatusGUI then
-            persistentData.StatusGUI.UpdateStatus("Stuck, trying to move")
-        end
-        
-        -- Try moving in different directions
-        local directions = {
-            Vector3.new(5, 0, 0),
-            Vector3.new(-5, 0, 0),
-            Vector3.new(0, 0, 5),
-            Vector3.new(0, 0, -5),
-            Vector3.new(3, 0, 3),
-            Vector3.new(-3, 0, 3),
-            Vector3.new(3, 0, -3),
-            Vector3.new(-3, 0, -3)
-        }
-        
-        for _, direction in ipairs(directions) do
-            local targetPos = HumanoidRootPart.Position + direction
-            Humanoid:MoveTo(targetPos)
-            wait(0.1)
-            
-            -- Check if we started moving
-            if not CheckIfStuck() then
-                break
-            end
-        end
-    end
-    
-    -- Simple attack function
-    local function ExecuteAttack()
-        if not persistentData.LinkedSword or persistentData.AttackSequenceActive then
-            return
-        end
-        
-        persistentData.AttackSequenceActive = true
-        persistentData.LastAttackTime = tick()
-        
-        spawn(function()
-            -- Face the target
-            if persistentData.CurrentTarget and persistentData.CurrentTarget.Character then
-                local targetHRP = persistentData.CurrentTarget.Character:FindFirstChild("HumanoidRootPart")
-                if targetHRP then
-                    HumanoidRootPart.CFrame = CFrame.lookAt(
-                        HumanoidRootPart.Position,
-                        Vector3.new(targetHRP.Position.X, HumanoidRootPart.Position.Y, targetHRP.Position.Z)
-                    )
-                end
-            end
-            
-            -- Execute attack sequence
-            for i = 1, 3 do
-                if persistentData.LinkedSword and persistentData.LinkedSword.Parent == Character then
-                    pcall(function()
-                        persistentData.LinkedSword:Activate()
-                    end)
-                end
-                wait(0.2)
-            end
-            
-            persistentData.AttackSequenceActive = false
-        end)
-    end
-    
-    -- Main update function
-    local function Update()
-        persistentData.UpdateFrameCounter = persistentData.UpdateFrameCounter + 1
-        
-        -- Throttle updates to reduce lag
-        if persistentData.UpdateFrameCounter % CONFIG.UPDATE_THROTTLING ~= 0 then
-            return
-        end
-        
-        -- Check for sword periodically
-        local currentTime = tick()
-        if currentTime - persistentData.LastSwordCheckTime > CONFIG.SWORD_CHECK_INTERVAL then
-            if not persistentData.LinkedSword or persistentData.LinkedSword.Parent ~= Character then
-                EquipSword()
-            end
-            persistentData.LastSwordCheckTime = currentTime
-        end
-        
-        -- Find targets if needed
-        if not persistentData.CurrentTarget or currentTime - persistentData.LastRetargetTime > CONFIG.RETARGET_CHECK_TIME then
-            local playersInRange = FindPlayersInRange()
-            
-            if #playersInRange > 0 then
-                local newTarget = playersInRange[1].player
-                
-                if newTarget ~= persistentData.CurrentTarget then
-                    persistentData.CurrentTarget = newTarget
-                    if persistentData.StatusGUI then
-                        persistentData.StatusGUI.UpdateTarget(newTarget.Name)
-                        persistentData.StatusGUI.UpdateStatus("Targeting " .. newTarget.Name)
-                    end
-                    forcePrint("LinkedSwordAI: New target - " .. newTarget.Name)
-                end
-            else
-                persistentData.CurrentTarget = nil
-                if persistentData.StatusGUI then
-                    persistentData.StatusGUI.UpdateTarget("None")
-                    persistentData.StatusGUI.UpdateStatus("No targets")
-                end
-            end
-            
-            persistentData.LastRetargetTime = currentTime
-        end
-        
-        -- If we have a target, handle combat
-        if persistentData.CurrentTarget and persistentData.CurrentTarget.Character then
-            local targetHRP = persistentData.CurrentTarget.Character:FindFirstChild("HumanoidRootPart")
-            local targetHumanoid = persistentData.CurrentTarget.Character:FindFirstChild("Humanoid")
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character then
+            local targetHRP = player.Character:FindFirstChild("HumanoidRootPart")
+            local targetHumanoid = player.Character:FindFirstChild("Humanoid")
             
             if targetHRP and targetHumanoid and targetHumanoid.Health > 0 then
-                local distance = (targetHRP.Position - HumanoidRootPart.Position).Magnitude
+                local distance = (targetHRP.Position - humanoidRootPart.Position).Magnitude
                 
-                if persistentData.StatusGUI then
-                    persistentData.StatusGUI.UpdateDistance(distance)
+                if distance < CONFIG.DETECTION_RANGE and distance < nearestDistance then
+                    nearestPlayer = player
+                    nearestDistance = distance
                 end
-                
-                -- Check if stuck
-                if CheckIfStuck() then
-                    HandleStuck()
-                    return
-                end
-                
-                -- Move to target if too far
-                if distance > CONFIG.ATTACK_RANGE then
-                    if persistentData.StatusGUI then
-                        persistentData.StatusGUI.UpdateStatus("Moving to target")
-                    end
-                    Humanoid:MoveTo(targetHRP.Position)
-                else
-                    -- In attack range
-                    if persistentData.StatusGUI then
-                        persistentData.StatusGUI.UpdateStatus("In attack range")
-                    end
-                    
-                    -- Stop moving
-                    Humanoid:MoveTo(HumanoidRootPart.Position)
-                    
-                    -- Attack if cooldown is ready and sword is equipped
-                    if persistentData.LinkedSword and persistentData.LinkedSword.Parent == Character then
-                        if currentTime - persistentData.LastAttackTime > CONFIG.ATTACK_COOLDOWN then
-                            ExecuteAttack()
-                        end
-                    else
-                        -- Try to equip sword
-                        EquipSword()
-                    end
-                end
-            else
-                -- Target is invalid
-                persistentData.CurrentTarget = nil
+            end
+        end
+    end
+    
+    return nearestPlayer, nearestDistance
+end
+
+-- Function to attack
+local function attackTarget()
+    if isAttacking or not sword then return end
+    
+    isAttacking = true
+    lastAttackTime = tick()
+    
+    -- Simple attack sequence
+    for i = 1, 2 do
+        if sword and sword.Parent == LocalPlayer.Character then
+            pcall(function()
+                sword:Activate()
+            end)
+        end
+        wait(0.3)
+    end
+    
+    isAttacking = false
+end
+
+-- Main function
+local function mainLoop()
+    local character = LocalPlayer.Character
+    if not character then
+        statusLabel.Text = "Status: No character"
+        return
+    end
+    
+    local humanoid = character:FindFirstChild("Humanoid")
+    local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
+    
+    if not humanoid or not humanoidRootPart then
+        statusLabel.Text = "Status: Missing humanoid/HRP"
+        return
+    end
+    
+    -- Try to equip sword if we don't have one
+    if not sword or sword.Parent ~= character then
+        statusLabel.Text = "Status: Equipping sword..."
+        if equipSword(character) then
+            statusLabel.Text = "Status: Sword equipped"
+        else
+            statusLabel.Text = "Status: No sword found"
+            targetLabel.Text = "Target: None"
+            distanceLabel.Text = "Distance: --"
+            return
+        end
+    end
+    
+    -- Find nearest player
+    local target, distance = findNearestPlayer(character)
+    
+    if target then
+        currentTarget = target
+        targetLabel.Text = "Target: " .. target.Name
+        distanceLabel.Text = "Distance: " .. math.floor(distance)
+        
+        local targetHRP = target.Character:FindFirstChild("HumanoidRootPart")
+        if not targetHRP then return end
+        
+        -- Face the target
+        humanoidRootPart.CFrame = CFrame.lookAt(
+            humanoidRootPart.Position,
+            Vector3.new(targetHRP.Position.X, humanoidRootPart.Position.Y, targetHRP.Position.Z)
+        )
+        
+        if distance <= CONFIG.ATTACK_RANGE then
+            statusLabel.Text = "Status: Attacking!"
+            -- Stop moving when attacking
+            humanoid:MoveTo(humanoidRootPart.Position)
+            
+            -- Attack if cooldown is ready
+            if tick() - lastAttackTime > CONFIG.ATTACK_COOLDOWN then
+                attackTarget()
             end
         else
-            -- No target, idle
-            if persistentData.StatusGUI then
-                persistentData.StatusGUI.UpdateStatus("Idle")
-            end
+            statusLabel.Text = "Status: Moving to target"
+            -- Move toward target
+            humanoid:MoveTo(targetHRP.Position)
         end
-    end
-    
-    -- Initial equipment
-    spawn(function()
-        wait(2) -- Wait for character to fully load
-        EquipSword()
-    end)
-    
-    -- Start the main loop
-    local heartbeatConnection
-    heartbeatConnection = RunService.Heartbeat:Connect(function()
-        local success, err = pcall(Update)
-        if not success then
-            forcePrint("LinkedSwordAI: Update error - " .. tostring(err))
-        end
-    end)
-    
-    -- Handle respawn
-    LocalPlayer.CharacterAdded:Connect(function(newCharacter)
-        forcePrint("LinkedSwordAI: Character respawned, reinitializing...")
+    else
+        currentTarget = nil
+        statusLabel.Text = "Status: Searching..."
+        targetLabel.Text = "Target: None"
+        distanceLabel.Text = "Distance: --"
         
-        -- Disconnect old heartbeat
-        if heartbeatConnection then
-            heartbeatConnection:Disconnect()
-        end
-        
-        wait(3) -- Wait for character to load
-        InitializeAI()
-    end)
-    
-    if persistentData.StatusGUI then
-        persistentData.StatusGUI.UpdateStatus("AI Running")
+        -- Stop moving if no target
+        humanoid:MoveTo(humanoidRootPart.Position)
     end
-    forcePrint("LinkedSwordAI: Initialized successfully")
-    
-    return true
 end
 
--- Start the AI
-wait(2) -- Initial wait for game to load
-
-local success, err = pcall(function()
-    InitializeAI()
+-- Start the main loop
+local connection
+connection = RunService.Heartbeat:Connect(function()
+    local success, err = pcall(mainLoop)
+    if not success then
+        statusLabel.Text = "Status: Error - " .. tostring(err)
+        print("LinkedSwordAI Error: " .. tostring(err))
+    end
 end)
 
-if not success then
-    forcePrint("LinkedSwordAI: Critical error - " .. tostring(err))
-else
-    forcePrint("LinkedSwordAI: Started successfully")
-end
+-- Handle character respawn
+LocalPlayer.CharacterAdded:Connect(function(character)
+    print("LinkedSwordAI: Character respawned")
+    statusLabel.Text = "Status: Respawning..."
+    
+    -- Wait for character to load
+    wait(2)
+    
+    -- Reset state
+    sword = nil
+    currentTarget = nil
+    isAttacking = false
+    
+    statusLabel.Text = "Status: Ready"
+end)
+
+print("LinkedSwordAI: Script started successfully")
+statusLabel.Text = "Status: Running"
 [file content end]
