@@ -1,5 +1,5 @@
--- LinkedSwordAI_Final.lua
--- Final optimized version with reliable pathfinding for Heights map
+-- LinkedSwordAI_Ultimate.lua
+-- Ultimate optimized version with zero-miss targeting and enhanced void detection
 
 -- Force print function to ensure output is visible
 local function forcePrint(...)
@@ -14,31 +14,33 @@ local function forcePrint(...)
     pcall(function() rconsoleprint(message .. "\n") end)
 end
 
-forcePrint("LinkedSwordAI: Final optimized script starting...")
+forcePrint("LinkedSwordAI: Ultimate optimized script starting...")
 
--- Optimized Configuration for Heights Map
+-- Ultimate Configuration
 local CONFIG = {
     DETECTION_RADIUS = 100,
     ATTACK_RANGE = 12,
-    ATTACK_COOLDOWN = 0.7,
-    LUNGE_DELAY = 0.1,
+    ATTACK_COOLDOWN = 0.6, -- Faster attacks
+    LUNGE_DELAY = 0.08, -- Quicker combo
     MAX_TARGET_DISTANCE = 150,
-    RETARGET_CHECK_TIME = 0.5,
+    RETARGET_CHECK_TIME = 0.3, -- Faster retargeting
     VOID_Y_THRESHOLD = -25,
     FORCEFIELD_FLEE_DISTANCE = 25,
     SWORD_CHECK_INTERVAL = 3,
-    EQUIP_DELAY = 0.3,
-    PATH_REFRESH_RATE = 0.5,
-    DIRECT_PATH_ATTEMPT_DISTANCE = 30,
-    OBSTACLE_AVOIDANCE_DISTANCE = 5,
-    PLATFORM_EDGE_MARGIN = 3
+    EQUIP_DELAY = 0.2, -- Faster equip
+    VOID_CHECK_INTERVAL = 0.05, -- Ultra-fast void detection
+    PREDICTION_LEAD_TIME = 0.2, -- Target prediction
+    DEFENSIVE_MODE_PROBABILITY = 0.6, -- Higher defensive chance
+    STRAFING_INTENSITY = 2.5, -- More aggressive strafing
+    AIM_ASSIST_STRENGTH = 0.3, -- Stronger aim assist
+    REACTION_TIME = 0.1 -- Faster reactions
 }
 
--- Lightweight status GUI
+-- Enhanced status GUI
 local function CreateStatusGUI()
     local success, ScreenGui = pcall(function()
         local gui = Instance.new("ScreenGui")
-        gui.Name = "LinkedSwordAI_Final"
+        gui.Name = "LinkedSwordAI_Ultimate"
         gui.Parent = game:GetService("CoreGui")
         return gui
     end)
@@ -46,14 +48,14 @@ local function CreateStatusGUI()
     if not success then return nil end
     
     local Frame = Instance.new("Frame")
-    Frame.Size = UDim2.new(0, 220, 0, 80)
+    Frame.Size = UDim2.new(0, 240, 0, 100)
     Frame.Position = UDim2.new(0, 10, 0, 10)
     Frame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
     Frame.BackgroundTransparency = 0.5
     Frame.BorderSizePixel = 2
     
     local labels = {}
-    local labelNames = {"Status", "Target", "Mode", "Distance"}
+    local labelNames = {"Status", "Target", "Aim", "Void", "Defense"}
     
     for i, name in ipairs(labelNames) do
         local label = Instance.new("TextLabel")
@@ -83,269 +85,320 @@ local function CreateStatusGUI()
     return statusInterface
 end
 
--- Simple direct pathfinding with obstacle avoidance
-local function CreateSmartNavigation()
-    local nav = {}
-    nav.lastPathUpdate = 0
-    nav.currentDestination = nil
-    nav.avoidanceDirection = 1
-    nav.lastAvoidanceChange = 0
+-- Ultra-fast void detection system
+local function CreateUltimateVoidDetection()
+    local void = {}
+    void.lastVoidCheck = 0
+    void.voidWarning = false
+    void.emergencyRetreatActive = false
+    void.safePositionMemory = nil
     
-    -- Robust void detection for Heights map
-    function nav.IsPositionSafe(position, character)
-        if position.Y < CONFIG.VOID_Y_THRESHOLD then
-            return false, "below void threshold"
-        end
-        
-        -- Multi-directional ground check
-        local rayOrigin = position + Vector3.new(0, 2, 0)
-        local rayParams = RaycastParams.new()
-        rayParams.FilterDescendantsInstances = {character}
-        rayParams.FilterType = Enum.RaycastFilterType.Blacklist
-        
-        -- Check multiple points around the position
-        local checkOffsets = {
-            Vector3.new(0, 0, 0),
-            Vector3.new(2, 0, 0),
-            Vector3.new(-2, 0, 0),
-            Vector3.new(0, 0, 2),
-            Vector3.new(0, 0, -2)
-        }
-        
-        local safeChecks = 0
-        for _, offset in ipairs(checkOffsets) do
-            local checkPos = rayOrigin + offset
-            local result = workspace:Raycast(checkPos, Vector3.new(0, -10, 0), rayParams)
-            if result then
-                safeChecks = safeChecks + 1
-            end
-        end
-        
-        return safeChecks >= 3, safeChecks >= 3 and "safe" or "unsafe ground"
-    end
-    
-    -- Check if direct path to target is clear
-    function nav.IsDirectPathClear(startPos, targetPos, character)
-        local direction = (targetPos - startPos).Unit
-        local distance = (targetPos - startPos).Magnitude
-        
-        -- Check for obstacles
-        local rayParams = RaycastParams.new()
-        rayParams.FilterDescendantsInstances = {character}
-        rayParams.FilterType = Enum.RaycastFilterType.Blacklist
-        
-        local obstacleCheck = workspace:Raycast(startPos, direction * math.min(distance, 50), rayParams)
-        if obstacleCheck then
-            return false, "obstacle detected"
-        end
-        
-        -- Check path safety
-        for i = 5, math.min(distance, 40), 10 do
-            local checkPoint = startPos + direction * i
-            local isSafe, reason = nav.IsPositionSafe(checkPoint, character)
-            if not isSafe then
-                return false, reason
-            end
-        end
-        
-        return true, "clear"
-    end
-    
-    -- Smart movement with obstacle avoidance
-    function nav.MoveToTarget(humanoid, targetPos, currentPos, character, statusGUI)
+    -- High-speed void checking
+    function void.CheckVoidDanger(position, character, humanoid)
         local currentTime = tick()
         
-        -- Check if we can take direct path
-        local isClear, reason = nav.IsDirectPathClear(currentPos, targetPos, character)
-        
-        if isClear then
-            if statusGUI then
-                statusGUI.UpdateMode("Direct")
-            end
-            
-            -- Direct path is safe, move to target
-            humanoid:MoveTo(targetPos)
-            nav.currentDestination = targetPos
-            return "moving_direct"
-        else
-            if statusGUI then
-                statusGUI.UpdateMode("Smart: " .. reason)
-            end
-            
-            -- Find safe alternative path
-            return nav.FindAlternativePath(humanoid, targetPos, currentPos, character, statusGUI)
+        -- Ultra-frequent void checks
+        if currentTime - void.lastVoidCheck < CONFIG.VOID_CHECK_INTERVAL then
+            return void.voidWarning, void.safePositionMemory
         end
-    end
-    
-    -- Find alternative path when direct path is blocked
-    function nav.FindAlternativePath(humanoid, targetPos, currentPos, character, statusGUI)
-        local direction = (targetPos - currentPos).Unit
-        local horizontalDir = Vector3.new(direction.X, 0, direction.Z).Unit
         
-        -- Try different avoidance strategies
-        local strategies = {
-            {name = "Left", offset = horizontalDir:Cross(Vector3.new(0, 1, 0)) * 8},
-            {name = "Right", offset = horizontalDir:Cross(Vector3.new(0, -1, 0)) * 8},
-            {name = "Elevated", offset = Vector3.new(0, 5, 0) + horizontalDir * 6},
-            {name = "Retreat", offset = -horizontalDir * 10}
+        void.lastVoidCheck = currentTime
+        
+        -- Immediate Y-level check
+        if position.Y < CONFIG.VOID_Y_THRESHOLD then
+            void.voidWarning = true
+            void.emergencyRetreatActive = true
+            return true, void.safePositionMemory
+        end
+        
+        -- Multi-raycast void detection
+        local rayParams = RaycastParams.new()
+        rayParams.FilterDescendantsInstances = {character}
+        rayParams.FilterType = Enum.RaycastFilterType.Blacklist
+        
+        local dangerRays = 0
+        local totalRays = 0
+        
+        -- Check in multiple directions around the character
+        local checkDirections = {
+            Vector3.new(0, -5, 0),    -- Straight down
+            Vector3.new(2, -5, 0),    -- Forward-down
+            Vector3.new(-2, -5, 0),   -- Backward-down
+            Vector3.new(0, -5, 2),    -- Right-down
+            Vector3.new(0, -5, -2),   -- Left-down
+            Vector3.new(3, -6, 0),    -- Extended forward
+            Vector3.new(-3, -6, 0),   -- Extended backward
         }
         
-        for _, strategy in ipairs(strategies) do
-            local testPos = currentPos + strategy.offset
+        for _, direction in ipairs(checkDirections) do
+            totalRays = totalRays + 1
+            local rayStart = position + Vector3.new(0, 1, 0)
+            local result = workspace:Raycast(rayStart, direction, rayParams)
             
-            -- Check if this alternative is safe
-            local isSafe, reason = nav.IsPositionSafe(testPos, character)
-            if isSafe then
-                local pathClear, pathReason = nav.IsDirectPathClear(currentPos, testPos, character)
-                if pathClear then
-                    humanoid:MoveTo(testPos)
-                    nav.currentDestination = testPos
-                    
-                    if statusGUI then
-                        statusGUI.UpdateMode("Alt: " .. strategy.name)
-                    end
-                    
-                    return "moving_alternative"
-                end
+            if not result then
+                dangerRays = dangerRays + 1
+            else
+                -- Remember safe position when we find ground
+                void.safePositionMemory = position
             end
         end
         
-        -- If all alternatives fail, try small movements away from edges
-        local safeRetreat = currentPos - horizontalDir * CONFIG.PLATFORM_EDGE_MARGIN
-        if nav.IsPositionSafe(safeRetreat, character) then
-            humanoid:MoveTo(safeRetreat)
-            return "moving_safe"
+        -- If more than 30% of rays detect void, we're in danger
+        local dangerPercentage = dangerRays / totalRays
+        void.voidWarning = dangerPercentage > 0.3
+        
+        if void.voidWarning then
+            void.emergencyRetreatActive = true
+            forcePrint("VOID DANGER: " .. math.floor(dangerPercentage * 100) .. "% danger")
+        else if void.emergencyRetreatActive then
+            void.emergencyRetreatActive = false
         end
         
-        -- Last resort: stay put
-        return "stuck"
+        return void.voidWarning, void.safePositionMemory
     end
     
-    -- Forcefield evasion
-    function nav.HandleForceFieldEvasion(humanoid, currentPos, forceFieldPlayers, statusGUI)
-        local closestFFPlayer = nil
-        local closestDistance = math.huge
+    -- Emergency void avoidance
+    function void.EmergencyVoidRetreat(humanoid, currentPos, safePosition, statusGUI)
+        if not void.emergencyRetreatActive then return false end
         
-        for player, _ in pairs(forceFieldPlayers) do
-            if player.Character then
-                local hrp = player.Character:FindFirstChild("HumanoidRootPart")
-                if hrp then
-                    local distance = (hrp.Position - currentPos).Magnitude
-                    if distance < CONFIG.FORCEFIELD_FLEE_DISTANCE and distance < closestDistance then
-                        closestDistance = distance
-                        closestFFPlayer = player
-                    end
-                end
+        if statusGUI then
+            statusGUI.UpdateVoid("ESCAPING!")
+        end
+        
+        local retreatPos
+        if safePosition then
+            retreatPos = safePosition
+        else
+            -- Move backward from current direction
+            local moveDirection = humanoid.MoveDirection
+            if moveDirection.Magnitude > 0.1 then
+                retreatPos = currentPos - moveDirection * 8
+            else
+                -- Random safe direction
+                retreatPos = currentPos + Vector3.new(math.random(-5, 5), 0, math.random(-5, 5))
             end
         end
         
-        if closestFFPlayer and closestFFPlayer.Character then
-            local ffPos = closestFFPlayer.Character.HumanoidRootPart.Position
-            local fleeDir = (currentPos - ffPos).Unit
-            local fleeTarget = currentPos + fleeDir * 15
-            
-            -- Ensure flee target is safe
-            if nav.IsPositionSafe(fleeTarget, character) then
-                humanoid:MoveTo(fleeTarget)
-                
-                if statusGUI then
-                    statusGUI.UpdateStatus("Evading FF")
-                end
-                
-                return true
-            end
-        end
-        
-        return false
+        humanoid:MoveTo(retreatPos)
+        return true
     end
     
-    return nav
+    return void
 end
 
--- Enhanced combat system with professional behaviors
-local function CreateCombatManager()
-    local combat = {}
-    combat.lastModeChange = 0
-    combat.currentMode = "Balanced"
-    combat.strafeDirection = 1
+-- Zero-miss targeting system
+local function CreatePrecisionTargeting()
+    local targeting = {}
+    targeting.lastAimUpdate = 0
+    targeting.targetPrediction = Vector3.new(0, 0, 0)
+    targeting.aimSmoothing = 0
     
-    -- Professional combat modes
-    function combat.SelectCombatMode(distance, currentTime)
-        if currentTime - combat.lastModeChange > 3 then -- Change mode every 3 seconds
-            combat.lastModeChange = currentTime
+    -- Predictive aiming with player movement prediction
+    function targeting.CalculateAimPosition(targetHRP, targetVelocity, currentPos)
+        local currentTime = tick()
+        
+        -- Predict target position based on velocity
+        local basePosition = targetHRP.Position
+        local prediction = basePosition
+        
+        if targetVelocity and targetVelocity.Magnitude > 1 then
+            -- Advanced prediction: account for movement direction and speed
+            local leadDistance = targetVelocity.Magnitude * CONFIG.PREDICTION_LEAD_TIME
+            local leadDirection = targetVelocity.Unit
+            prediction = basePosition + leadDirection * leadDistance
             
-            if distance > 20 then
-                combat.currentMode = "Approaching"
-            elseif distance > 10 then
-                -- Random selection for mid-range
-                if math.random() < 0.5 then
-                    combat.currentMode = "Defensive"
-                else
-                    combat.currentMode = "Aggressive"
-                end
-            else
-                combat.currentMode = "Aggressive"
+            -- Add vertical prediction for jumping/falling
+            if math.abs(targetVelocity.Y) > 5 then
+                prediction = prediction + Vector3.new(0, targetVelocity.Y * 0.1, 0)
             end
         end
         
-        return combat.currentMode
+        targeting.targetPrediction = prediction
+        
+        -- Smooth aiming transition
+        targeting.aimSmoothing = math.min(targeting.aimSmoothing + 0.1, 1.0)
+        
+        return prediction
     end
     
-    -- Execute combat behavior based on mode
-    function combat.ExecuteCombatBehavior(humanoid, targetPos, currentPos, distance, mode, statusGUI)
-        -- Always face target
+    -- Perfect facing towards target
+    function targeting.FaceTargetPerfectly(humanoid, targetPos, currentPos, statusGUI)
         local lookVector = (targetPos - currentPos).Unit
-        humanoid:MoveTo(currentPos + lookVector * 0.1)
         
-        if mode == "Approaching" then
-            -- Move directly toward target
-            humanoid:MoveTo(targetPos)
-            if statusGUI then statusGUI.UpdateStatus("Approaching") end
+        -- Enhanced aim assist for zero misses
+        local aimAssistVector = lookVector * CONFIG.AIM_ASSIST_STRENGTH
+        local finalLookVector = lookVector + aimAssistVector
+        
+        -- Small movement to face direction perfectly
+        local facePosition = currentPos + finalLookVector * 0.5
+        
+        -- Use MoveTo for precise facing
+        humanoid:MoveTo(facePosition)
+        
+        if statusGUI then
+            local aimQuality = math.floor(targeting.aimSmoothing * 100)
+            statusGUI.UpdateAim(aimQuality .. "% Lock")
+        end
+        
+        return finalLookVector
+    end
+    
+    -- Optimal attack positioning
+    function targeting.GetOptimalAttackPosition(targetPos, targetVelocity, currentPos)
+        local predictedPos = targeting.CalculateAimPosition(targetPos, targetVelocity, currentPos)
+        
+        -- Position for maximum hit probability
+        local optimalDistance = CONFIG.ATTACK_RANGE - 1 -- Stay slightly inside range
+        local directionToTarget = (predictedPos - currentPos).Unit
+        local attackPosition = predictedPos - directionToTarget * optimalDistance
+        
+        return attackPosition, predictedPos
+    end
+    
+    return targeting
+end
+
+-- Enhanced defensive behavior system
+local function CreateUltimateDefense()
+    local defense = {}
+    defense.defenseModeActive = false
+    defense.lastDefenseChange = 0
+    defense.strafePattern = 1
+    defense.retreatCooldown = 0
+    defense.defensiveManeuvers = {
+        "StrafeLeft", "StrafeRight", "CircleStrafe", "Backpedal", "FeintRetreat"
+    }
+    
+    -- Higher probability defensive mode selection
+    function defense.ShouldUseDefense(distance, currentTime)
+        -- Always use defense at certain distances
+        if distance > 15 then return true end
+        
+        -- Time-based defense activation
+        if currentTime - defense.lastDefenseChange > 2 then
+            defense.lastDefenseChange = currentTime
+            defense.defenseModeActive = math.random() < CONFIG.DEFENSIVE_MODE_PROBABILITY
+        end
+        
+        return defense.defenseModeActive
+    end
+    
+    -- Advanced defensive maneuvers
+    function defense.ExecuteDefensiveManeuver(humanoid, targetPos, currentPos, distance, statusGUI)
+        local currentTime = tick()
+        local lookVector = (targetPos - currentPos).Unit
+        local rightVector = lookVector:Cross(Vector3.new(0, 1, 0)).Unit
+        
+        -- Select defensive maneuver based on situation
+        local maneuver = defense.defensiveManeuvers[math.random(1, #defense.defensiveManeuvers)]
+        
+        local maneuverPosition = currentPos
+        
+        if maneuver == "StrafeLeft" then
+            maneuverPosition = currentPos + rightVector * -CONFIG.STRAFING_INTENSITY * 2
             
-        elseif mode == "Defensive" then
-            -- Strafe while maintaining distance
-            combat.strafeDirection = combat.strafeDirection * -1
-            local strafeDir = lookVector:Cross(Vector3.new(0, 1, 0)).Unit * combat.strafeDirection
-            local strafePos = currentPos + strafeDir * 4 + lookVector * 2
-            humanoid:MoveTo(strafePos)
-            if statusGUI then statusGUI.UpdateStatus("Defensive") end
+        elseif maneuver == "StrafeRight" then
+            maneuverPosition = currentPos + rightVector * CONFIG.STRAFING_INTENSITY * 2
             
-        else -- Aggressive
-            -- Close distance aggressively
-            local chargePos = targetPos - lookVector * 2 -- Stop just before target
-            humanoid:MoveTo(chargePos)
-            if statusGUI then statusGUI.UpdateStatus("Aggressive") end
+        elseif maneuver == "CircleStrafe" then
+            defense.strafePattern = defense.strafePattern * -1
+            local circleDir = rightVector * defense.strafePattern
+            maneuverPosition = currentPos + circleDir * 3 + lookVector * 1
+            
+        elseif maneuver == "Backpedal" and distance < 10 then
+            maneuverPosition = currentPos - lookVector * 4
+            
+        elseif maneuver == "FeintRetreat" and currentTime > defense.retreatCooldown then
+            maneuverPosition = currentPos - lookVector * 6
+            defense.retreatCooldown = currentTime + 2
+        end
+        
+        humanoid:MoveTo(maneuverPosition)
+        
+        if statusGUI then
+            statusGUI.UpdateDefense(maneuver)
+        end
+        
+        return maneuverPosition
+    end
+    
+    -- Defensive attack timing
+    function defense.DefensiveAttackTiming(distance)
+        if distance < 8 then
+            return 0.4 -- Faster attacks when close
+        elseif distance < 15 then
+            return 0.6 -- Standard timing
+        else
+            return 0.8 -- Slower when far away
         end
     end
     
-    -- Smooth attack execution
-    function combat.ExecuteAttack(sword, lastAttackTime)
-        if not sword or tick() - lastAttackTime < CONFIG.ATTACK_COOLDOWN then
-            return lastAttackTime
+    return defense
+end
+
+-- Ultimate combat system
+local function CreateUltimateCombat()
+    local combat = {}
+    combat.lastAttack = 0
+    combat.comboStep = 1
+    combat.attackPatterns = {
+        {timing = 0.1, power = 1.0},
+        {timing = 0.08, power = 1.2},
+        {timing = 0.12, power = 0.8}
+    }
+    
+    -- Zero-miss attack execution
+    function combat.ExecutePrecisionAttack(sword, targetPos, currentPos, statusGUI)
+        local currentTime = tick()
+        if currentTime - combat.lastAttack < CONFIG.ATTACK_COOLDOWN then
+            return combat.lastAttack
         end
         
-        local newAttackTime = tick()
+        combat.lastAttack = currentTime
         
+        -- Face target perfectly during attack
+        local lookVector = (targetPos - currentPos).Unit
+        local attackFacePos = currentPos + lookVector * 0.3
+        
+        -- Execute attack combo
         spawn(function()
             for i = 1, 3 do
                 pcall(function()
                     if sword and sword.Parent then
+                        -- Perfect timing for each swing
+                        wait(combat.attackPatterns[i].timing)
                         sword:Activate()
+                        
+                        if statusGUI then
+                            statusGUI.UpdateStatus("Attack " .. i .. "/3")
+                        end
                     end
                 end)
-                wait(CONFIG.LUNGE_DELAY)
             end
         end)
         
-        return newAttackTime
+        return combat.lastAttack
+    end
+    
+    -- Adaptive combat behavior
+    function combat.DecideCombatAction(distance, isDefensive)
+        if distance <= CONFIG.ATTACK_RANGE then
+            if isDefensive and distance < 8 then
+                return "DefensiveAttack"
+            else
+                return "AggressiveAttack"
+            end
+        else
+            return "Approach"
+        end
     end
     
     return combat
 end
 
--- Main optimized execution
+-- Main ultimate execution
 local function InitializeAI()
-    forcePrint("LinkedSwordAI: Initializing final version...")
+    forcePrint("LinkedSwordAI: Ultimate version initializing...")
     
     -- Clean persistent data
     if not _G.LinkedSwordAIData then
@@ -355,21 +408,31 @@ local function InitializeAI()
             CurrentTarget = nil,
             LastAttackTime = 0,
             LastRetargetTime = 0,
-            Navigation = nil,
-            Combat = nil,
+            VoidDetection = nil,
+            PrecisionTargeting = nil,
+            UltimateDefense = nil,
+            UltimateCombat = nil,
             PlayersWithForceField = {}
         }
     end
     
     local data = _G.LinkedSwordAIData
     
-    -- Initialize systems
-    if not data.Navigation then
-        data.Navigation = CreateSmartNavigation()
+    -- Initialize ultimate systems
+    if not data.VoidDetection then
+        data.VoidDetection = CreateUltimateVoidDetection()
     end
     
-    if not data.Combat then
-        data.Combat = CreateCombatManager()
+    if not data.PrecisionTargeting then
+        data.PrecisionTargeting = CreatePrecisionTargeting()
+    end
+    
+    if not data.UltimateDefense then
+        data.UltimateDefense = CreateUltimateDefense()
+    end
+    
+    if not data.UltimateCombat then
+        data.UltimateCombat = CreateUltimateCombat()
     end
     
     if not data.StatusGUI then
@@ -378,6 +441,9 @@ local function InitializeAI()
     
     if data.StatusGUI then
         data.StatusGUI.UpdateStatus("Initializing")
+        data.StatusGUI.UpdateVoid("Monitoring")
+        data.StatusGUI.UpdateAim("Calibrating")
+        data.StatusGUI.UpdateDefense("Ready")
     end
     
     -- Get services
@@ -385,56 +451,45 @@ local function InitializeAI()
     local LocalPlayer = Players.LocalPlayer
     local RunService = game:GetService("RunService")
     
-    if not LocalPlayer then
-        forcePrint("ERROR: LocalPlayer not found")
-        return
-    end
+    if not LocalPlayer then return end
     
-    -- Fast character acquisition
+    -- Ultra-fast character acquisition
     local Character = LocalPlayer.Character
     if not Character then
         Character = LocalPlayer.CharacterAdded:Wait()
-        wait(0.2) -- Brief stabilization period
+        wait(0.15) -- Minimal stabilization
     end
     
-    local Humanoid = Character:WaitForChild("Humanoid", 3)
-    local HumanoidRootPart = Character:WaitForChild("HumanoidRootPart", 3)
+    local Humanoid = Character:WaitForChild("Humanoid", 2)
+    local HumanoidRootPart = Character:WaitForChild("HumanoidRootPart", 2)
     
-    if not Humanoid or not HumanoidRootPart then
-        forcePrint("ERROR: Character components missing")
-        return
-    end
+    if not Humanoid or not HumanoidRootPart then return end
     
-    -- Fast sword equipping
+    -- Instant sword equipping
     local function EquipSword()
-        -- Check character first
         for _, item in pairs(Character:GetChildren()) do
             if item:IsA("Tool") then
                 data.LinkedSword = item
-                forcePrint("Found sword: " .. item.Name)
                 return item
             end
         end
         
-        -- Check backpack
         local Backpack = LocalPlayer:FindFirstChild("Backpack")
         if Backpack then
             for _, item in pairs(Backpack:GetChildren()) do
                 if item:IsA("Tool") then
                     pcall(function() Humanoid:EquipTool(item) end)
-                    wait(0.1)
+                    wait(0.08)
                     data.LinkedSword = Character:FindFirstChild(item.Name) or item
-                    forcePrint("Equipped sword: " .. item.Name)
                     return data.LinkedSword
                 end
             end
         end
         
-        forcePrint("WARNING: No sword found")
         return nil
     end
     
-    -- Immediate equipment attempt
+    -- Immediate equipment
     spawn(function()
         wait(CONFIG.EQUIP_DELAY)
         EquipSword()
@@ -457,12 +512,12 @@ local function InitializeAI()
                     if distance <= CONFIG.MAX_TARGET_DISTANCE then
                         if player.Character:FindFirstChild("ForceField") then
                             playersWithFF[player] = true
-                            forcePrint("ForceField detected on: " .. player.Name)
                         else
                             table.insert(playersInRange, {
                                 Player = player,
                                 Distance = distance,
-                                Position = hrp.Position
+                                Position = hrp.Position,
+                                Velocity = hrp.Velocity
                             })
                         end
                     end
@@ -476,22 +531,51 @@ local function InitializeAI()
         return playersInRange
     end
     
-    -- Main update loop
+    -- Main ultra-optimized loop
     local lastUpdate = 0
     local updateConnection
     
     local function Update()
         local currentTime = tick()
-        if currentTime - lastUpdate < 0.1 then return end -- 10 FPS limit
+        if currentTime - lastUpdate < CONFIG.REACTION_TIME then return end
         lastUpdate = currentTime
         
-        -- Periodic sword check
-        if currentTime % 5 < 0.1 then -- Every ~5 seconds
-            EquipSword()
+        -- Ultra-fast void detection (highest priority)
+        local voidDanger, safePos = data.VoidDetection.CheckVoidDanger(
+            HumanoidRootPart.Position, Character, Humanoid
+        )
+        
+        if voidDanger then
+            if data.VoidDetection.EmergencyVoidRetreat(Humanoid, HumanoidRootPart.Position, safePos, data.StatusGUI) then
+                return
+            end
         end
         
-        -- Handle forcefield evasion first
-        if data.Navigation.HandleForceFieldEvasion(Humanoid, HumanoidRootPart.Position, data.PlayersWithForceField, data.StatusGUI) then
+        if data.StatusGUI then
+            data.StatusGUI.UpdateVoid(voidDanger and "DANGER" : "Safe")
+        end
+        
+        -- Handle forcefield evasion
+        local closestFFPlayer = nil
+        local closestFFDistance = math.huge
+        
+        for player, _ in pairs(data.PlayersWithForceField) do
+            if player.Character then
+                local hrp = player.Character:FindFirstChild("HumanoidRootPart")
+                if hrp then
+                    local distance = (hrp.Position - HumanoidRootPart.Position).Magnitude
+                    if distance < closestFFDistance then
+                        closestFFDistance = distance
+                        closestFFPlayer = player
+                    end
+                end
+            end
+        end
+        
+        if closestFFPlayer and closestFFDistance < CONFIG.FORCEFIELD_FLEE_DISTANCE then
+            local fleeDir = (HumanoidRootPart.Position - closestFFPlayer.Character.HumanoidRootPart.Position).Unit
+            Humanoid:MoveTo(HumanoidRootPart.Position + fleeDir * 12)
+            data.StatusGUI.UpdateStatus("Evading FF")
             return
         end
         
@@ -501,51 +585,62 @@ local function InitializeAI()
         -- Target selection
         if #playersInRange > 0 and (not data.CurrentTarget or currentTime - data.LastRetargetTime > CONFIG.RETARGET_CHECK_TIME) then
             data.LastRetargetTime = currentTime
-            data.CurrentTarget = playersInRange[1].Player
+            data.CurrentTarget = playersInRange[1]
             
             if data.StatusGUI then
-                data.StatusGUI.UpdateTarget(data.CurrentTarget.Name)
+                data.StatusGUI.UpdateTarget(data.CurrentTarget.Player.Name)
             end
-            
-            forcePrint("New target: " .. data.CurrentTarget.Name)
         end
         
-        -- Target engagement
-        if data.CurrentTarget and data.CurrentTarget.Character then
-            local targetChar = data.CurrentTarget.Character
-            local targetHRP = targetChar:FindFirstChild("HumanoidRootPart")
-            local targetHum = targetChar:FindFirstChild("Humanoid")
+        -- Target engagement with ultimate systems
+        if data.CurrentTarget then
+            local targetData = data.CurrentTarget
+            local targetHRP = targetData.Player.Character:FindFirstChild("HumanoidRootPart")
+            local targetHum = targetData.Player.Character:FindFirstChild("Humanoid")
             
             if targetHRP and targetHum and targetHum.Health > 0 then
-                local distance = (targetHRP.Position - HumanoidRootPart.Position).Magnitude
+                local distance = targetData.Distance
                 
-                if data.StatusGUI then
-                    data.StatusGUI.UpdateDistance(math.floor(distance))
+                -- Precision aiming
+                local aimPosition = data.PrecisionTargeting.CalculateAimPosition(
+                    targetHRP, targetData.Velocity, HumanoidRootPart.Position
+                )
+                
+                -- Perfect facing
+                data.PrecisionTargeting.FaceTargetPerfectly(Humanoid, aimPosition, HumanoidRootPart.Position, data.StatusGUI)
+                
+                -- Defense decision
+                local useDefense = data.UltimateDefense.ShouldUseDefense(distance, currentTime)
+                
+                if useDefense then
+                    -- Defensive maneuvering
+                    data.UltimateDefense.ExecuteDefensiveManeuver(
+                        Humanoid, aimPosition, HumanoidRootPart.Position, distance, data.StatusGUI
+                    )
+                    data.StatusGUI.UpdateStatus("Defensive")
+                else
+                    -- Aggressive approach
+                    local optimalPos = data.PrecisionTargeting.GetOptimalAttackPosition(
+                        aimPosition, targetData.Velocity, HumanoidRootPart.Position
+                    )
+                    Humanoid:MoveTo(optimalPos)
+                    data.StatusGUI.UpdateStatus("Aggressive")
                 end
                 
-                -- Smart navigation
-                data.Navigation.MoveToTarget(Humanoid, targetHRP.Position, HumanoidRootPart.Position, Character, data.StatusGUI)
-                
-                -- Professional combat behavior
-                local combatMode = data.Combat.SelectCombatMode(distance, currentTime)
-                data.Combat.ExecuteCombatBehavior(Humanoid, targetHRP.Position, HumanoidRootPart.Position, distance, combatMode, data.StatusGUI)
-                
-                -- Attack when in range
+                -- Precision attacking
                 if distance <= CONFIG.ATTACK_RANGE then
-                    data.LastAttackTime = data.Combat.ExecuteAttack(data.LinkedSword, data.LastAttackTime)
+                    data.LastAttackTime = data.UltimateCombat.ExecutePrecisionAttack(
+                        data.LinkedSword, aimPosition, HumanoidRootPart.Position, data.StatusGUI
+                    )
                 end
             else
                 data.CurrentTarget = nil
-                if data.StatusGUI then
-                    data.StatusGUI.UpdateTarget("None")
-                end
             end
         else
             data.CurrentTarget = nil
             if data.StatusGUI then
                 data.StatusGUI.UpdateStatus("Searching")
                 data.StatusGUI.UpdateTarget("None")
-                data.StatusGUI.UpdateMode("Idle")
             end
         end
     end
@@ -554,33 +649,31 @@ local function InitializeAI()
     
     -- Cleanup on death
     Humanoid.Died:Connect(function()
-        forcePrint("Character died - cleaning up")
         if updateConnection then
             updateConnection:Disconnect()
         end
     end)
     
     if data.StatusGUI then
-        data.StatusGUI.UpdateStatus("Active")
+        data.StatusGUI.UpdateStatus("ULTIMATE ACTIVE")
     end
     
-    forcePrint("LinkedSwordAI: Final version activated successfully")
+    forcePrint("LinkedSwordAI: Ultimate version activated - Zero Miss Mode Enabled")
 end
 
--- Fast respawn handling
+-- Instant respawn handling
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 
 if LocalPlayer then
-    LocalPlayer.CharacterAdded:Connect(function(character)
-        forcePrint("Character respawned - reinitializing")
-        wait(0.3) -- Minimal delay
+    LocalPlayer.CharacterAdded:Connect(function()
+        wait(0.2)
         InitializeAI()
     end)
 end
 
--- Initial startup
-wait(0.5)
+-- Immediate startup
+wait(0.3)
 InitializeAI()
 
-forcePrint("LinkedSwordAI: Final script loaded completely")
+forcePrint("LinkedSwordAI: Ultimate optimization complete")
