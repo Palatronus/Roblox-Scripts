@@ -1,63 +1,147 @@
--- Direct Network Control HRP Separation
+-- Reanimation-based HRP Teleportation Script
+-- Place this in a LocalScript within StarterPlayerScripts
+
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+
 local LocalPlayer = Players.LocalPlayer
+local RealCharacter = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+local RealHRP = RealCharacter:WaitForChild("HumanoidRootPart")
+local RealHumanoid = RealCharacter:FindFirstChildOfClass("Humanoid")
 
-local TARGET_POSITION = Vector3.new(100, 500, 200)
-local active = false
+-- CONFIGURATION
+local TARGET_POSITION = Vector3.new(100, 500, 200) -- Set your desired coordinates here
+local REANIMATION_ACTIVE = false
+local FakeCharacter, FakeHRP
 
-local function takeNetworkOwnership()
-    local character = LocalPlayer.Character
-    if not character then return false end
-    
-    local hrp = character:FindFirstChild("HumanoidRootPart")
-    if not hrp then return false end
-    
-    -- Force network ownership to client
-    pcall(function()
-        hrp:SetNetworkOwner(nil) -- Try to make client authoritative
-    end)
-    
-    return true
+local function createFakeCharacter()
+    -- Enable archiving and clone the real character
+    RealCharacter.Archivable = true
+    FakeCharacter = RealCharacter:Clone()
+
+    -- Configure the fake character for client-side use
+    for _, part in ipairs(FakeCharacter:GetDescendants()) do
+        if part:IsA("BasePart") then
+            part.Transparency = 0 -- Make fully visible
+            part.CanCollide = false
+            part.Anchored = false
+        end
+    end
+
+    -- Remove the humanoid from the fake to prevent interference
+    local fakeHum = FakeCharacter:FindFirstChildOfClass("Humanoid")
+    if fakeHum then
+        fakeHum:Destroy()
+    end
+
+    FakeHRP = FakeCharacter:FindFirstChild("HumanoidRootPart")
+    FakeCharacter.Parent = workspace
+    FakeCharacter:SetPrimaryPartCFrame(RealHRP.CFrame) -- Spawn fake at real character's location
 end
 
-local function controlHRP()
-    if not takeNetworkOwnership() then return end
-    
-    local character = LocalPlayer.Character
-    local hrp = character:FindFirstChild("HumanoidRootPart")
-    
-    active = true
-    
-    -- Aggressive position control
-    while active and hrp and hrp.Parent do
-        -- Break velocity constraints
-        hrp.Velocity = Vector3.new(0, 0, 0)
-        hrp.RotVelocity = Vector3.new(0, 0, 0)
-        
-        -- Force position
-        hrp.CFrame = CFrame.new(TARGET_POSITION)
-        
-        -- Apply anti-correction measures
-        for _, part in ipairs(character:GetDescendants()) do
-            if part:IsA("BasePart") and part ~= hrp then
-                part.Velocity = Vector3.new(0, 0, 0)
-            end
+local function controlNetworkOwnership()
+    -- Attempt to take control of the real HRP's network ownership
+    pcall(function()
+        RealHRP:SetNetworkOwner(nil) -- Makes the client authoritative if possible
+    end)
+
+    -- Anchor the real HRP at the target coordinates :cite[2]:cite[10]
+    RealHRP.Anchored = true
+    RealHRP.CFrame = CFrame.new(TARGET_POSITION)
+
+    -- Make the real character transparent on your client
+    for _, part in ipairs(RealCharacter:GetDescendants()) do
+        if part:IsA("BasePart") then
+            part.Transparency = 0.8
         end
-        
-        RunService.Heartbeat:Wait()
     end
 end
 
--- Toggle with F key
-game:GetService("UserInputService").InputBegan:Connect(function(input, processed)
-    if processed then return end
+local function redirectCamera()
+    -- Create a fake Humanoid for the camera to follow
+    local fakeHumanoid = Instance.new("Humanoid")
+    fakeHumanoid.Parent = FakeCharacter
+
+    -- Force the camera to focus on the fake character, not the real HRP :cite[4]
+    workspace.CurrentCamera.CameraSubject = fakeHumanoid
+end
+
+local function syncFakeWithReal()
+    -- Heartbeat loop to synchronize the fake character with your input
+    RunService.Heartbeat:Connect(function()
+        if not REANIMATION_ACTIVE or not FakeCharacter or not RealCharacter then
+            return
+        end
+
+        -- Keep the real HRP anchored at the target
+        RealHRP.CFrame = CFrame.new(TARGET_POSITION)
+
+        -- Synchronize the fake character's CFrame with the real one, but maintain its own position
+        -- This allows the fake to move while the real HRP stays anchored
+        FakeHRP.CFrame = FakeHRP.CFrame:Lerp(RealHRP.CFrame, 0.5)
+    end)
+end
+
+local function startReanimation()
+    if REANIMATION_ACTIVE then return end
+    REANIMATION_ACTIVE = true
+
+    createFakeCharacter()
+    controlNetworkOwnership()
+    redirectCamera()
+    syncFakeWithReal()
+
+    print("Reanimation Active | Real HRP anchored at: " .. tostring(TARGET_POSITION))
+end
+
+local function stopReanimation()
+    if not REANIMATION_ACTIVE then return end
+    REANIMATION_ACTIVE = false
+
+    -- Restore real character
+    RealHRP.Anchored = false
+    for _, part in ipairs(RealCharacter:GetDescendants()) do
+        if part:IsA("BasePart") then
+            part.Transparency = 0
+        end
+    end
+
+    -- Restore camera
+    workspace.CurrentCamera.CameraSubject = RealHumanoid
+
+    -- Destroy fake character
+    if FakeCharacter then
+        FakeCharacter:Destroy()
+        FakeCharacter = nil
+    end
+
+    print("Reanimation Stopped")
+end
+
+-- Control via the 'F' key
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+
     if input.KeyCode == Enum.KeyCode.F then
-        active = not active
-        if active then
-            controlHRP()
+        if REANIMATION_ACTIVE then
+            stopReanimation()
+        else
+            startReanimation()
         end
     end
 end)
 
-print("Network Control HRP Separation Loaded - Press F")
+-- Auto-reconnect on respawn
+LocalPlayer.CharacterAdded:Connect(function(newCharacter)
+    RealCharacter = newCharacter
+    RealHRP = newCharacter:WaitForChild("HumanoidRootPart")
+    RealHumanoid = newCharacter:FindFirstChildOfClass("Humanoid")
+
+    if REANIMATION_ACTIVE then
+        wait(1) -- Allow character to stabilize
+        startReanimation()
+    end
+end)
+
+print("Reanimation System Loaded | Press 'F' to toggle")
