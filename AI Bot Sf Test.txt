@@ -859,19 +859,6 @@ local function InitializeAI()
                            math.min(2, (targetPosition - HumanoidRootPart.Position).Magnitude)
         end
         
-        -- Apply movement
-        Humanoid:Move(smoothedDirection)
-        
-        -- Update movement history
-        persistentData.LastMovementDirection = smoothedDirection
-        persistentData.LastMovementTime = currentTime
-        
-        -- Track performance
-        if CONFIG.PERFORMANCE_MODE then
-            persistentData.PerformanceStats.MovementTime = tick() - startTime
-        end
-    end
-        
         -- Check if the smoothed path is safe
         if IsSafeGap(HumanoidRootPart.Position, smoothedTarget) then
             -- Update movement history
@@ -886,6 +873,12 @@ local function InitializeAI()
                     string.format("(%.1f, %.1f, %.1f)", 
                     smoothedDirection.X, smoothedDirection.Y, smoothedDirection.Z))
             end
+            
+            -- Track performance
+            if CONFIG.PERFORMANCE_MODE then
+                persistentData.PerformanceStats.MovementTime = tick() - startTime
+            end
+            
             return true
         else
             if persistentData.StatusGUI then
