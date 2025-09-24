@@ -1,29 +1,115 @@
--- Simple HRP Anchor Script
-local Players = game:GetService("Players")
-local player = Players.LocalPlayer
+-- Client-Side HRP Control Script
+-- Designed for stability and effectiveness with executors
 
-local function AnchorHRP()
-    if player.Character then
-        local hrp = player.Character:FindFirstChild("HumanoidRootPart")
-        if hrp then
-            hrp.Anchored = true
-            hrp.CanCollide = false
-            hrp.Transparency = 1 -- Make invisible
-            hrp.CFrame = CFrame.new(0, 1000, 0) -- Move to safe location
-            
-            -- Create visible decoy at original position
-            local decoy = hrp:Clone()
-            decoy.Name = "VisibleDecoy"
-            decoy.Transparency = 0
-            decoy.Anchored = true
-            decoy.CFrame = hrp.CFrame
-            decoy.Parent = player.Character
-        end
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+
+-- Error handling wrapper
+local function safeCall(func, ...)
+    local success, result = pcall(func, ...)
+    if not success then
+        warn("Script Error: " .. tostring(result))
+        return false
     end
+    return true
 end
 
--- Execute immediately
-AnchorHRP()
+-- Main control function
+local function initializeHRPControl()
+    local localPlayer = Players.LocalPlayer
+    if not localPlayer then
+        warn("Player not found")
+        return false
+    end
 
--- Re-anchor on respawn
-player.CharacterAdded:Connect(AnchorHRP)
+    -- Wait for character to load
+    local character = localPlayer.Character
+    if not character then
+        localPlayer.CharacterAdded:Wait()
+        character = localPlayer.Character
+    end
+
+    -- Locate HRP with validation:cite[8]
+    local humanoidRootPart = character:WaitForChild("HumanoidRootPart", 5) -- 5-second timeout
+    if not humanoidRootPart then
+        warn("HumanoidRootPart not found or inaccessible")
+        return false
+    end
+
+    -- Configuration
+    local targetPosition = Vector3.new(100, 50, 200) -- Set your desired coordinates
+    local targetTransparency = 0.5 -- 0 = fully visible, 1 = fully transparent
+    local isActive = true
+
+    -- Apply initial properties
+    safeCall(function()
+        humanoidRootPart.Transparency = targetTransparency
+    end)
+
+    -- Continuous position and transparency maintenance:cite[3]
+    local heartbeatConnection
+    heartbeatConnection = RunService.Heartbeat:Connect(function()
+        if not isActive or not humanoidRootPart or not humanoidRootPart.Parent then
+            heartbeatConnection:Disconnect()
+            return
+        end
+
+        safeCall(function()
+            -- Use CFrame for precise positioning:cite[3]
+            humanoidRootPart.CFrame = CFrame.new(targetPosition)
+            -- Maintain transparency setting
+            humanoidRootPart.Transparency = targetTransparency
+            -- Cancel physics interference
+            humanoidRootPart.Velocity = Vector3.new(0, 0, 0)
+        end)
+    end)
+
+    -- Control functions
+    local controls = {
+        setPosition = function(newPosition)
+            if typeof(newPosition) == "Vector3" then
+                targetPosition = newPosition
+                return true
+            end
+            return false
+        end,
+        setTransparency = function(newTransparency)
+            if type(newTransparency) == "number" then
+                targetTransparency = math.clamp(newTransparency, 0, 1)
+                return true
+            end
+            return false
+        end,
+        toggle = function(state)
+            if state ~= nil then
+                isActive = state
+            else
+                isActive = not isActive
+            end
+            return isActive
+        end
+    }
+
+    -- Auto-reconnect on character respawn
+    localPlayer.CharacterAdded:Connect(function(newCharacter)
+        character = newCharacter
+        humanoidRootPart = newCharacter:WaitForChild("HumanoidRootPart")
+        if isActive then
+            task.wait(0.5) -- Allow character to stabilize
+            initializeHRPControl() -- Re-initialize
+        end
+    end)
+
+    print("HRP Control initialized successfully.")
+    print("Position: " .. tostring(targetPosition))
+    print("Transparency: " .. targetTransparency)
+    return controls
+end
+
+-- Start the system
+local HRPControls = initializeHRPControl()
+
+-- Example commands (can be called via executor's console):
+-- HRPControls.setPosition(Vector3.new(0, 100, 0))
+-- HRPControls.setTransparency(0.8)
+-- HRPControls.toggle(false)
