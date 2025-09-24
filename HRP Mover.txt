@@ -1,0 +1,36 @@
+local TweenService = game:GetService("TweenService")
+local player = game:GetService("Players").LocalPlayer
+local character = player.CharacterAdded:Wait()
+local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
+
+local function smoothDash(speed, duration)
+    -- Create the necessary instances for LinearVelocity
+    local velocity = Instance.new("LinearVelocity")
+    local attachment = Instance.new("Attachment")
+
+    -- Parent the attachment to the HRP and assign it to the velocity
+    attachment.Parent = humanoidRootPart
+    velocity.Attachment0 = attachment
+    velocity.RelativeTo = Enum.ActuatorRelativeTo.World -- Move in world space
+    velocity.MaxForce = 100000 -- A high value for immediate response
+
+    -- Calculate movement direction based on where the character is looking
+    local movement = humanoidRootPart.CFrame.LookVector * speed
+    velocity.VectorVelocity = movement
+
+    -- Parent the velocity to start the movement
+    velocity.Parent = humanoidRootPart
+
+    -- Create a tween to smoothly reduce the velocity to zero
+    local tween = TweenService:Create(velocity, TweenInfo.new(duration), {VectorVelocity = Vector3.new(0,0,0)})
+    tween:Play()
+
+    -- Clean up after the tween is done
+    tween.Completed:Connect(function()
+        velocity:Destroy()
+        attachment:Destroy()
+    end)
+end
+
+-- Example: Dash at a speed of 50 for 0.5 seconds
+smoothDash(50, 0.5)
