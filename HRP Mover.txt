@@ -1,228 +1,233 @@
--- Fixed HRP Separation Script - Server-Side Sync & Camera Correction
+-- True HRP-Only Separation Script
 if not game:IsLoaded() then game.Loaded:Wait() end
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
-local TweenService = game:GetService("TweenService")
 local LocalPlayer = Players.LocalPlayer
 
 -- Configuration
-local TARGET_POSITION = Vector3.new(100, 500, 200) -- Position far from character
+local TARGET_POSITION = Vector3.new(100, 500, 200)
 local SEPARATION_ACTIVE = false
-local RealCharacter, CharacterClone
-local RealHRP, CloneHRP, CameraFocusPart
+local OriginalWelds = {}
 
--- Debug logging
 local function debugLog(message)
-    print("[HRP Separation] " .. message)
+    print("[HRP Fix] " .. message)
 end
 
--- Create a proper character clone with server-side visibility
-local function createServerVisibleClone()
-    if not LocalPlayer.Character then return false end
+-- Core function: Break welds to separate HRP from character
+local function separateHRPFromCharacter()
+    local character = LocalPlayer.Character
+    if not character then return false end
     
-    RealCharacter = LocalPlayer.Character
-    RealHRP = RealCharacter:WaitForChild("HumanoidRootPart")
+    local hrp = character:FindFirstChild("HumanoidRootPart")
+    if not hrp then return false end
     
-    -- Enable archiving for cloning
-    RealCharacter.Archivable = true
+    debugLog("Breaking welds to separate HRP...")
     
-    -- Create server-visible clone
-    CharacterClone = RealCharacter:Clone()
+    -- Store original welds for restoration
+    OriginalWelds = {}
     
-    -- Position clone where character currently is
-    CharacterClone.Parent = workspace
-    CharacterClone:SetPrimaryPartCFrame(RealHRP.CFrame)
-    
-    -- Configure clone parts for server visibility
-    for _, part in ipairs(CharacterClone:GetDescendants()) do
-        if part:IsA("BasePart") then
-            part.Transparency = 0  -- Make fully visible to server
-            part.CanCollide = false
-            part.Anchored = false  -- Allow natural movement
-            part.Material = Enum.Material.Neon -- Make visually distinct
+    -- Find and break all welds connecting HRP to other parts
+    for _, part in ipairs(character:GetDescendants()) do
+        if part:IsA("WeldConstraint") or part:IsA("Weld") then
+            if part.Part0 == hrp or part.Part1 == hrp then
+                OriginalWelds[part] = {
+                    Part0 = part.Part0,
+                    Part1 = part.Part1,
+                    C0 = part.C0,
+                    C1 = part.C1,
+                    Enabled = part.Enabled
+                }
+                part.Enabled = false -- Disable the weld
+                debugLog("Disabled weld: " .. part.Name)
+            end
         end
     end
     
-    -- Remove humanoid from clone to prevent interference
-    local cloneHumanoid = CharacterClone:FindFirstChildOfClass("Humanoid")
-    if cloneHumanoid then
-        cloneHumanoid:Destroy()
+    -- Also break Motor6D joints (used in R15 characters)
+    for _, motor in ipairs(character:GetDescendants()) do
+        if motor:IsA("Motor6D") and motor.Part0 == hrp then
+            OriginalWelds[motor] = {
+                Part0 = motor.Part0,
+                Part1 = motor.Part1,
+                C0 = motor.C0,
+                C1 = motor.C1,
+                Enabled = motor.Enabled
+            }
+            motor.Enabled = false
+            debugLog("Disabled Motor6D: " .. motor.Name)
+        end
     end
-    
-    -- Create camera focus part
-    CameraFocusPart = Instance.new("Part")
-    CameraFocusPart.Name = "CameraFocus"
-    CameraFocusPart.Size = Vector3.new(2, 2, 2)
-    CameraFocusPart.Transparency = 1
-    CameraFocusPart.CanCollide = false
-    CameraFocusPart.Anchored = true
-    CameraFocusPart.Parent = CharacterClone
-    CameraFocusPart.CFrame = CharacterClone:GetPivot()
-    
-    -- Set camera to focus on clone instead of real character
-    workspace.CurrentCamera.CameraSubject = CharacterClone:FindFirstChild("Humanoid") or CameraFocusPart
     
     return true
 end
 
--- Fix camera to focus on character model, not HRP
-local function setupCameraFocus()
-    if not CharacterClone or not CameraFocusPart then return end
+-- Restore welds to reattach HRP
+local function restoreHRPWelds()
+    local character = LocalPlayer.Character
+    if not character then return end
     
-    -- Create camera controller to maintain focus on clone
-    local cameraConnection
-    cameraConnection = RunService.Heartbeat:Connect(function()
-        if not SEPARATION_ACTIVE or not CharacterClone then
-            if cameraConnection then cameraConnection:Disconnect() end
-            return
+    for weld, originalData in pairs(OriginalWelds) do
+        if weld and weld.Parent then
+            weld.Enabled = originalData.Enabled
+            debugLog("Restored weld: " .. weld.Name)
         end
-        
-        -- Smooth camera follow for clone
-        local camera = workspace.CurrentCamera
-        local clonePosition = CharacterClone:GetPivot().Position
-        local cameraGoal = CFrame.new(clonePosition + Vector3.new(0, 3, 10), clonePosition)
-        
-        -- Smooth camera transition
-        camera.CFrame = camera.CFrame:Lerp(cameraGoal, 0.1)
-    end)
+    end
+    OriginalWelds = {}
 end
 
--- Main separation function with proper server-side handling
-local function startSeparation()
-    if SEPARATION_ACTIVE then return end
-    
-    debugLog("Starting HRP separation...")
-    
-    if not createServerVisibleClone() then
-        warn("Failed to create character clone")
+-- Main HRP movement function
+local function moveHRPOnly()
+    if not separateHRPFromCharacter() then
+        warn("Failed to separate HRP from character")
         return
     end
     
+    local character = LocalPlayer.Character
+    local hrp = character:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+    
+    -- Configure HRP for independent movement
+    hrp.Anchored = false
+    hrp.CanCollide = false
+    
+    -- Use BodyPosition for smooth movement to target
+    local bodyPosition = Instance.new("BodyPosition")
+    bodyPosition.Position = TARGET_POSITION
+    bodyPosition.MaxForce = Vector3.new(100000, 100000, 100000)
+    bodyPosition.P = 5000
+    bodyPosition.Parent = hrp
+    
+    -- Keep character parts anchored in place
+    for _, part in ipairs(character:GetDescendants()) do
+        if part:IsA("BasePart") and part ~= hrp then
+            part.Anchored = true
+            part.CanCollide = false
+        end
+    end
+    
+    -- Continuous position enforcement
+    local connection
+    connection = RunService.Heartbeat:Connect(function()
+        if not SEPARATION_ACTIVE or not hrp or not hrp.Parent then
+            if connection then connection:Disconnect() end
+            return
+        end
+        
+        -- Force HRP to target position
+        bodyPosition.Position = TARGET_POSITION
+        hrp.Velocity = Vector3.new(0, 0, 0)
+        
+        -- Keep character parts in their original positions
+        for _, part in ipairs(character:GetDescendants()) do
+            if part:IsA("BasePart") and part ~= hrp then
+                part.Anchored = true
+            end
+        end
+    end)
+    
+    return {bodyPosition = bodyPosition, connection = connection}
+end
+
+-- Proper camera focus on character (not HRP)
+local function setupCorrectCamera()
+    local character = LocalPlayer.Character
+    if not character then return end
+    
+    -- Find a stable part to focus on (Head or UpperTorso)
+    local cameraFocus = character:FindFirstChild("Head") or 
+                       character:FindFirstChild("UpperTorso") or 
+                       character:FindFirstChild("Torso")
+    
+    if cameraFocus then
+        -- Create a camera script that follows the character, not HRP
+        local camera = workspace.CurrentCamera
+        
+        -- Use the humanoid for natural camera behavior
+        local humanoid = character:FindFirstChildOfClass("Humanoid")
+        if humanoid then
+            camera.CameraSubject = humanoid
+        else
+            -- Fallback: Custom camera follow
+            local cameraConnection
+            cameraConnection = RunService.RenderStepped:Connect(function()
+                if not SEPARATION_ACTIVE or not character.Parent then
+                    if cameraConnection then cameraConnection:Disconnect() end
+                    return
+                end
+                
+                -- Smooth camera following the character body
+                local characterPosition = cameraFocus.Position
+                local cameraOffset = Vector3.new(0, 3, 10)
+                local goalPosition = characterPosition + cameraOffset
+                
+                camera.CFrame = CFrame.lookAt(goalPosition, characterPosition)
+            end)
+        end
+    end
+end
+
+local function startSeparation()
+    if SEPARATION_ACTIVE then return end
+    
+    debugLog("Starting true HRP-only separation...")
     SEPARATION_ACTIVE = true
     
-    -- Method 1: Direct HRP manipulation with velocity control
-    local function maintainHRPSeparation()
-        local connection
-        connection = RunService.Heartbeat:Connect(function()
-            if not SEPARATION_ACTIVE or not RealHRP or not RealHRP.Parent then
-                if connection then connection:Disconnect() end
-                return
-            end
-            
-            -- Force HRP to target position with smooth transition
-            RealHRP.CFrame = CFrame.new(TARGET_POSITION) * RealHRP.CFrame.Rotation
-            RealHRP.Velocity = Vector3.new(0, 0, 0)
-            RealHRP.RotVelocity = Vector3.new(0, 0, 0)
-            
-            -- Make real character semi-transparent but server-visible
-            for _, part in ipairs(RealCharacter:GetDescendants()) do
-                if part:IsA("BasePart") then
-                    part.Transparency = 0.7  -- Semi-transparent but server-visible
-                    part.CanCollide = false
-                end
-            end
-        end)
-        return connection
+    local success = pcall(function()
+        moveHRPOnly()
+        setupCorrectCamera()
+    end)
+    
+    if success then
+        debugLog("HRP separated successfully")
+        debugLog("Character should remain in place while HRP moves")
+    else
+        warn("HRP separation failed")
+        SEPARATION_ACTIVE = false
     end
-    
-    -- Method 2: Sync clone movements with real character
-    local function syncCloneWithCharacter()
-        local connection
-        connection = RunService.Heartbeat:Connect(function()
-            if not SEPARATION_ACTIVE or not RealCharacter or not CharacterClone then
-                if connection then connection:Disconnect() end
-                return
-            end
-            
-            -- Sync clone position with slight offset for visual clarity
-            local realPosition = RealHRP.Position
-            CharacterClone:SetPrimaryPartCFrame(CFrame.new(realPosition) * RealHRP.CFrame.Rotation)
-            
-            -- Sync all parts for natural animation
-            for _, realPart in ipairs(RealCharacter:GetDescendants()) do
-                if realPart:IsA("BasePart") then
-                    local clonePart = CharacterClone:FindFirstChild(realPart.Name, true)
-                    if clonePart then
-                        clonePart.CFrame = realPart.CFrame
-                    end
-                end
-            end
-        end)
-        return connection
-    end
-    
-    -- Start both maintenance systems
-    local hrpConnection = maintainHRPSeparation()
-    local syncConnection = syncCloneWithCharacter()
-    setupCameraFocus()
-    
-    debugLog("HRP separation active - Server-side visibility enabled")
-    debugLog("Real HRP at: " .. tostring(TARGET_POSITION))
-    debugLog("Character clone visible at original position")
 end
 
 local function stopSeparation()
     if not SEPARATION_ACTIVE then return end
     
-    debugLog("Stopping HRP separation...")
+    debugLog("Stopping separation and restoring character...")
     SEPARATION_ACTIVE = false
     
-    -- Restore real character visibility and properties
-    if RealCharacter then
-        for _, part in ipairs(RealCharacter:GetDescendants()) do
-            if part:IsA("BasePart") then
-                part.Transparency = 0
-                part.CanCollide = true
+    local character = LocalPlayer.Character
+    if character then
+        local hrp = character:FindFirstChild("HumanoidRootPart")
+        if hrp then
+            -- Remove BodyPosition
+            for _, obj in pairs(hrp:GetChildren()) do
+                if obj:IsA("BodyPosition") then
+                    obj:Destroy()
+                end
+            end
+            
+            -- Restore welds
+            restoreHRPWelds()
+            
+            -- Unanchor character parts
+            for _, part in ipairs(character:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    part.Anchored = false
+                    part.CanCollide = true
+                end
+            end
+            
+            -- Restore normal camera
+            local humanoid = character:FindFirstChildOfClass("Humanoid")
+            if humanoid then
+                workspace.CurrentCamera.CameraSubject = humanoid
             end
         end
-        
-        -- Restore camera to real character
-        workspace.CurrentCamera.CameraSubject = RealCharacter:FindFirstChildOfClass("Humanoid")
     end
     
-    -- Clean up clone and focus part
-    if CharacterClone then
-        CharacterClone:Destroy()
-        CharacterClone = nil
-    end
-    
-    if CameraFocusPart then
-        CameraFocusPart:Destroy()
-        CameraFocusPart = nil
-    end
-    
-    debugLog("HRP separation stopped - Normal state restored")
+    debugLog("Separation stopped - character restored")
 end
 
--- Improved movement handling to prevent phasing
-local function setupMovementSync()
-    if not SEPARATION_ACTIVE then return end
-    
-    local movementConnection
-    movementConnection = RunService.Heartbeat:Connect(function()
-        if not SEPARATION_ACTIVE then
-            if movementConnection then movementConnection:Disconnect() end
-            return
-        end
-        
-        -- Smooth rotation sync to prevent phasing
-        if RealHRP and CharacterClone then
-            local cloneHRP = CharacterClone:FindFirstChild("HumanoidRootPart")
-            if cloneHRP then
-                -- Apply smooth rotation matching
-                local smoothRotation = cloneHRP.CFrame:Lerp(
-                    CFrame.new(cloneHRP.Position) * RealHRP.CFrame.Rotation,
-                    0.3
-                )
-                cloneHRP.CFrame = smoothRotation
-            end
-        end
-    end)
-end
-
--- Key binding with proper input handling
+-- Simple key binding
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then return end
     
@@ -232,92 +237,35 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
         else
             startSeparation()
         end
-    elseif input.KeyCode == Enum.KeyCode.G then
-        -- Update target position
-        TARGET_POSITION = TARGET_POSITION + Vector3.new(0, 50, 0)
-        debugLog("Target position updated: " .. tostring(TARGET_POSITION))
     end
 end)
 
--- Handle character respawns with proper cleanup
+-- Handle respawns
 LocalPlayer.CharacterAdded:Connect(function(newCharacter)
-    debugLog("Character respawn detected...")
+    debugLog("New character detected")
     
     if SEPARATION_ACTIVE then
-        stopSeparation()
-        wait(3) -- Allow character to stabilize
+        wait(3) -- Wait for character to fully load
         startSeparation()
     end
 end)
 
--- Auto-initialize when ready
+-- Initialize
 local function initialize()
     if not LocalPlayer.Character then
         LocalPlayer.CharacterAdded:Wait()
     end
     
-    wait(2) -- Ensure full character load
-    
-    debugLog("HRP Separation System Initialized")
-    debugLog("Press F to toggle separation")
-    debugLog("Press G to move target higher")
-    debugLog("Camera will focus on character model, not HRP")
+    debugLog("HRP Separation System Ready")
+    debugLog("Press F to toggle HRP separation")
+    debugLog("This will move ONLY the HRP, keeping character in place")
 end
 
--- Start initialization
 initialize()
 
--- Export control functions
+-- Export functions
 getgenv().HRPSeparation = {
     start = startSeparation,
     stop = stopSeparation,
-    setTarget = function(pos) TARGET_POSITION = pos end,
-    getStatus = function() return SEPARATION_ACTIVE end
+    setPosition = function(pos) TARGET_POSITION = pos end
 }
-
--- Visual status indicator
-local function createStatusIndicator()
-    local screenGui = Instance.new("ScreenGui")
-    screenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
-    
-    local frame = Instance.new("Frame")
-    frame.Size = UDim2.new(0, 250, 0, 80)
-    frame.Position = UDim2.new(0, 10, 0, 10)
-    frame.BackgroundColor3 = Color3.new(0, 0, 0)
-    frame.BackgroundTransparency = 0.3
-    frame.Parent = screenGui
-    
-    local statusLabel = Instance.new("TextLabel")
-    statusLabel.Size = UDim2.new(1, 0, 0.5, 0)
-    statusLabel.BackgroundTransparency = 1
-    statusLabel.TextColor3 = Color3.new(1, 1, 1)
-    statusLabel.Text = "HRP Separation: INACTIVE"
-    statusLabel.Font = Enum.Font.GothamBold
-    statusLabel.Parent = frame
-    
-    local infoLabel = Instance.new("TextLabel")
-    infoLabel.Size = UDim2.new(1, 0, 0.5, 0)
-    infoLabel.Position = UDim2.new(0, 0, 0.5, 0)
-    infoLabel.BackgroundTransparency = 1
-    infoLabel.TextColor3 = Color3.new(1, 1, 1)
-    infoLabel.Text = "Press F to toggle | G to adjust"
-    infoLabel.Font = Enum.Font.Gotham
-    infoLabel.Parent = frame
-    
-    -- Update status
-    while true do
-        if SEPARATION_ACTIVE then
-            statusLabel.Text = "HRP Separation: ACTIVE"
-            statusLabel.TextColor3 = Color3.new(0, 1, 0)
-            frame.BackgroundColor3 = Color3.new(0, 0.2, 0)
-        else
-            statusLabel.Text = "HRP Separation: INACTIVE"
-            statusLabel.TextColor3 = Color3.new(1, 0, 0)
-            frame.BackgroundColor3 = Color3.new(0.2, 0, 0)
-        end
-        wait(0.5)
-    end
-end
-
--- Start status indicator
-spawn(createStatusIndicator)
