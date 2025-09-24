@@ -1,33 +1,279 @@
--- Simple HRP Separation with Ğ Keybind
+-- HRP Separation Script - Client-Side Character Cloning
+-- Keybind: Ğ to toggle separation
+
+if not game:IsLoaded() then game.Loaded:Wait() end
+
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
-local UIS = game:GetService("UserInputService")
+local UserInputService = game:GetService("UserInputService")
+local LocalPlayer = Players.LocalPlayer
 
-local player = Players.LocalPlayer
-local character = player.Character or player.CharacterAdded:Wait()
-local hrp = character:WaitForChild("HumanoidRootPart")
+-- Configuration
+local TARGET_POSITION = Vector3.new(100, 50, 200) -- HRP destination
+local SEPARATION_ACTIVE = false
+local RealCharacter, CharacterClone
+local RealHRP, CloneHRP
 
-local TARGET_POS = Vector3.new(100, 50, 200)
-local active = false
-
-local function isGKey(key)
-    return tostring(key):find("G") or tostring(key):find("g") or key == Enum.KeyCode.G
+-- Function to check if key is "Ğ"
+local function isGKey(keyCode)
+    -- Try multiple ways to detect "Ğ" key since it varies by keyboard layout
+    if keyCode == Enum.KeyCode.G then
+        return true -- Standard G key
+    elseif keyCode == Enum.KeyCode.Semicolon then
+        return true -- Some layouts use semicolon for Ğ
+    elseif tostring(keyCode):find("G") or tostring(keyCode):find("g") then
+        return true -- Any key containing G
+    end
+    return false
 end
 
-UIS.InputBegan:Connect(function(input, processed)
-    if processed then return end
+local function createCharacterClone()
+    if not LocalPlayer.Character then return false end
     
+    RealCharacter = LocalPlayer.Character
+    if not RealCharacter.Parent then return false end
+    
+    RealCharacter.Archivable = true
+    
+    -- Create clone for visual representation
+    CharacterClone = RealCharacter:Clone()
+    
+    -- Position clone where character currently is
+    local realHRP = RealCharacter:FindFirstChild("HumanoidRootPart")
+    if not realHRP then return false end
+    
+    CharacterClone.Parent = workspace
+    CharacterClone:SetPrimaryPartCFrame(realHRP.CFrame)
+    
+    -- Make real character invisible but keep functional
+    for _, part in ipairs(RealCharacter:GetDescendants()) do
+        if part:IsA("BasePart") then
+            part.Transparency = 1
+            part.CanCollide = false
+            part.Material = Enum.Material.Glass -- Make less detectable
+        end
+    end
+    
+    -- Make clone visible but non-interactive
+    for _, part in ipairs(CharacterClone:GetDescendants()) do
+        if part:IsA("BasePart") then
+            part.Transparency = 0
+            part.CanCollide = false
+            part.Anchored = true
+        end
+    end
+    
+    -- Remove functionality from clone
+    local cloneHumanoid = CharacterClone:FindFirstChildOfClass("Humanoid")
+    if cloneHumanoid then
+        cloneHumanoid:Destroy()
+    end
+    
+    return true
+end
+
+local function startSeparation()
+    if SEPARATION_ACTIVE then 
+        print("Separation already active")
+        return 
+    end
+    
+    print("Starting HRP separation...")
+    
+    if not createCharacterClone() then
+        warn("Failed to create character clone")
+        return
+    end
+    
+    RealHRP = RealCharacter:FindFirstChild("HumanoidRootPart")
+    CloneHRP = CharacterClone:FindFirstChild("HumanoidRootPart")
+    
+    if not RealHRP or not CloneHRP then
+        warn("HRP not found in character or clone")
+        return
+    end
+    
+    SEPARATION_ACTIVE = true
+    
+    -- Main separation loop
+    local connection
+    connection = RunService.Heartbeat:Connect(function()
+        if not SEPARATION_ACTIVE or not RealCharacter or not RealCharacter.Parent then
+            if connection then 
+                connection:Disconnect() 
+            end
+            return
+        end
+        
+        if not CharacterClone or not CharacterClone.Parent then
+            stopSeparation()
+            return
+        end
+        
+        -- Keep real HRP at target position (your hitbox)
+        RealHRP.CFrame = CFrame.new(TARGET_POSITION)
+        RealHRP.Velocity = Vector3.new(0, 0, 0)
+        RealHRP.RotVelocity = Vector3.new(0, 0, 0)
+        
+        -- Sync clone rotation with real character for natural appearance
+        CloneHRP.CFrame = CFrame.new(CloneHRP.Position) * RealHRP.CFrame.Rotation
+        
+        -- Optional: Add slight movement to clone for realism
+        local slightMovement = Vector3.new(
+            math.sin(tick() * 3) * 0.02,
+            0,
+            math.cos(tick() * 3) * 0.02
+        )
+        CloneHRP.Position = CloneHRP.Position + slightMovement
+    end)
+    
+    -- Sync animations and limb positions
+    setupMovementSync()
+    
+    print("HRP Separation: ACTIVE")
+    print("Real HRP at: " .. tostring(TARGET_POSITION))
+    print("Visible clone maintained at apparent position")
+end
+
+local function stopSeparation()
+    if not SEPARATION_ACTIVE then 
+        print("Separation not active")
+        return 
+    end
+    
+    SEPARATION_ACTIVE = false
+    print("Stopping HRP separation...")
+    
+    -- Restore real character visibility
+    if RealCharacter and RealCharacter.Parent then
+        for _, part in ipairs(RealCharacter:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.Transparency = 0
+                part.CanCollide = true
+                part.Material = Enum.Material.Plastic
+            end
+        end
+        
+        -- Move real character back to clone position
+        if RealHRP and CloneHRP then
+            RealHRP.CFrame = CloneHRP.CFrame
+        end
+    end
+    
+    -- Destroy clone
+    if CharacterClone then
+        CharacterClone:Destroy()
+        CharacterClone = nil
+    end
+    
+    RealCharacter = nil
+    RealHRP = nil
+    CloneHRP = nil
+    
+    print("HRP Separation: DISABLED")
+end
+
+local function toggleSeparation()
+    if SEPARATION_ACTIVE then
+        stopSeparation()
+    else
+        startSeparation()
+    end
+end
+
+local function updateTargetPosition(newPosition)
+    if typeof(newPosition) == "Vector3" then
+        TARGET_POSITION = newPosition
+        print("Target position updated to: " .. tostring(newPosition))
+        return true
+    end
+    return false
+end
+
+local function setupMovementSync()
+    if not SEPARATION_ACTIVE then return end
+    
+    -- Sync limb movements for realistic clone appearance
+    RunService.Heartbeat:Connect(function()
+        if not SEPARATION_ACTIVE or not RealCharacter or not CharacterClone then return end
+        
+        -- Sync all parts for natural animation
+        for _, realPart in ipairs(RealCharacter:GetDescendants()) do
+            if realPart:IsA("BasePart") and realPart.Name ~= "HumanoidRootPart" then
+                local clonePart = CharacterClone:FindFirstChild(realPart.Name, true)
+                if clonePart then
+                    clonePart.CFrame = realPart.CFrame
+                end
+            end
+        end
+    end)
+end
+
+-- Handle character respawns
+LocalPlayer.CharacterAdded:Connect(function(newCharacter)
+    print("New character detected, resetting separation...")
+    
+    -- Clean up existing separation
+    if SEPARATION_ACTIVE then
+        stopSeparation()
+    end
+    
+    -- Wait for character to fully load
+    task.wait(2)
+    
+    -- Re-apply separation if it was active before respawn
+    if getgenv().AUTO_REAPPLY then
+        task.wait(1)
+        startSeparation()
+    end
+end)
+
+-- Key binding for "Ğ" key
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    
+    -- Check for "Ğ" key using multiple detection methods
     if isGKey(input.KeyCode) then
-        active = not active
-        print("HRP Separation: " .. (active and "ON" or "OFF"))
+        toggleSeparation()
     end
 end)
 
-RunService.Heartbeat:Connect(function()
-    if active and hrp and hrp.Parent then
-        hrp.CFrame = CFrame.new(TARGET_POS)
-        hrp.Velocity = Vector3.new(0, 0, 0)
+-- Alternative key binding in case primary doesn't work
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    
+    -- Secondary detection using key name string
+    local keyName = tostring(input.KeyCode)
+    if keyName:lower():find("g") or keyName:lower():find("ğ") then
+        toggleSeparation()
     end
 end)
 
-print("Simple HRP Separation Loaded - Press Ğ to toggle")
+-- Initialize when player joins
+local function initialize()
+    if not LocalPlayer.Character then
+        LocalPlayer.CharacterAdded:Wait()
+    end
+    
+    task.wait(1) -- Ensure character is fully loaded
+    
+    print("HRP Separation System Loaded Successfully")
+    print("Press the 'Ğ' key to toggle HRP separation")
+    print("Target Position: " .. tostring(TARGET_POSITION))
+    print("Real HRP will be separated from visible character model")
+end
+
+-- Auto-reapply setting
+getgenv().AUTO_REAPPLY = true
+
+-- Start initialization
+initialize()
+
+-- Export functions for external control
+getgenv().HRPSeparation = {
+    start = startSeparation,
+    stop = stopSeparation,
+    toggle = toggleSeparation,
+    updatePosition = updateTargetPosition,
+    isActive = function() return SEPARATION_ACTIVE end
+}
