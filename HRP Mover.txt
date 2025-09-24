@@ -1,113 +1,243 @@
--- Client-Side HRP Illusion Script
--- This creates a visual separation effect on your client only.
+-- HRP Separation using Reanimation Technique
+if not game:IsLoaded() then game.Loaded:Wait() end
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local LocalPlayer = Players.LocalPlayer
 
-local TARGET_POSITION = Vector3.new(0, 500, 0) -- Position far above the map
-local EFFECT_ACTIVE = false
-local FakeHRP
+-- Configuration
+local TARGET_POSITION = Vector3.new(100, 500, 200)
+local SEPARATION_ACTIVE = false
+local RealCharacter, FakeCharacter
+local RealHRP, FakeHRP, RealHumanoid
 
-local function createFakeHRP()
-    local character = LocalPlayer.Character
-    if not character then return nil end
-
-    local realHRP = character:FindFirstChild("HumanoidRootPart")
-    if not realHRP then return nil end
-
-    -- Create a visible, anchored fake HRP at the target location
-    FakeHRP = Instance.new("Part")
-    FakeHRP.Name = "FakeHitbox"
-    FakeHRP.Size = Vector3.new(2, 2, 1)
-    FakeHRP.Transparency = 0.7 -- Semi-transparent
-    FakeHRP.Color = Color3.new(1, 0, 0) -- Red color for visibility
-    FakeHRP.Material = Enum.Material.Neon
-    FakeHRP.CanCollide = false
-    FakeHRP.Anchored = true
-    FakeHRP.CFrame = CFrame.new(TARGET_POSITION)
-    FakeHRP.Parent = workspace
-
-    return FakeHRP
+local function debugLog(message)
+    print("[Reanimation] " .. message)
 end
 
-local function startEffect()
-    if EFFECT_ACTIVE then return end
-
-    local character = LocalPlayer.Character
-    if not character then return end
-
-    local realHRP = character:FindFirstChild("HumanoidRootPart")
-    if not realHRP then return end
-
-    -- Create the visual fake HRP
-    if not createFakeHRP() then
-        warn("Failed to create fake HRP")
-        return
+-- Reanimation technique: Create fake character while controlling real HRP
+local function setupReanimation()
+    if not LocalPlayer.Character then return false end
+    
+    RealCharacter = LocalPlayer.Character
+    RealHRP = RealCharacter:WaitForChild("HumanoidRootPart")
+    RealHumanoid = RealCharacter:FindFirstChildOfClass("Humanoid")
+    
+    if not RealHRP or not RealHumanoid then return false end
+    
+    -- Store original properties
+    local originalTransparency = {}
+    for _, part in ipairs(RealCharacter:GetDescendants()) do
+        if part:IsA("BasePart") then
+            originalTransparency[part] = part.Transparency
+        end
     end
+    
+    -- Create fake character (client-side only)
+    RealCharacter.Archivable = true
+    FakeCharacter = RealCharacter:Clone()
+    
+    -- Position fake character where real character is
+    FakeCharacter.Parent = workspace
+    FakeCharacter:SetPrimaryPartCFrame(RealHRP.CFrame)
+    
+    -- Configure fake character (visible, non-collidable)
+    for _, part in ipairs(FakeCharacter:GetDescendants()) do
+        if part:IsA("BasePart") then
+            part.Transparency = 0
+            part.CanCollide = false
+            part.Anchored = false
+        end
+    end
+    
+    -- Disable fake humanoid to prevent interference
+    local fakeHumanoid = FakeCharacter:FindFirstChildOfClass("Humanoid")
+    if fakeHumanoid then
+        fakeHumanoid:Destroy()
+    end
+    
+    FakeHRP = FakeCharacter:FindFirstChild("HumanoidRootPart")
+    
+    -- Make real character semi-transparent but server-visible
+    for _, part in ipairs(RealCharacter:GetDescendants()) do
+        if part:IsA("BasePart") then
+            part.Transparency = 0.8
+            part.CanCollide = false
+        end
+    end
+    
+    -- Anchor real HRP at target position (server-side)
+    RealHRP.Anchored = true
+    RealHRP.CFrame = CFrame.new(TARGET_POSITION)
+    
+    return true
+end
 
-    EFFECT_ACTIVE = true
-    print("HRP illusion active. Visible hitbox is anchored, but server hitbox is on your character.")
-
-    -- Apply a constant force to pull the real HRP towards the target
-    -- Note: The server will frequently correct this, causing a "tug-of-war" effect
-    local bodyVelocity = Instance.new("BodyVelocity")
-    bodyVelocity.Velocity = Vector3.new(0, 0, 0)
-    bodyVelocity.MaxForce = Vector3.new(40000, 40000, 40000)
-    bodyVelocity.Parent = realHRP
-
-    RunService.Heartbeat:Connect(function()
-        if not EFFECT_ACTIVE or not realHRP or not realHRP.Parent then
-            bodyVelocity:Destroy()
+-- Sync fake character with real character movements
+local function setupMovementSync()
+    if not RealCharacter or not FakeCharacter then return end
+    
+    local connection
+    connection = RunService.Heartbeat:Connect(function()
+        if not SEPARATION_ACTIVE then
+            if connection then connection:Disconnect() end
             return
         end
+        
+        -- Sync fake character position with real character's intended movement
+        if RealHRP and FakeHRP then
+            -- Get movement input from user
+            local moveDirection = Vector3.new(0, 0, 0)
+            
+            -- Simulate movement based on common inputs
+            if UserInputService:IsKeyDown(Enum.KeyCode.W) then
+                moveDirection = moveDirection - Vector3.new(0, 0, 1)
+            end
+            if UserInputService:IsKeyDown(Enum.KeyCode.S) then
+                moveDirection = moveDirection + Vector3.new(0, 0, 1)
+            end
+            if UserInputService:IsKeyDown(Enum.KeyCode.A) then
+                moveDirection = moveDirection - Vector3.new(1, 0, 0)
+            end
+            if UserInputService:IsKeyDown(Enum.KeyCode.D) then
+                moveDirection = moveDirection + Vector3.new(1, 0, 0)
+            end
+            
+            -- Apply movement to fake character
+            if moveDirection.Magnitude > 0 then
+                moveDirection = moveDirection.Unit * 0.5
+                FakeHRP.Position = FakeHRP.Position + moveDirection
+            end
+            
+            -- Keep real HRP anchored at target
+            RealHRP.CFrame = CFrame.new(TARGET_POSITION)
+            RealHRP.Velocity = Vector3.new(0, 0, 0)
+        end
+    end)
+    
+    return connection
+end
 
-        -- Calculate direction to the target and apply velocity
-        local direction = (TARGET_POSITION - realHRP.Position).Unit
-        local distance = (TARGET_POSITION - realHRP.Position).Magnitude
-        bodyVelocity.Velocity = direction * math.min(distance * 2, 100)
-
-        -- Keep the fake HRP at the target position
-        if FakeHRP then
-            FakeHRP.CFrame = CFrame.new(TARGET_POSITION)
+-- Setup camera to follow fake character
+local function setupCamera()
+    if not FakeCharacter then return end
+    
+    -- Create a humanoid for the fake character for camera tracking
+    local fakeHumanoid = Instance.new("Humanoid")
+    fakeHumanoid.Parent = FakeCharacter
+    
+    -- Set camera to follow fake character
+    workspace.CurrentCamera.CameraSubject = fakeHumanoid
+    
+    -- Smooth camera follow
+    local cameraConnection
+    cameraConnection = RunService.RenderStepped:Connect(function()
+        if not SEPARATION_ACTIVE then
+            if cameraConnection then cameraConnection:Disconnect() end
+            return
+        end
+        
+        -- Keep camera focused on fake character
+        if workspace.CurrentCamera.CameraSubject ~= fakeHumanoid then
+            workspace.CurrentCamera.CameraSubject = fakeHumanoid
         end
     end)
 end
 
-local function stopEffect()
-    if not EFFECT_ACTIVE then return end
-    EFFECT_ACTIVE = false
-
-    -- Destroy the fake HRP
-    if FakeHRP then
-        FakeHRP:Destroy()
-        FakeHRP = nil
+local function startSeparation()
+    if SEPARATION_ACTIVE then return end
+    
+    debugLog("Starting HRP separation using reanimation...")
+    
+    if not setupReanimation() then
+        warn("Failed to setup reanimation")
+        return
     end
-
-    -- Remove forces from the real HRP
-    local character = LocalPlayer.Character
-    if character then
-        local realHRP = character:FindFirstChild("HumanoidRootPart")
-        if realHRP then
-            for _, item in ipairs(realHRP:GetChildren()) do
-                if item:IsA("BodyVelocity") then
-                    item:Destroy()
-                end
-            end
-        end
-    end
-    print("HRP illusion stopped.")
+    
+    SEPARATION_ACTIVE = true
+    
+    -- Setup movement sync and camera
+    setupMovementSync()
+    setupCamera()
+    
+    debugLog("Reanimation active - Real HRP anchored, fake character visible")
 end
 
--- Toggle with the F key
+local function stopSeparation()
+    if not SEPARATION_ACTIVE then return end
+    
+    debugLog("Stopping reanimation...")
+    SEPARATION_ACTIVE = false
+    
+    -- Restore real character
+    if RealCharacter then
+        for _, part in ipairs(RealCharacter:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.Transparency = 0
+                part.CanCollide = true
+            end
+        end
+        
+        if RealHRP then
+            RealHRP.Anchored = false
+        end
+        
+        -- Restore camera to real character
+        if RealHumanoid then
+            workspace.CurrentCamera.CameraSubject = RealHumanoid
+        end
+    end
+    
+    -- Remove fake character
+    if FakeCharacter then
+        FakeCharacter:Destroy()
+        FakeCharacter = nil
+    end
+    
+    debugLog("Reanimation stopped - Normal state restored")
+end
+
+-- Key binding
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then return end
+    
     if input.KeyCode == Enum.KeyCode.F then
-        if EFFECT_ACTIVE then
-            stopEffect()
+        if SEPARATION_ACTIVE then
+            stopSeparation()
         else
-            startEffect()
+            startSeparation()
         end
     end
 end)
+
+-- Handle respawns
+LocalPlayer.CharacterAdded:Connect(function(newCharacter)
+    debugLog("Character respawn detected")
+    
+    if SEPARATION_ACTIVE then
+        stopSeparation()
+        wait(3)
+        startSeparation()
+    end
+end)
+
+-- Initialize
+local function initialize()
+    if not LocalPlayer.Character then
+        LocalPlayer.CharacterAdded:Wait()
+    end
+    
+    debugLog("Reanimation HRP Separation System Ready")
+    debugLog("Press F to toggle separation")
+    debugLog("Real HRP will be anchored at target position")
+    debugLog("Fake character will be visible and movable")
+end
+
+initialize()
+
+getgenv().HRPReanimation = {
+    start = startSeparation,
+    stop = stopSeparation,
+    setTarget = function(pos) TARGET_POSITION = pos end
+}
