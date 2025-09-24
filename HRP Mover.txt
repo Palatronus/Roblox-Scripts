@@ -1,142 +1,153 @@
--- Complete HRP Separation & Reanimation Script
--- Place in a LocalScript
-
+-- Full HRP Separation Script (Reanimation Method)
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
 
 local LocalPlayer = Players.LocalPlayer
-local RealCharacter = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
-local RealHRP = RealCharacter:WaitForChild("HumanoidRootPart")
-local RealHumanoid = RealCharacter:FindFirstChildOfClass("Humanoid")
+local Camera = workspace.CurrentCamera
 
--- CONFIGURATION
-local TARGET_POSITION = Vector3.new(100, 500, 200) -- Set your desired coordinates here
+local TARGET_POSITION = Vector3.new(100, 500, 200)
 local REANIMATION_ACTIVE = false
-local FakeCharacter, FakeHRP
+local RealCharacter, FakeCharacter
+local RealHRP, FakeHRP, FakeHumanoid
 
-local function createFakeCharacter()
-    -- Enable archiving and clone the real character for the fake model:cite[10]
+local function CreateFakeCharacter()
+    if not LocalPlayer.Character then return false end
+    
+    RealCharacter = LocalPlayer.Character
+    RealHRP = RealCharacter:WaitForChild("HumanoidRootPart")
+    local RealHumanoid = RealCharacter:FindFirstChildOfClass("Humanoid")
+    
     RealCharacter.Archivable = true
     FakeCharacter = RealCharacter:Clone()
-
-    -- Configure the fake character for client-side use
+    
     for _, part in ipairs(FakeCharacter:GetDescendants()) do
         if part:IsA("BasePart") then
-            part.Transparency = 0 -- Make fully visible
+            part.Transparency = 0
             part.CanCollide = false
-            part.Anchored = false
+            part.Material = Enum.Material.ForceField
         end
     end
-
-    -- Remove the humanoid from the fake to prevent interference
-    local fakeHum = FakeCharacter:FindFirstChildOfClass("Humanoid")
-    if fakeHum then
-        fakeHum:Destroy()
+    
+    for _, obj in ipairs(FakeCharacter:GetDescendants()) do
+        if obj:IsA("Decal") then
+            obj:Destroy()
+        end
     end
-
-    FakeHRP = FakeCharacter:FindFirstChild("HumanoidRootPart")
+    
+    local oldHum = FakeCharacter:FindFirstChildOfClass("Humanoid")
+    if oldHum then oldHum:Destroy() end
+    
+    FakeHumanoid = Instance.new("Humanoid")
+    FakeHumanoid.Parent = FakeCharacter
+    FakeHRP = FakeCharacter:WaitForChild("HumanoidRootPart")
+    
     FakeCharacter.Parent = workspace
-    FakeCharacter:SetPrimaryPartCFrame(RealHRP.CFrame) -- Spawn fake at real character's location
+    FakeCharacter:SetPrimaryPartCFrame(RealHRP.CFrame)
+    
+    return true
 end
 
-local function controlRealHRP()
-    -- Anchor the real HRP at the target coordinates:cite[1]
+local function SetupCamera()
+    if not FakeCharacter then return end
+    Camera.CameraSubject = FakeHumanoid
+end
+
+local function AnchorRealHRP()
+    if not RealHRP then return end
+    
     RealHRP.Anchored = true
     RealHRP.CFrame = CFrame.new(TARGET_POSITION)
-
-    -- Make the real character transparent on your client only
+    
     for _, part in ipairs(RealCharacter:GetDescendants()) do
         if part:IsA("BasePart") then
-            part.Transparency = 0.8
+            part.Transparency = 0.9
+            part.CanCollide = false
         end
     end
 end
 
-local function redirectCamera()
-    -- Create a fake Humanoid for the camera to follow the fake character
-    local fakeHumanoid = Instance.new("Humanoid")
-    fakeHumanoid.Parent = FakeCharacter
-
-    -- Force the camera to focus on the fake character, not the real HRP:cite[10]
-    workspace.CurrentCamera.CameraSubject = fakeHumanoid
-end
-
-local function syncFakeWithInput()
-    -- Heartbeat loop to synchronize the fake character with your input
-    RunService.Heartbeat:Connect(function()
-        if not REANIMATION_ACTIVE or not FakeCharacter or not RealCharacter then
+local function StartReanimation()
+    if REANIMATION_ACTIVE then return end
+    
+    if not CreateFakeCharacter() then
+        warn("Failed to create fake character")
+        return
+    end
+    
+    REANIMATION_ACTIVE = true
+    AnchorRealHRP()
+    SetupCamera()
+    
+    local connection
+    connection = RunService.Heartbeat:Connect(function()
+        if not REANIMATION_ACTIVE or not RealHRP or not FakeHRP then
+            if connection then connection:Disconnect() end
             return
         end
-
-        -- Keep the real HRP anchored at the target
+        
         RealHRP.CFrame = CFrame.new(TARGET_POSITION)
-
-        -- Synchronize the fake character's CFrame with the real one, but maintain its own position
-        -- This allows the fake to move while the real HRP stays anchored
-        FakeHRP.CFrame = FakeHRP.CFrame:Lerp(RealHRP.CFrame, 0.5)
+        RealHRP.Velocity = Vector3.new(0, 0, 0)
+        
+        if UserInputService:IsKeyDown(Enum.KeyCode.W) then
+            FakeHRP.CFrame = FakeHRP.CFrame + FakeHRP.CFrame.LookVector * -0.5
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.S) then
+            FakeHRP.CFrame = FakeHRP.CFrame + FakeHRP.CFrame.LookVector * 0.5
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.A) then
+            FakeHRP.CFrame = FakeHRP.CFrame * CFrame.Angles(0, math.rad(3), 0)
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.D) then
+            FakeHRP.CFrame = FakeHRP.CFrame * CFrame.Angles(0, math.rad(-3), 0)
+        end
     end)
 end
 
-local function startReanimation()
-    if REANIMATION_ACTIVE then return end
-    REANIMATION_ACTIVE = true
-
-    createFakeCharacter()
-    controlRealHRP()
-    redirectCamera()
-    syncFakeWithInput()
-
-    print("Reanimation Active | Real HRP anchored at: " .. tostring(TARGET_POSITION))
-end
-
-local function stopReanimation()
+local function StopReanimation()
     if not REANIMATION_ACTIVE then return end
     REANIMATION_ACTIVE = false
-
-    -- Restore real character
-    RealHRP.Anchored = false
-    for _, part in ipairs(RealCharacter:GetDescendants()) do
-        if part:IsA("BasePart") then
-            part.Transparency = 0
+    
+    if RealCharacter then
+        RealHRP.Anchored = false
+        for _, part in ipairs(RealCharacter:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.Transparency = 0
+                part.CanCollide = true
+            end
         end
+        Camera.CameraSubject = RealCharacter:FindFirstChildOfClass("Humanoid")
     end
-
-    -- Restore camera to real character
-    workspace.CurrentCamera.CameraSubject = RealHumanoid
-
-    -- Destroy fake character
+    
     if FakeCharacter then
         FakeCharacter:Destroy()
         FakeCharacter = nil
     end
-
-    print("Reanimation Stopped")
 end
 
--- Control via the 'F' key
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then return end
-
     if input.KeyCode == Enum.KeyCode.F then
         if REANIMATION_ACTIVE then
-            stopReanimation()
+            StopReanimation()
         else
-            startReanimation()
+            StartReanimation()
         end
     end
 end)
 
--- Auto-reconnect on respawn
 LocalPlayer.CharacterAdded:Connect(function(newCharacter)
-    RealCharacter = newCharacter
-    RealHRP = newCharacter:WaitForChild("HumanoidRootPart")
-    RealHumanoid = newCharacter:FindFirstChildOfClass("Humanoid")
-
     if REANIMATION_ACTIVE then
-        wait(1) -- Allow character to stabilize
-        startReanimation()
+        StopReanimation()
+        wait(2)
+        StartReanimation()
     end
 end)
 
-print("Reanimation System Loaded | Press 'F' to toggle")
+if LocalPlayer.Character then
+    RealCharacter = LocalPlayer.Character
+    RealHRP = RealCharacter:WaitForChild("HumanoidRootPart")
+end
+
+print("HRP Separation System Loaded - Press F to toggle")
