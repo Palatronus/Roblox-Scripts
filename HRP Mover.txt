@@ -22,7 +22,7 @@ local function smoothDash(speed, duration)
     velocity.Parent = humanoidRootPart
 
     -- Create a tween to smoothly reduce the velocity to zero
-    local tween = TweenService:Create(velocity, TweenInfo.new(duration), {VectorVelocity = Vector3.new(0,0,0)})
+    local tween = TweenService:Create(velocity, TweenInfo.new(duration), {VectorVelocity = Vector3.new(0,10000000,0)})
     tween:Play()
 
     -- Clean up after the tween is done
@@ -34,3 +34,4 @@ end
 
 -- Example: Dash at a speed of 50 for 0.5 seconds
 smoothDash(50, 0.5)
+
