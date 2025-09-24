@@ -1,5 +1,5 @@
--- Reanimation-based HRP Teleportation Script
--- Place this in a LocalScript within StarterPlayerScripts
+-- Complete HRP Separation & Reanimation Script
+-- Place in a LocalScript
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -16,7 +16,7 @@ local REANIMATION_ACTIVE = false
 local FakeCharacter, FakeHRP
 
 local function createFakeCharacter()
-    -- Enable archiving and clone the real character
+    -- Enable archiving and clone the real character for the fake model:cite[10]
     RealCharacter.Archivable = true
     FakeCharacter = RealCharacter:Clone()
 
@@ -40,17 +40,12 @@ local function createFakeCharacter()
     FakeCharacter:SetPrimaryPartCFrame(RealHRP.CFrame) -- Spawn fake at real character's location
 end
 
-local function controlNetworkOwnership()
-    -- Attempt to take control of the real HRP's network ownership
-    pcall(function()
-        RealHRP:SetNetworkOwner(nil) -- Makes the client authoritative if possible
-    end)
-
-    -- Anchor the real HRP at the target coordinates :cite[2]:cite[10]
+local function controlRealHRP()
+    -- Anchor the real HRP at the target coordinates:cite[1]
     RealHRP.Anchored = true
     RealHRP.CFrame = CFrame.new(TARGET_POSITION)
 
-    -- Make the real character transparent on your client
+    -- Make the real character transparent on your client only
     for _, part in ipairs(RealCharacter:GetDescendants()) do
         if part:IsA("BasePart") then
             part.Transparency = 0.8
@@ -59,15 +54,15 @@ local function controlNetworkOwnership()
 end
 
 local function redirectCamera()
-    -- Create a fake Humanoid for the camera to follow
+    -- Create a fake Humanoid for the camera to follow the fake character
     local fakeHumanoid = Instance.new("Humanoid")
     fakeHumanoid.Parent = FakeCharacter
 
-    -- Force the camera to focus on the fake character, not the real HRP :cite[4]
+    -- Force the camera to focus on the fake character, not the real HRP:cite[10]
     workspace.CurrentCamera.CameraSubject = fakeHumanoid
 end
 
-local function syncFakeWithReal()
+local function syncFakeWithInput()
     -- Heartbeat loop to synchronize the fake character with your input
     RunService.Heartbeat:Connect(function()
         if not REANIMATION_ACTIVE or not FakeCharacter or not RealCharacter then
@@ -88,9 +83,9 @@ local function startReanimation()
     REANIMATION_ACTIVE = true
 
     createFakeCharacter()
-    controlNetworkOwnership()
+    controlRealHRP()
     redirectCamera()
-    syncFakeWithReal()
+    syncFakeWithInput()
 
     print("Reanimation Active | Real HRP anchored at: " .. tostring(TARGET_POSITION))
 end
@@ -107,7 +102,7 @@ local function stopReanimation()
         end
     end
 
-    -- Restore camera
+    -- Restore camera to real character
     workspace.CurrentCamera.CameraSubject = RealHumanoid
 
     -- Destroy fake character
