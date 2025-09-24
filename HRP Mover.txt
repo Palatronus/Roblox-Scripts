@@ -1,197 +1,49 @@
--- HRP Separation Script - Client-Side Character Cloning
-if not game:IsLoaded() then game.Loaded:Wait() end
-
+-- Direct HRP Welding Manipulation
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
-local UserInputService = game:GetService("UserInputService")
 local LocalPlayer = Players.LocalPlayer
 
--- Configuration
-local TARGET_POSITION = Vector3.new(100, 50, 200) -- HRP destination
-local SEPARATION_ACTIVE = false
-local RealCharacter, CharacterClone
-local RealHRP, CloneHRP
-
-local function createCharacterClone()
-    if not LocalPlayer.Character then return false end
+local function breakHRPWelds()
+    local character = LocalPlayer.Character
+    if not character then return false end
     
-    RealCharacter = LocalPlayer.Character
-    RealCharacter.Archivable = true
+    local hrp = character:FindFirstChild("HumanoidRootPart")
+    if not hrp then return false end
     
-    -- Create clone for visual representation
-    CharacterClone = RealCharacter:Clone()
-    
-    -- Position clone where character currently is
-    local realHRP = RealCharacter:FindFirstChild("HumanoidRootPart")
-    if not realHRP then return false end
-    
-    CharacterClone.Parent = workspace
-    CharacterClone:SetPrimaryPartCFrame(realHRP.CFrame)
-    
-    -- Make real character invisible
-    for _, part in ipairs(RealCharacter:GetDescendants()) do
-        if part:IsA("BasePart") then
-            part.Transparency = 1
-            part.CanCollide = false
+    -- Break welds connecting HRP to other parts
+    for _, weld in ipairs(hrp:GetChildren()) do
+        if weld:IsA("Weld") or weld:IsA("WeldConstraint") then
+            weld.Enabled = false
         end
     end
     
-    -- Make clone visible and setup
-    for _, part in ipairs(CharacterClone:GetDescendants()) do
-        if part:IsA("BasePart") then
-            part.Transparency = 0
-            part.CanCollide = false
+    -- Also break welds from torso to HRP
+    local torso = character:FindFirstChild("UpperTorso") or character:FindFirstChild("Torso")
+    if torso then
+        for _, weld in ipairs(torso:GetChildren()) do
+            if (weld:IsA("Weld") or weld:IsA("WeldConstraint")) and weld.Part1 == hrp then
+                weld.Enabled = false
+            end
         end
-    end
-    
-    -- Disable clone humanoid to prevent interference
-    local cloneHumanoid = CharacterClone:FindFirstChildOfClass("Humanoid")
-    if cloneHumanoid then
-        cloneHumanoid:Destroy()
     end
     
     return true
 end
 
-local function startSeparation()
-    if SEPARATION_ACTIVE then return end
-    
-    if not createCharacterClone() then
-        warn("Failed to create character clone")
+local function separateHRP()
+    if not breakHRPWelds() then
+        warn("Failed to break HRP welds")
         return
     end
     
-    RealHRP = RealCharacter:FindFirstChild("HumanoidRootPart")
-    CloneHRP = CharacterClone:FindFirstChild("HumanoidRootPart")
+    local character = LocalPlayer.Character
+    local hrp = character:FindFirstChild("HumanoidRootPart")
     
-    if not RealHRP or not CloneHRP then
-        warn("HRP not found in character or clone")
-        return
-    end
+    hrp.Anchored = true
+    hrp.CFrame = CFrame.new(100, 50, 200) -- Your target position
     
-    SEPARATION_ACTIVE = true
-    
-    -- Main separation loop
-    local connection
-    connection = RunService.Heartbeat:Connect(function()
-        if not SEPARATION_ACTIVE or not RealCharacter or not CharacterClone then
-            if connection then connection:Disconnect() end
-            return
-        end
-        
-        -- Keep real HRP at target position
-        RealHRP.CFrame = CFrame.new(TARGET_POSITION)
-        RealHRP.Velocity = Vector3.new(0, 0, 0)
-        
-        -- Update clone position based on real character's intended movement
-        -- This creates the illusion that the visible character is moving normally
-        local currentClonePos = CloneHRP.Position
-        CloneHRP.CFrame = CFrame.new(currentClonePos) * RealHRP.CFrame.Rotation
-    end)
-    
-    print("HRP Separation: ACTIVE")
-    print("Real HRP at: " .. tostring(TARGET_POSITION))
-    print("Clone visible at original position")
+    print("HRP welds broken - HRP separated from character")
 end
 
-local function stopSeparation()
-    if not SEPARATION_ACTIVE then return end
-    
-    SEPARATION_ACTIVE = false
-    
-    -- Restore real character visibility
-    if RealCharacter then
-        for _, part in ipairs(RealCharacter:GetDescendants()) do
-            if part:IsA("BasePart") then
-                part.Transparency = 0
-                part.CanCollide = true
-            end
-        end
-    end
-    
-    -- Destroy clone
-    if CharacterClone then
-        CharacterClone:Destroy()
-        CharacterClone = nil
-    end
-    
-    -- Move real character back to clone position if needed
-    if RealHRP and CloneHRP then
-        RealHRP.CFrame = CloneHRP.CFrame
-    end
-    
-    print("HRP Separation: DISABLED")
-end
-
-local function updateTargetPosition(newPosition)
-    if typeof(newPosition) == "Vector3" then
-        TARGET_POSITION = newPosition
-        print("Target position updated to: " .. tostring(newPosition))
-        return true
-    end
-    return false
-end
-
--- Handle character respawns
-LocalPlayer.CharacterAdded:Connect(function(newCharacter)
-    -- Clean up existing separation
-    if SEPARATION_ACTIVE then
-        stopSeparation()
-    end
-    
-    -- Wait for character to fully load
-    task.wait(1)
-    
-    -- Re-apply separation if it was active
-    if SEPARATION_ACTIVE then
-        task.wait(1)
-        startSeparation()
-    end
-end)
-
--- Key bindings
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if gameProcessed then return end
-    
-    if input.KeyCode == Enum.KeyCode.Insert then
-        startSeparation()
-    elseif input.KeyCode == Enum.KeyCode.Delete then
-        stopSeparation()
-    elseif input.KeyCode == Enum.KeyCode.Home then
-        updateTargetPosition(Vector3.new(0, 100, 0)) -- Example new position
-    end
-end)
-
--- Advanced movement synchronization (optional)
-local function setupMovementSync()
-    if not SEPARATION_ACTIVE then return end
-    
-    -- Sync limb movements for more realistic clone
-    local function syncLimbs()
-        if not RealCharacter or not CharacterClone then return end
-        
-        for _, realPart in ipairs(RealCharacter:GetDescendants()) do
-            if realPart:IsA("BasePart") then
-                local clonePart = CharacterClone:FindFirstChild(realPart.Name)
-                if clonePart then
-                    clonePart.CFrame = realPart.CFrame
-                end
-            end
-        end
-    end
-    
-    -- High-frequency sync for smooth animation
-    RunService.Heartbeat:Connect(syncLimbs)
-end
-
-print("HRP Separation System Loaded")
-print("Controls: INSERT=Start, DELETE=Stop, HOME=Change Position")
-print("Real character HRP will be separated from visible clone")
-
--- Export functions for external control
-getgenv().HRPSeparation = {
-    start = startSeparation,
-    stop = stopSeparation,
-    updatePosition = updateTargetPosition,
-    isActive = function() return SEPARATION_ACTIVE end
-}
+-- Execute immediately
+separateHRP()
