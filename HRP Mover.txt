@@ -1,38 +1,225 @@
--- Intermediate HRP Test
-print("=== HRP FUNCTIONALITY TEST ===")
+-- Server-Side Visible HRP Anchoring Script
+if not game:IsLoaded() then game.Loaded:Wait() end
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
-
--- Wait for everything to load
-if not game:IsLoaded() then
-    print("Waiting for game to load...")
-    game.Loaded:Wait()
-end
-
+local UserInputService = game:GetService("UserInputService")
 local LocalPlayer = Players.LocalPlayer
-print("Player: " .. LocalPlayer.Name)
 
 -- Wait for character
 if not LocalPlayer.Character then
-    print("Waiting for character...")
     LocalPlayer.CharacterAdded:Wait()
 end
 
-local character = LocalPlayer.Character
-print("Character: " .. character.Name)
+local Character = LocalPlayer.Character
+local HumanoidRootPart = Character:WaitForChild("HumanoidRootPart")
+local Humanoid = Character:FindFirstChildOfClass("Humanoid")
 
--- Find HRP
-local hrp = character:WaitForChild("HumanoidRootPart")
-print("HRP found at: " .. tostring(hrp.Position))
+-- Configuration
+local TARGET_POSITION = Vector3.new(0, 500, 0) -- Position far above map
+local ANCHOR_ACTIVE = false
+local OriginalCFrame = HumanoidRootPart.CFrame
 
--- Simple teleport test
-print("Testing teleport...")
-local originalPos = hrp.Position
-hrp.CFrame = CFrame.new(originalPos + Vector3.new(0, 10, 0))
-print("Teleported to: " .. tostring(hrp.Position))
-wait(1)
-hrp.CFrame = CFrame.new(originalPos)
-print("Returned to original position")
+-- Method 1: Direct HRP manipulation with network ownership
+local function anchorHRPDirect()
+    ANCHOR_ACTIVE = true
+    
+    -- Store original properties
+    local originalTransparency = HumanoidRootPart.Transparency
+    local originalCanCollide = HumanoidRootPart.CanCollide
+    
+    -- Make HRP visible but anchored at target position
+    HumanoidRootPart.Transparency = 0 -- Ensure it's visible
+    HumanoidRootPart.CanCollide = false
+    HumanoidRootPart.Anchored = true
+    
+    -- Continuous position maintenance
+    local connection
+    connection = RunService.Heartbeat:Connect(function()
+        if not ANCHOR_ACTIVE or not HumanoidRootPart or not HumanoidRootPart.Parent then
+            if connection then connection:Disconnect() end
+            return
+        end
+        
+        -- Force HRP to stay at target position
+        HumanoidRootPart.CFrame = CFrame.new(TARGET_POSITION)
+        
+        -- Cancel any physics forces
+        HumanoidRootPart.Velocity = Vector3.new(0, 0, 0)
+        HumanoidRootPart.RotVelocity = Vector3.new(0, 0, 0)
+        
+        -- Optional: Create a subtle movement to prevent anti-cheat detection
+        local microMovement = Vector3.new(
+            math.sin(tick() * 5) * 0.01,
+            math.cos(tick() * 3) * 0.01,
+            math.sin(tick() * 4) * 0.01
+        )
+        HumanoidRootPart.Position = TARGET_POSITION + microMovement
+    end)
+    
+    return connection
+end
 
-print("=== TEST COMPLETE ===")
+-- Method 2: BodyPosition constraint method (alternative approach)
+local function anchorHRPWithConstraints()
+    ANCHOR_ACTIVE = true
+    
+    -- Create BodyPosition to force HRP to target
+    local bodyPosition = Instance.new("BodyPosition")
+    bodyPosition.Position = TARGET_POSITION
+    bodyPosition.MaxForce = Vector3.new(40000, 40000, 40000)
+    bodyPosition.P = 1000
+    bodyPosition.Parent = HumanoidRootPart
+    
+    -- Create BodyGyro to prevent rotation
+    local bodyGyro = Instance.new("BodyGyro")
+    bodyGyro.MaxTorque = Vector3.new(40000, 40000, 40000)
+    bodyGyro.P = 1000
+    bodyGyro.CFrame = HumanoidRootPart.CFrame
+    bodyGyro.Parent = HumanoidRootPart
+    
+    -- Make sure HRP is visible
+    HumanoidRootPart.Transparency = 0
+    HumanoidRootPart.CanCollide = false
+    
+    return {bodyPosition, bodyGyro}
+end
+
+-- Method 3: Hybrid approach with continuous updates
+local function anchorHRPHybrid()
+    ANCHOR_ACTIVE = true
+    
+    -- Use constraints for smooth movement
+    local constraints = anchorHRPWithConstraints()
+    
+    -- Also use direct position updates as backup
+    local connection
+    connection = RunService.Heartbeat:Connect(function()
+        if not ANCHOR_ACTIVE or not HumanoidRootPart then
+            if connection then connection:Disconnect() end
+            return
+        end
+        
+        -- Double-check position
+        HumanoidRootPart.Position = TARGET_POSITION
+    end)
+    
+    return {connection = connection, constraints = constraints}
+end
+
+local function releaseHRP()
+    ANCHOR_ACTIVE = false
+    
+    -- Restore original properties
+    if HumanoidRootPart then
+        HumanoidRootPart.Anchored = false
+        HumanoidRootPart.CanCollide = true
+        
+        -- Remove any constraints
+        for _, obj in pairs(HumanoidRootPart:GetChildren()) do
+            if obj:IsA("BodyPosition") or obj:IsA("BodyGyro") then
+                obj:Destroy()
+            end
+        end
+    end
+end
+
+-- Main toggle function
+local function toggleHRPAnchor()
+    if ANCHOR_ACTIVE then
+        releaseHRP()
+        print("HRP anchoring: DISABLED")
+    else
+        -- Try different methods until one works
+        local success = pcall(function()
+            anchorHRPHybrid()
+        end)
+        
+        if not success then
+            success = pcall(function()
+                anchorHRPDirect()
+            end)
+        end
+        
+        if success then
+            print("HRP anchoring: ENABLED")
+            print("HRP anchored at: " .. tostring(TARGET_POSITION))
+        else
+            print("Failed to anchor HRP")
+        end
+    end
+end
+
+-- Update target position function
+local function updateTargetPosition(newPosition)
+    TARGET_POSITION = newPosition
+    print("Target position updated to: " .. tostring(newPosition))
+end
+
+-- Key binding - Using F key for easy access
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    
+    if input.KeyCode == Enum.KeyCode.F then
+        toggleHRPAnchor()
+    elseif input.KeyCode == Enum.KeyCode.G then
+        -- Example: Change to a position 100 studs above current position
+        updateTargetPosition(HumanoidRootPart.Position + Vector3.new(0, 100, 0))
+    end
+end)
+
+-- Auto-reapply on respawn
+LocalPlayer.CharacterAdded:Connect(function(newCharacter)
+    Character = newCharacter
+    HumanoidRootPart = Character:WaitForChild("HumanoidRootPart")
+    Humanoid = Character:FindFirstChildOfClass("Humanoid")
+    
+    if ANCHOR_ACTIVE then
+        wait(2) -- Wait for character to stabilize
+        toggleHRPAnchor() -- Turn off
+        wait(0.5)
+        toggleHRPAnchor() -- Turn back on
+    end
+end)
+
+-- Visual feedback
+local function createIndicator()
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Parent = game.Players.LocalPlayer:WaitForChild("PlayerGui")
+    
+    local textLabel = Instance.new("TextLabel")
+    textLabel.Size = UDim2.new(0, 200, 0, 30)
+    textLabel.Position = UDim2.new(0, 10, 0, 10)
+    textLabel.BackgroundColor3 = Color3.new(0, 0, 0)
+    textLabel.TextColor3 = Color3.new(1, 1, 1)
+    textLabel.Text = "HRP Anchor: INACTIVE"
+    textLabel.Parent = screenGui
+    
+    -- Update indicator based on state
+    while true do
+        if ANCHOR_ACTIVE then
+            textLabel.Text = "HRP Anchor: ACTIVE"
+            textLabel.BackgroundColor3 = Color3.new(0, 0.5, 0)
+        else
+            textLabel.Text = "HRP Anchor: INACTIVE"
+            textLabel.BackgroundColor3 = Color3.new(0.5, 0, 0)
+        end
+        wait(0.5)
+    end
+end
+
+-- Start indicator
+spawn(createIndicator)
+
+print("HRP Anchoring System Loaded")
+print("Press F to toggle HRP anchoring")
+print("Press G to set target above current position")
+print("HRP will be visible and anchored at the target location")
+
+-- Export functions for manual control
+getgenv().HRPAnchor = {
+    enable = function() if not ANCHOR_ACTIVE then toggleHRPAnchor() end end,
+    disable = function() if ANCHOR_ACTIVE then toggleHRPAnchor() end end,
+    setPosition = updateTargetPosition,
+    getStatus = function() return ANCHOR_ACTIVE end
+}
