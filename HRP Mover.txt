@@ -1,115 +1,190 @@
--- Client-Side HRP Control Script
--- Designed for stability and effectiveness with executors
-
+-- HRP-Only Teleportation Script (Client-Side Separation)
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
+local LocalPlayer = Players.LocalPlayer
 
--- Error handling wrapper
-local function safeCall(func, ...)
-    local success, result = pcall(func, ...)
-    if not success then
-        warn("Script Error: " .. tostring(result))
-        return false
-    end
+-- Wait for character initialization
+if not LocalPlayer.Character then
+    LocalPlayer.CharacterAdded:Wait()
+end
+
+local Character = LocalPlayer.Character
+local OriginalHRP = Character:WaitForChild("HumanoidRootPart")
+local Humanoid = Character:FindFirstChildOfClass("Humanoid")
+
+-- Configuration
+local TARGET_POSITION = Vector3.new(100, 50, 200) -- HRP destination
+local HRP_TRANSPARENCY = 0.8 -- HRP visibility (0=visible, 1=invisible)
+local SEPARATION_ACTIVE = false
+local SafeHRP = nil
+local OriginalHRPProperties = {}
+
+local function SaveOriginalProperties()
+    OriginalHRPProperties = {
+        CFrame = OriginalHRP.CFrame,
+        Transparency = OriginalHRP.Transparency,
+        CanCollide = OriginalHRP.CanCollide,
+        Anchored = OriginalHRP.Anchored
+    }
+end
+
+local function CreateHRPSeparation()
+    if SEPARATION_ACTIVE or not OriginalHRP then return false end
+    
+    SaveOriginalProperties()
+    
+    -- Create invisible HRP clone at target position
+    SafeHRP = OriginalHRP:Clone()
+    SafeHRP.Name = "TeleportedHRP"
+    SafeHRP.Transparency = HRP_TRANSPARENCY
+    SafeHRP.CanCollide = false
+    SafeHRP.Anchored = true
+    SafeHRP.CFrame = CFrame.new(TARGET_POSITION)
+    SafeHRP.Parent = Character
+    
+    -- Convert original HRP to decorative/anchor part
+    OriginalHRP.Name = "VisualAnchor"
+    OriginalHRP.CanCollide = false
+    OriginalHRP.Anchored = true
+    OriginalHRP.Transparency = 0 -- Keep visible for reference
+    
+    SEPARATION_ACTIVE = true
     return true
 end
 
--- Main control function
-local function initializeHRPControl()
-    local localPlayer = Players.LocalPlayer
-    if not localPlayer then
-        warn("Player not found")
-        return false
-    end
-
-    -- Wait for character to load
-    local character = localPlayer.Character
-    if not character then
-        localPlayer.CharacterAdded:Wait()
-        character = localPlayer.Character
-    end
-
-    -- Locate HRP with validation:cite[8]
-    local humanoidRootPart = character:WaitForChild("HumanoidRootPart", 5) -- 5-second timeout
-    if not humanoidRootPart then
-        warn("HumanoidRootPart not found or inaccessible")
-        return false
-    end
-
-    -- Configuration
-    local targetPosition = Vector3.new(100, 50, 200) -- Set your desired coordinates
-    local targetTransparency = 0.5 -- 0 = fully visible, 1 = fully transparent
-    local isActive = true
-
-    -- Apply initial properties
-    safeCall(function()
-        humanoidRootPart.Transparency = targetTransparency
-    end)
-
-    -- Continuous position and transparency maintenance:cite[3]
+local function MaintainSeparation()
+    if not SEPARATION_ACTIVE then return end
+    
     local heartbeatConnection
     heartbeatConnection = RunService.Heartbeat:Connect(function()
-        if not isActive or not humanoidRootPart or not humanoidRootPart.Parent then
+        if not SEPARATION_ACTIVE or not SafeHRP or not OriginalHRP then
             heartbeatConnection:Disconnect()
             return
         end
-
-        safeCall(function()
-            -- Use CFrame for precise positioning:cite[3]
-            humanoidRootPart.CFrame = CFrame.new(targetPosition)
-            -- Maintain transparency setting
-            humanoidRootPart.Transparency = targetTransparency
-            -- Cancel physics interference
-            humanoidRootPart.Velocity = Vector3.new(0, 0, 0)
-        end)
+        
+        -- Keep safe HRP at target position
+        SafeHRP.CFrame = CFrame.new(TARGET_POSITION)
+        SafeHRP.Transparency = HRP_TRANSPARENCY
+        
+        -- Optional: Apply slight movement to visual anchor for realism
+        -- Remove this section if you want completely stationary character
+        local currentCFrame = OriginalHRP.CFrame
+        OriginalHRP.CFrame = currentCFrame + Vector3.new(
+            math.sin(tick() * 2) * 0.01, -- Subtle sway
+            0,
+            math.cos(tick() * 2) * 0.01
+        )
     end)
-
-    -- Control functions
-    local controls = {
-        setPosition = function(newPosition)
-            if typeof(newPosition) == "Vector3" then
-                targetPosition = newPosition
-                return true
-            end
-            return false
-        end,
-        setTransparency = function(newTransparency)
-            if type(newTransparency) == "number" then
-                targetTransparency = math.clamp(newTransparency, 0, 1)
-                return true
-            end
-            return false
-        end,
-        toggle = function(state)
-            if state ~= nil then
-                isActive = state
-            else
-                isActive = not isActive
-            end
-            return isActive
-        end
-    }
-
-    -- Auto-reconnect on character respawn
-    localPlayer.CharacterAdded:Connect(function(newCharacter)
-        character = newCharacter
-        humanoidRootPart = newCharacter:WaitForChild("HumanoidRootPart")
-        if isActive then
-            task.wait(0.5) -- Allow character to stabilize
-            initializeHRPControl() -- Re-initialize
-        end
-    end)
-
-    print("HRP Control initialized successfully.")
-    print("Position: " .. tostring(targetPosition))
-    print("Transparency: " .. targetTransparency)
-    return controls
 end
 
--- Start the system
-local HRPControls = initializeHRPControl()
+local function RestoreOriginal()
+    if not SEPARATION_ACTIVE then return end
+    
+    SEPARATION_ACTIVE = false
+    
+    -- Restore original HRP
+    if SafeHRP then
+        SafeHRP:Destroy()
+        SafeHRP = nil
+    end
+    
+    if OriginalHRP then
+        OriginalHRP.Name = "HumanoidRootPart"
+        OriginalHRP.CanCollide = OriginalHRPProperties.CanCollide or true
+        OriginalHRP.Anchored = OriginalHRPProperties.Anchored or false
+        OriginalHRP.Transparency = OriginalHRPProperties.Transparency or 0
+    end
+end
 
--- Example commands (can be called via executor's console):
--- HRPControls.setPosition(Vector3.new(0, 100, 0))
--- HRPControls.setTransparency(0.8)
--- HRPControls.toggle(false)
+-- Main control functions
+local HRPController = {
+    StartSeparation = function()
+        if CreateHRPSeparation() then
+            MaintainSeparation()
+            print("HRP separation active - Hitbox teleported to: " .. tostring(TARGET_POSITION))
+            return true
+        end
+        return false
+    end,
+    
+    StopSeparation = function()
+        RestoreOriginal()
+        print("HRP separation stopped - Normal configuration restored")
+    end,
+    
+    UpdatePosition = function(newPosition)
+        if typeof(newPosition) == "Vector3" then
+            TARGET_POSITION = newPosition
+            print("HRP target position updated to: " .. tostring(newPosition))
+            return true
+        end
+        return false
+    end,
+    
+    UpdateTransparency = function(transparency)
+        if type(transparency) == "number" then
+            HRP_TRANSPARENCY = math.clamp(transparency, 0, 1)
+            if SafeHRP then
+                SafeHRP.Transparency = HRP_TRANSPARENCY
+            end
+            print("HRP transparency updated to: " .. HRP_TRANSPARENCY)
+            return true
+        end
+        return false
+    end,
+    
+    GetStatus = function()
+        return {
+            Active = SEPARATION_ACTIVE,
+            Position = TARGET_POSITION,
+            Transparency = HRP_TRANSPARENCY,
+            SafeHRPExists = SafeHRP ~= nil
+        }
+    end
+}
+
+-- Auto-initialize on character load
+local function Initialize()
+    Character = LocalPlayer.Character
+    OriginalHRP = Character:WaitForChild("HumanoidRootPart")
+    Humanoid = Character:FindFirstChildOfClass("Humanoid")
+    
+    print("HRP Controller initialized successfully")
+end
+
+-- Handle respawns
+LocalPlayer.CharacterAdded:Connect(function(newCharacter)
+    Character = newCharacter
+    task.wait(0.5) -- Allow character to stabilize
+    Initialize()
+    
+    -- Re-apply separation if it was active
+    if SEPARATION_ACTIVE then
+        task.wait(1)
+        HRPController.StartSeparation()
+    end
+end)
+
+-- Initial setup
+Initialize()
+
+-- Control bindings
+local UIS = game:GetService("UserInputService")
+UIS.InputBegan:Connect(function(input)
+    if input.KeyCode == Enum.KeyCode.Insert then
+        HRPController.StartSeparation()
+    elseif input.KeyCode == Enum.KeyCode.Delete then
+        HRPController.StopSeparation()
+    elseif input.KeyCode == Enum.KeyCode.Home then
+        HRPController.UpdateTransparency(1) -- Fully invisible
+    elseif input.KeyCode == Enum.KeyCode.End then
+        HRPController.UpdateTransparency(0.2) -- Mostly visible
+    end
+end)
+
+-- Export controller for external access
+getgenv().HRPController = HRPController
+
+print("HRP Separation System Loaded")
+print("Controls: INSERT=Start, DELETE=Stop, HOME=Invisible, END=Visible")
+print("Access controller via: HRPController.StartSeparation()")
