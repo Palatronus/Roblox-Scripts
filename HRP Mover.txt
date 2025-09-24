@@ -1,97 +1,68 @@
--- HRP Separation Script - Educational Purpose Only
+-- HRP Teleport Script for Executors
+-- Paste this entire script into your executor
+
+if not game:IsLoaded() then
+    game.Loaded:Wait()
+end
+
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
+local LocalPlayer = Players.LocalPlayer
 
-local player = Players.LocalPlayer
-local character = player.CharacterAdded:Wait()
-local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
+-- Wait for character to load
+if not LocalPlayer.Character then
+    LocalPlayer.CharacterAdded:Wait()
+end
 
--- Configuration
-local SAFE_POSITION = Vector3.new(0, 1000, 0) -- Safe location above map
-local DECOY_POSITION = humanoidRootPart.Position -- Original position for decoy
-local isSeparationActive = false
+local Character = LocalPlayer.Character
+local HumanoidRootPart = Character:WaitForChild("HumanoidRootPart")
 
-local function createHRPSeparation()
-    if isSeparationActive then return end
-    isSeparationActive = true
-    
-    -- Store original HRP properties
-    local originalCFrame = humanoidRootPart.CFrame
-    local originalAnchored = humanoidRootPart.Anchored
-    
-    -- Create invisible HRP at safe location
-    local safeHRP = humanoidRootPart:Clone()
-    safeHRP.Name = "SafeHRP"
-    safeHRP.Transparency = 1
-    safeHRP.CanCollide = false
-    safeHRP.Anchored = true
-    safeHRP.CFrame = CFrame.new(SAFE_POSITION)
-    safeHRP.Parent = character
-    
-    -- Modify original HRP to be visible decoy
-    humanoidRootPart.Name = "DecoyHRP"
-    humanoidRootPart.Anchored = true
-    humanoidRootPart.CanCollide = false
-    
-    -- Maintain camera focus on decoy
-    local camera = workspace.CurrentCamera
-    camera.CameraSubject = character.Humanoid
-    
-    -- Continuous position maintenance
-    local connection
-    connection = RunService.Heartbeat:Connect(function()
-        if not isSeparationActive then
-            connection:Disconnect()
-            return
+-- Target coordinates (modify these as needed)
+local TargetPosition = Vector3.new(100, 50, 200) -- X, Y, Z coordinates
+local TeleportActive = true
+
+local function TeleportHRP()
+    local success, err = pcall(function()
+        -- Main teleportation loop
+        while TeleportActive do
+            if Character and Character.Parent and HumanoidRootPart and HumanoidRootPart.Parent then
+                -- Direct CFrame manipulation for teleportation
+                HumanoidRootPart.CFrame = CFrame.new(TargetPosition)
+                
+                -- Force position maintenance
+                HumanoidRootPart.Velocity = Vector3.new(0, 0, 0)
+                HumanoidRootPart.RotVelocity = Vector3.new(0, 0, 0)
+                
+                -- Small delay to prevent crashing
+                wait(0.1)
+            else
+                -- Re-acquire character if respawned
+                Character = LocalPlayer.Character
+                if Character then
+                    HumanoidRootPart = Character:WaitForChild("HumanoidRootPart")
+                end
+                wait(1)
+            end
         end
-        
-        -- Keep safe HRP anchored at safe location
-        safeHRP.CFrame = CFrame.new(SAFE_POSITION)
-        
-        -- Optional: Make decoy HRP follow mouse or maintain position
-        humanoidRootPart.CFrame = originalCFrame
     end)
     
-    return {
-        Disconnect = function()
-            isSeparationActive = false
-            connection:Disconnect()
-            
-            -- Restore original setup
-            safeHRP:Destroy()
-            humanoidRootPart.Name = "HumanoidRootPart"
-            humanoidRootPart.Anchored = originalAnchored
-            humanoidRootPart.CanCollide = true
-        end
-    }
-end
-
--- Control functions
-local separationHandler
-
-local function startSeparation()
-    if not separationHandler then
-        separationHandler = createHRPSeparation()
-        print("HRP separation activated - Hitbox moved to safe location")
+    if not success then
+        warn("Teleport Error: " .. tostring(err))
     end
 end
 
-local function stopSeparation()
-    if separationHandler then
-        separationHandler.Disconnect()
-        separationHandler = nil
-        print("HRP separation deactivated - Normal hitbox restored")
-    end
-end
+-- Start teleportation
+TeleportHRP()
 
--- Input bindings (customize based on your executor)
-game:GetService("UserInputService").InputBegan:Connect(function(input)
-    if input.KeyCode == Enum.KeyCode.Insert then
-        startSeparation()
-    elseif input.KeyCode == Enum.KeyCode.Delete then
-        stopSeparation()
+-- Optional: Keybind to toggle teleport
+local UIS = game:GetService("UserInputService")
+UIS.InputBegan:Connect(function(input)
+    if input.KeyCode == Enum.KeyCode.P then  -- Press P to toggle
+        TeleportActive = not TeleportActive
+        print("Teleport " .. (TeleportActive and "enabled" or "disabled"))
     end
 end)
 
-print("HRP Separation Script Loaded")
-print("Press Insert to activate, Delete to deactivate")
+print("HRP Teleport Script Activated")
+print("Target Position: " .. tostring(TargetPosition))
+print("Press P to toggle teleportation")
