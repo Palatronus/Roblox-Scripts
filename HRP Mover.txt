@@ -1,4 +1,4 @@
--- True HRP-Only Separation Script
+-- Fixed HRP Separation - Visible HRP + Free Movement
 if not game:IsLoaded() then game.Loaded:Wait() end
 
 local Players = game:GetService("Players")
@@ -9,225 +9,212 @@ local LocalPlayer = Players.LocalPlayer
 -- Configuration
 local TARGET_POSITION = Vector3.new(100, 500, 200)
 local SEPARATION_ACTIVE = false
-local OriginalWelds = {}
+local RealCharacter, FakeHRP
+local OriginalHRP, CameraFocus
 
 local function debugLog(message)
     print("[HRP Fix] " .. message)
 end
 
--- Core function: Break welds to separate HRP from character
-local function separateHRPFromCharacter()
+-- Create a visible fake HRP at target position
+local function createFakeHRP()
     local character = LocalPlayer.Character
-    if not character then return false end
+    if not character then return nil end
     
-    local hrp = character:FindFirstChild("HumanoidRootPart")
-    if not hrp then return false end
+    OriginalHRP = character:FindFirstChild("HumanoidRootPart")
+    if not OriginalHRP then return nil end
     
-    debugLog("Breaking welds to separate HRP...")
+    -- Create visible fake HRP at target position
+    FakeHRP = Instance.new("Part")
+    FakeHRP.Name = "FakeHRP"
+    FakeHRP.Size = Vector3.new(2, 2, 1)
+    FakeHRP.Transparency = 0.3  -- Semi-transparent
+    FakeHRP.Color = Color3.new(1, 0, 0)  -- Red color for visibility
+    FakeHRP.Material = Enum.Material.Neon
+    FakeHRP.CanCollide = false
+    FakeHRP.Anchored = true
+    FakeHRP.CFrame = CFrame.new(TARGET_POSITION)
+    FakeHRP.Parent = workspace
     
-    -- Store original welds for restoration
-    OriginalWelds = {}
+    -- Add a special effect to make it more visible
+    local beam = Instance.new("Beam")
+    beam.Attachment0 = Instance.new("Attachment")
+    beam.Attachment0.Parent = FakeHRP
+    beam.Attachment1 = beam.Attachment0:Clone()
+    beam.Attachment1.Parent = FakeHRP
+    beam.Color = ColorSequence.new(Color3.new(1, 0, 0))
+    beam.Width0 = 0.5
+    beam.Width1 = 0.5
+    beam.Parent = FakeHRP
     
-    -- Find and break all welds connecting HRP to other parts
-    for _, part in ipairs(character:GetDescendants()) do
-        if part:IsA("WeldConstraint") or part:IsA("Weld") then
-            if part.Part0 == hrp or part.Part1 == hrp then
-                OriginalWelds[part] = {
-                    Part0 = part.Part0,
-                    Part1 = part.Part1,
-                    C0 = part.C0,
-                    C1 = part.C1,
-                    Enabled = part.Enabled
-                }
-                part.Enabled = false -- Disable the weld
-                debugLog("Disabled weld: " .. part.Name)
-            end
-        end
-    end
-    
-    -- Also break Motor6D joints (used in R15 characters)
-    for _, motor in ipairs(character:GetDescendants()) do
-        if motor:IsA("Motor6D") and motor.Part0 == hrp then
-            OriginalWelds[motor] = {
-                Part0 = motor.Part0,
-                Part1 = motor.Part1,
-                C0 = motor.C0,
-                C1 = motor.C1,
-                Enabled = motor.Enabled
-            }
-            motor.Enabled = false
-            debugLog("Disabled Motor6D: " .. motor.Name)
-        end
-    end
-    
-    return true
+    return FakeHRP
 end
 
--- Restore welds to reattach HRP
-local function restoreHRPWelds()
+-- Set up proper camera focus on character body
+local function setupCamera()
     local character = LocalPlayer.Character
     if not character then return end
     
-    for weld, originalData in pairs(OriginalWelds) do
-        if weld and weld.Parent then
-            weld.Enabled = originalData.Enabled
-            debugLog("Restored weld: " .. weld.Name)
-        end
-    end
-    OriginalWelds = {}
-end
-
--- Main HRP movement function
-local function moveHRPOnly()
-    if not separateHRPFromCharacter() then
-        warn("Failed to separate HRP from character")
-        return
+    -- Find a body part to focus on (not HRP)
+    local cameraTarget = character:FindFirstChild("Head") or 
+                        character:FindFirstChild("UpperTorso") or 
+                        character:FindFirstChild("Humanoid")
+    
+    if cameraTarget then
+        workspace.CurrentCamera.CameraSubject = cameraTarget
+        debugLog("Camera focused on: " .. cameraTarget.Name)
     end
     
-    local character = LocalPlayer.Character
-    local hrp = character:FindFirstChild("HumanoidRootPart")
-    if not hrp then return end
-    
-    -- Configure HRP for independent movement
-    hrp.Anchored = false
-    hrp.CanCollide = false
-    
-    -- Use BodyPosition for smooth movement to target
-    local bodyPosition = Instance.new("BodyPosition")
-    bodyPosition.Position = TARGET_POSITION
-    bodyPosition.MaxForce = Vector3.new(100000, 100000, 100000)
-    bodyPosition.P = 5000
-    bodyPosition.Parent = hrp
-    
-    -- Keep character parts anchored in place
-    for _, part in ipairs(character:GetDescendants()) do
-        if part:IsA("BasePart") and part ~= hrp then
-            part.Anchored = true
-            part.CanCollide = false
-        end
-    end
-    
-    -- Continuous position enforcement
-    local connection
-    connection = RunService.Heartbeat:Connect(function()
-        if not SEPARATION_ACTIVE or not hrp or not hrp.Parent then
-            if connection then connection:Disconnect() end
+    -- Create smooth camera follow
+    local cameraConnection
+    cameraConnection = RunService.RenderStepped:Connect(function()
+        if not SEPARATION_ACTIVE or not character.Parent then
+            if cameraConnection then cameraConnection:Disconnect() end
             return
         end
         
-        -- Force HRP to target position
-        bodyPosition.Position = TARGET_POSITION
-        hrp.Velocity = Vector3.new(0, 0, 0)
-        
-        -- Keep character parts in their original positions
-        for _, part in ipairs(character:GetDescendants()) do
-            if part:IsA("BasePart") and part ~= hrp then
-                part.Anchored = true
-            end
+        -- Keep camera focused on character body
+        local humanoid = character:FindFirstChildOfClass("Humanoid")
+        if humanoid and workspace.CurrentCamera.CameraSubject ~= humanoid then
+            workspace.CurrentCamera.CameraSubject = humanoid
         end
     end)
-    
-    return {bodyPosition = bodyPosition, connection = connection}
 end
 
--- Proper camera focus on character (not HRP)
-local function setupCorrectCamera()
-    local character = LocalPlayer.Character
-    if not character then return end
-    
-    -- Find a stable part to focus on (Head or UpperTorso)
-    local cameraFocus = character:FindFirstChild("Head") or 
-                       character:FindFirstChild("UpperTorso") or 
-                       character:FindFirstChild("Torso")
-    
-    if cameraFocus then
-        -- Create a camera script that follows the character, not HRP
-        local camera = workspace.CurrentCamera
-        
-        -- Use the humanoid for natural camera behavior
-        local humanoid = character:FindFirstChildOfClass("Humanoid")
-        if humanoid then
-            camera.CameraSubject = humanoid
-        else
-            -- Fallback: Custom camera follow
-            local cameraConnection
-            cameraConnection = RunService.RenderStepped:Connect(function()
-                if not SEPARATION_ACTIVE or not character.Parent then
-                    if cameraConnection then cameraConnection:Disconnect() end
-                    return
-                end
-                
-                -- Smooth camera following the character body
-                local characterPosition = cameraFocus.Position
-                local cameraOffset = Vector3.new(0, 3, 10)
-                local goalPosition = characterPosition + cameraOffset
-                
-                camera.CFrame = CFrame.lookAt(goalPosition, characterPosition)
-            end)
-        end
-    end
-end
-
+-- Main separation function - keeps character free to move
 local function startSeparation()
     if SEPARATION_ACTIVE then return end
     
-    debugLog("Starting true HRP-only separation...")
+    debugLog("Starting HRP separation with free movement...")
+    
+    local character = LocalPlayer.Character
+    if not character then return end
+    
+    local hrp = character:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+    
+    -- Create visible fake HRP
+    if not createFakeHRP() then
+        warn("Failed to create fake HRP")
+        return
+    end
+    
     SEPARATION_ACTIVE = true
     
-    local success = pcall(function()
-        moveHRPOnly()
-        setupCorrectCamera()
-    end)
-    
-    if success then
-        debugLog("HRP separated successfully")
-        debugLog("Character should remain in place while HRP moves")
-    else
-        warn("HRP separation failed")
-        SEPARATION_ACTIVE = false
+    -- Method 1: Network ownership control for server-side positioning
+    local function controlHRPPosition()
+        local connection
+        connection = RunService.Heartbeat:Connect(function()
+            if not SEPARATION_ACTIVE or not hrp or not hrp.Parent then
+                if connection then connection:Disconnect() end
+                return
+            end
+            
+            -- Make HRP semi-transparent but visible
+            hrp.Transparency = 0.3
+            hrp.Color = Color3.new(0, 0, 1)  -- Blue color
+            
+            -- Apply slight force to HRP toward target (not teleport)
+            local direction = (TARGET_POSITION - hrp.Position).Unit
+            local distance = (TARGET_POSITION - hrp.Position).Magnitude
+            
+            if distance > 5 then  -- Only apply force if far from target
+                hrp.Velocity = direction * math.min(distance * 2, 100)
+            else
+                hrp.Velocity = Vector3.new(0, 0, 0)
+            end
+            
+            -- Update fake HRP position to match real HRP
+            if FakeHRP then
+                FakeHRP.CFrame = CFrame.new(TARGET_POSITION)
+            end
+        end)
+        return connection
     end
+    
+    -- Method 2: BodyVelocity for smooth HRP movement (alternative)
+    local function applyHRPForce()
+        local bodyVelocity = Instance.new("BodyVelocity")
+        bodyVelocity.Velocity = Vector3.new(0, 0, 0)
+        bodyVelocity.MaxForce = Vector3.new(10000, 10000, 10000)
+        bodyVelocity.Parent = hrp
+        
+        local connection
+        connection = RunService.Heartbeat:Connect(function()
+            if not SEPARATION_ACTIVE or not hrp then
+                bodyVelocity:Destroy()
+                if connection then connection:Disconnect() end
+                return
+            end
+            
+            local direction = (TARGET_POSITION - hrp.Position).Unit
+            local distance = (TARGET_POSITION - hrp.Position).Magnitude
+            
+            bodyVelocity.Velocity = direction * math.min(distance * 3, 50)
+        end)
+        
+        return {bodyVelocity = bodyVelocity, connection = connection}
+    end
+    
+    -- Set up camera and movement
+    setupCamera()
+    local hrpControl = controlHRPPosition()
+    
+    debugLog("HRP separation active")
+    debugLog("Real HRP is being pulled toward: " .. tostring(TARGET_POSITION))
+    debugLog("Character can move freely - camera follows character")
 end
 
 local function stopSeparation()
     if not SEPARATION_ACTIVE then return end
     
-    debugLog("Stopping separation and restoring character...")
+    debugLog("Stopping HRP separation...")
     SEPARATION_ACTIVE = false
     
     local character = LocalPlayer.Character
     if character then
         local hrp = character:FindFirstChild("HumanoidRootPart")
         if hrp then
-            -- Remove BodyPosition
-            for _, obj in pairs(hrp:GetChildren()) do
-                if obj:IsA("BodyPosition") then
-                    obj:Destroy()
+            -- Restore HRP appearance
+            hrp.Transparency = 0
+            hrp.Color = Color3.new(1, 1, 1)
+            hrp.Velocity = Vector3.new(0, 0, 0)
+            
+            -- Remove any force objects
+            for _, child in pairs(hrp:GetChildren()) do
+                if child:IsA("BodyVelocity") then
+                    child:Destroy()
                 end
             end
-            
-            -- Restore welds
-            restoreHRPWelds()
-            
-            -- Unanchor character parts
-            for _, part in ipairs(character:GetDescendants()) do
-                if part:IsA("BasePart") then
-                    part.Anchored = false
-                    part.CanCollide = true
-                end
-            end
-            
-            -- Restore normal camera
-            local humanoid = character:FindFirstChildOfClass("Humanoid")
-            if humanoid then
-                workspace.CurrentCamera.CameraSubject = humanoid
-            end
+        end
+        
+        -- Restore normal camera
+        local humanoid = character:FindFirstChildOfClass("Humanoid")
+        if humanoid then
+            workspace.CurrentCamera.CameraSubject = humanoid
         end
     end
     
-    debugLog("Separation stopped - character restored")
+    -- Remove fake HRP
+    if FakeHRP then
+        FakeHRP:Destroy()
+        FakeHRP = nil
+    end
+    
+    debugLog("HRP separation stopped - normal movement restored")
 end
 
--- Simple key binding
+-- Update target position function
+local function updateTargetPosition(newPosition)
+    TARGET_POSITION = newPosition
+    debugLog("Target position updated to: " .. tostring(newPosition))
+    
+    if FakeHRP then
+        FakeHRP.CFrame = CFrame.new(TARGET_POSITION)
+    end
+end
+
+-- Key binding with F key
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then return end
     
@@ -237,6 +224,15 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
         else
             startSeparation()
         end
+    elseif input.KeyCode == Enum.KeyCode.G then
+        -- Move target 50 studs up
+        updateTargetPosition(TARGET_POSITION + Vector3.new(0, 50, 0))
+    elseif input.KeyCode == Enum.KeyCode.H then
+        -- Move target to current character position + offset
+        local character = LocalPlayer.Character
+        if character and character:FindFirstChild("HumanoidRootPart") then
+            updateTargetPosition(character.HumanoidRootPart.Position + Vector3.new(0, 100, 0))
+        end
     end
 end)
 
@@ -245,7 +241,8 @@ LocalPlayer.CharacterAdded:Connect(function(newCharacter)
     debugLog("New character detected")
     
     if SEPARATION_ACTIVE then
-        wait(3) -- Wait for character to fully load
+        stopSeparation()
+        wait(3)
         startSeparation()
     end
 end)
@@ -257,8 +254,10 @@ local function initialize()
     end
     
     debugLog("HRP Separation System Ready")
-    debugLog("Press F to toggle HRP separation")
-    debugLog("This will move ONLY the HRP, keeping character in place")
+    debugLog("Press F to toggle separation")
+    debugLog("Press G to move target up")
+    debugLog("Press H to set target above current position")
+    debugLog("HRP will be visible and character can move freely")
 end
 
 initialize()
@@ -267,5 +266,6 @@ initialize()
 getgenv().HRPSeparation = {
     start = startSeparation,
     stop = stopSeparation,
-    setPosition = function(pos) TARGET_POSITION = pos end
+    setTarget = updateTargetPosition,
+    getStatus = function() return SEPARATION_ACTIVE end
 }
