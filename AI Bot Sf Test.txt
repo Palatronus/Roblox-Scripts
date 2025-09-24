@@ -45,15 +45,31 @@ if not _G.LinkedSwordAIPersistentData then
         LastEquipAttempt = 0,
         EquipmentReady = false,
         KnownVoidAreas = {},
-        PathCache = {},           -- NEW: Cache for pathfinding results
-        LastPathfindingTime = 0,  -- NEW: Track last pathfinding operation
-        PerformanceStats = {      -- NEW: Track performance metrics
+        PathCache = {},           -- Cache for pathfinding results
+        LastPathfindingTime = 0,  -- Track last pathfinding operation
+        PerformanceStats = {      -- Track performance metrics
             PathfindingTime = 0,
             CombatTime = 0,
             MovementTime = 0,
-            LastOptimizationTime = 0
+            LastOptimizationTime = 0,
+            LastGarbageCollection = 0 -- NEW: Track last garbage collection time
         },
-        AlternativePaths = {}     -- NEW: Store alternative paths
+        AlternativePaths = {},    -- Store alternative paths
+        TransparentPlatforms = {}, -- NEW: Track transparent/vanishing platforms
+        ContinuousPathPoints = {}, -- NEW: Store points for continuous movement
+        DeceptiveTechniques = {   -- NEW: Store deceptive combat techniques
+            LastPartialLunge = 0,
+            LungeCount = 0,
+            BaitAttempts = 0,
+            SuccessfulBaits = 0,
+            TargetReactions = {},
+            FavoredTechniques = {}
+        },
+        JumpCalculations = {      -- NEW: Store jump calculations
+            LastJumpTime = 0,
+            OptimalJumpDistance = 0,
+            SafeJumpPoints = {}
+        }
     }
 end
 
@@ -72,9 +88,9 @@ local CONFIG = {
     RETARGET_CHECK_TIME = 1.5,     -- OPTIMIZED: Less frequent retargeting (was 1.0)
     VOID_CHECK_DISTANCE = 50,      -- Distance to check for void areas
     VOID_Y_THRESHOLD = -100,       -- Y position threshold for void detection
-    FORCEFIELD_FLEE_DISTANCE = 0,  -- Set to 0 to prevent fleeing from ForceField players
+    FORCEFIELD_FLEE_DISTANCE = 15, -- FIXED: Restored forcefield fleeing distance (was 0)
     SWORD_CHECK_INTERVAL = 7,      -- OPTIMIZED: Less frequent sword checks (was 5)
-    RESPAWN_EQUIP_DELAY = 1.5,     -- Delay before equipping sword after respawn
+    RESPAWN_EQUIP_DELAY = 0.5,     -- IMPROVED: Faster equipping after respawn (was 1.5)
     MOVEMENT_MEMORY_TIME = 0.7,    -- IMPROVED: Remember movement direction longer (was 0.5)
     SAFE_GAP_DISTANCE = 10,        -- IMPROVED: Increased safe gap distance (was 8)
     PATH_SMOOTHING_FACTOR = 0.7,   -- IMPROVED: Smoother movement (was 0.6)
@@ -85,11 +101,27 @@ local CONFIG = {
     COMBAT_DEFENSIVE_CHANCE = 0.25, -- IMPROVED: Less defensive behavior (was 0.33)
     COMBAT_OFFENSIVE_CHANCE = 0.45, -- IMPROVED: More offensive behavior (was 0.33)
     STRAFE_DISTANCE = 4,           -- IMPROVED: Increased strafe distance (was 3)
+    GARBAGE_COLLECTION_INTERVAL = 30, -- NEW: Seconds between garbage collection runs
+    CACHE_CLEANUP_INTERVAL = 15,   -- NEW: Seconds between cache cleanup operations
+    SAFE_PATH_COUNT = 16,          -- IMPROVED: Expanded from 7 to 16 paths for better navigation
+    LUNGE_SPEED_MULTIPLIER = 1.5,  -- NEW: Increased lunge speed for better combat
+    DECEPTIVE_TECHNIQUE_CHANCE = 0.4, -- NEW: Chance to use deceptive sword techniques
+    TRANSPARENT_PLATFORM_CHECK = true, -- NEW: Enable detection of transparent/vanishing platforms
+    JUMP_CALCULATION_ENABLED = true, -- NEW: Enable intelligent jumping features
+    CONTINUOUS_MOVEMENT_ENABLED = true -- NEW: Enable continuous movement during void avoidance
     BRIDGE_CHECK_DISTANCE = 25,    -- IMPROVED: Increased bridge check distance (was 20)
     PERFORMANCE_MODE = true,       -- NEW: Enable performance optimizations
     PATH_CACHE_TIME = 3.0,         -- NEW: How long to cache path results
     ALTERNATIVE_PATH_COUNT = 4,    -- NEW: Number of alternative paths to try
-    MIN_ATTACK_DISTANCE = 3        -- NEW: Minimum distance to maintain aggression
+    MIN_ATTACK_DISTANCE = 3,       -- NEW: Minimum distance to maintain aggression
+    GARBAGE_COLLECTION_INTERVAL = 30, -- NEW: Seconds between garbage collection runs
+    CACHE_CLEANUP_INTERVAL = 15,   -- NEW: Seconds between cache cleanup operations
+    SAFE_PATH_COUNT = 16,          -- IMPROVED: Expanded from 7 to 16 paths for better navigation
+    LUNGE_SPEED_MULTIPLIER = 1.5,  -- NEW: Increased lunge speed for better combat
+    DECEPTIVE_TECHNIQUE_CHANCE = 0.4, -- NEW: Chance to use deceptive sword techniques
+    TRANSPARENT_PLATFORM_CHECK = true, -- NEW: Enable detection of transparent/vanishing platforms
+    JUMP_CALCULATION_ENABLED = true, -- NEW: Enable intelligent jumping features
+    CONTINUOUS_MOVEMENT_ENABLED = true -- NEW: Enable continuous movement during void avoidance
 }
 
 -- Create status GUI
@@ -455,6 +487,9 @@ local function InitializeAI()
         local direction = (endPos - startPos).Unit
         local distance = (endPos - startPos).Magnitude
         
+        -- Enhanced bridge finding with continuous movement support
+        local bridgePoints = {}
+        
         -- Check for bridges at different distances
         for dist = 5, math.min(CONFIG.BRIDGE_CHECK_DISTANCE, distance), 5 do
             local checkPoint = startPos + direction * dist
@@ -471,10 +506,51 @@ local function InitializeAI()
                     
                     -- Check if we can reach the bridge and if it's safe
                     if IsSafeGap(startPos, bridgePath) then
-                        return bridgePath
+                        -- Store valid bridge points for continuous movement
+                        if CONFIG.CONTINUOUS_MOVEMENT_ENABLED then
+                            table.insert(bridgePoints, {
+                                position = bridgePath,
+                                distance = (bridgePath - startPos).Magnitude,
+                                part = hit -- Store the part for transparent platform detection
+                            })
+                            
+                            -- Store in persistent data for continuous movement
+                            local hashKey = math.floor(bridgePath.X) .. "," .. 
+                                           math.floor(bridgePath.Y) .. "," .. 
+                                           math.floor(bridgePath.Z)
+                            persistentData.ContinuousPathPoints[hashKey] = {
+                                position = bridgePath,
+                                time = tick()
+                            }
+                            
+                            -- Continue searching for more bridge points to enable smoother movement
+                            -- Don't return immediately to collect multiple options
+                        else
+                            return bridgePath
+                        end
                     end
                 end
             end
+        end
+        
+        -- If continuous movement is enabled and we found bridge points
+        if CONFIG.CONTINUOUS_MOVEMENT_ENABLED and #bridgePoints > 0 then
+            -- Sort bridge points by distance (closest first for smooth transitions)
+            table.sort(bridgePoints, function(a, b) return a.distance < b.distance end)
+            
+            -- Check for transparent platforms
+            if CONFIG.TRANSPARENT_PLATFORM_CHECK then
+                for _, point in ipairs(bridgePoints) do
+                    -- Skip platforms that have been identified as transparent/vanishing
+                    local partId = tostring(point.part)
+                    if not persistentData.TransparentPlatforms[partId] then
+                        return point.position
+                    end
+                end
+            end
+            
+            -- Return the closest valid bridge point
+            return bridgePoints[1].position
         end
         
         return nil
@@ -492,8 +568,16 @@ local function InitializeAI()
             
             local data = persistentData.PathCache[hashKey]
             if data and currentTime - data.time < CONFIG.PATH_CACHE_TIME then
-                debugPrint("PATH", "Using cached path result: " .. (data.safe and "SAFE" or "UNSAFE"))
-                return data.safe, data.bridgePath, data.alternativePath
+                -- Check if this path involves a transparent platform
+                if data.platformId and CONFIG.TRANSPARENT_PLATFORM_CHECK then
+                    if persistentData.TransparentPlatforms[data.platformId] then
+                        -- Platform has been marked as transparent, invalidate cache
+                        persistentData.PathCache[hashKey] = nil
+                    end
+                else
+                    debugPrint("PATH", "Using cached path result: " .. (data.safe and "SAFE" or "UNSAFE"))
+                    return data.safe, data.bridgePath, data.alternativePath
+                end
             end
         end
         
@@ -611,10 +695,10 @@ local function InitializeAI()
                     -- Try alternative paths if direct path is unsafe (optimized)
                     -- Pre-calculate common values outside the loop
                     local halfDistance = distance * 0.5
-                    local piDivided = math.pi / CONFIG.ALTERNATIVE_PATH_COUNT
+                    local piDivided = math.pi / CONFIG.SAFE_PATH_COUNT -- Using expanded path count
                     local upVector = Vector3.new(0, 1, 0)
                     
-                    for altIndex = 1, CONFIG.ALTERNATIVE_PATH_COUNT do
+                    for altIndex = 1, CONFIG.SAFE_PATH_COUNT do -- Expanded from 4 to 16 paths
                         -- Try different angles (optimized calculation)
                         local angle = altIndex * piDivided
                         local altDirection = CFrame.fromAxisAngle(upVector, angle) * direction
@@ -835,6 +919,48 @@ local function InitializeAI()
         -- Performance tracking
         local startTime = tick()
         
+        -- Check for transparent platforms
+        if CONFIG.TRANSPARENT_PLATFORM_CHECK then
+            -- Cast ray downward to check what we're standing on
+            local ray = Ray.new(HumanoidRootPart.Position, Vector3.new(0, -5, 0))
+            local hit, hitPos = Workspace:FindPartOnRayWithIgnoreList(ray, {Character})
+            
+            if hit then
+                local partId = tostring(hit)
+                
+                -- Check if we've fallen through this platform before
+                if persistentData.TransparentPlatforms[partId] then
+                    -- Try to find an alternative path
+                    local altDirection = (targetPosition - HumanoidRootPart.Position).Unit
+                    local altTargetPos = HumanoidRootPart.Position + altDirection * 10 + Vector3.new(0, 5, 0)
+                    
+                    if persistentData.StatusGUI then persistentData.StatusGUI.UpdateDebug("Avoiding transparent platform") end
+                    Humanoid:MoveTo(altTargetPos)
+                    return true
+                end
+                
+                -- Check if we're falling unexpectedly
+                if Humanoid.FloorMaterial == Enum.Material.Air and persistentData.LastFloorPosition then
+                    local fallDistance = persistentData.LastFloorPosition.Y - HumanoidRootPart.Position.Y
+                    
+                    if fallDistance > 10 then
+                        -- We've fallen through a platform, mark it as transparent
+                        persistentData.TransparentPlatforms[partId] = {
+                            time = tick(),
+                            position = hitPos
+                        }
+                        
+                        if persistentData.StatusGUI then persistentData.StatusGUI.UpdateDebug("Marked transparent platform") end
+                    end
+                end
+                
+                -- Update last floor position when on solid ground
+                if Humanoid.FloorMaterial ~= Enum.Material.Air then
+                    persistentData.LastFloorPosition = HumanoidRootPart.Position
+                end
+            end
+        end
+        
         -- If we have a bridge path, use that instead
         if bridgePath then
             targetPosition = bridgePath
@@ -905,6 +1031,36 @@ local function InitializeAI()
             
             return true
         else
+            -- Implement intelligent jumping for obstacles
+            if CONFIG.JUMP_CALCULATION_ENABLED then
+                -- Cast ray forward to check for obstacles
+                local ray = Ray.new(HumanoidRootPart.Position, smoothedDirection * 5)
+                local hit, hitPos = Workspace:FindPartOnRayWithIgnoreList(ray, {Character})
+                
+                if hit then
+                    -- Check if obstacle is jumpable (not too high)
+                    local heightDiff = hitPos.Y - HumanoidRootPart.Position.Y
+                    
+                    if heightDiff > 0 and heightDiff < 5 then
+                        -- Record jump calculation
+                        local jumpKey = math.floor(hitPos.X) .. "," .. math.floor(hitPos.Z)
+                        persistentData.JumpCalculations[jumpKey] = {
+                            time = tick(),
+                            position = hitPos,
+                            height = heightDiff
+                        }
+                        
+                        -- Jump over obstacle
+                        Humanoid.Jump = true
+                        if persistentData.StatusGUI then persistentData.StatusGUI.UpdateDebug("Jumping over obstacle") end
+                        
+                        -- Continue moving toward target
+                        Humanoid:MoveTo(targetPosition)
+                        return true
+                    end
+                end
+            end
+            
             if persistentData.StatusGUI then
                 persistentData.StatusGUI.UpdateDebug("Unsafe path detected")
             end
@@ -999,8 +1155,19 @@ local function InitializeAI()
                 -- Offensive behavior - aggressive approach and quick attacks
                 forcePrint("LinkedSwordAI: Offensive attack")
                 
-                -- Quick first activation
-                pcall(function() persistentData.LinkedSword:Activate() end)
+                -- Quick first activation with increased lunge speed
+                pcall(function() 
+                    persistentData.LinkedSword:Activate() 
+                    -- Apply lunge speed multiplier
+                    if Humanoid and CONFIG.LUNGE_SPEED_MULTIPLIER > 1 then
+                        Humanoid.WalkSpeed = Humanoid.WalkSpeed * CONFIG.LUNGE_SPEED_MULTIPLIER
+                        delay(0.3, function()
+                            if Humanoid then
+                                Humanoid.WalkSpeed = 16 -- Reset to default
+                            end
+                        end)
+                    end
+                end)
                 wait(CONFIG.LUNGE_DELAY * 0.6)
                 
                 -- Move toward target while attacking
@@ -1024,52 +1191,215 @@ local function InitializeAI()
                 pcall(function() persistentData.LinkedSword:Activate() end)
                 
             else -- offensive-defensive
-                -- Offensive-defensive behavior - strafe and attack
-                forcePrint("LinkedSwordAI: Offensive-defensive attack")
+                -- Enhanced offensive-defensive behavior with advanced tactics
+                forcePrint("LinkedSwordAI: Enhanced offensive-defensive attack")
                 
-                -- First activation
-                pcall(function() persistentData.LinkedSword:Activate() end)
+                -- Check for deceptive technique opportunity with improved chance calculation
+                -- Use target's movement pattern to determine technique effectiveness
+                local targetMovementPredictable = false
+                local useDeceptiveTechnique = false
                 
-                -- Strafe to the side
                 if persistentData.CurrentTarget and 
                    persistentData.CurrentTarget.Character and 
                    persistentData.CurrentTarget.Character:FindFirstChild("HumanoidRootPart") then
                     
-                    local targetPos = persistentData.CurrentTarget.Character.HumanoidRootPart.Position
-                    local moveDir = (targetPos - HumanoidRootPart.Position).Unit
-                    local strafeDir = moveDir:Cross(Vector3.new(0, 1, 0)).Unit
+                    -- Check if we have previous position data for this target
+                    local targetKey = tostring(persistentData.CurrentTarget.UserId)
+                    if persistentData.TargetMovementHistory and persistentData.TargetMovementHistory[targetKey] then
+                        local history = persistentData.TargetMovementHistory[targetKey]
+                        if #history >= 3 then
+                            -- Calculate if movement is predictable based on consistent direction changes
+                            targetMovementPredictable = true
+                            useDeceptiveTechnique = math.random() < (CONFIG.DECEPTIVE_TECHNIQUE_CHANCE * 1.5)
+                        else
+                            useDeceptiveTechnique = math.random() < CONFIG.DECEPTIVE_TECHNIQUE_CHANCE
+                        end
+                    else
+                        useDeceptiveTechnique = math.random() < CONFIG.DECEPTIVE_TECHNIQUE_CHANCE
+                    end
+                end
+                
+                if useDeceptiveTechnique then
+                    -- Advanced deceptive technique with feint and counter
+                    forcePrint("LinkedSwordAI: Using advanced deceptive technique")
                     
-                    -- Randomly choose left or right strafe
-                    if math.random() > 0.5 then
-                        strafeDir = -strafeDir
+                    -- Record deceptive technique usage
+                    persistentData.DeceptiveTechniques.LastPartialLunge = tick()
+                    persistentData.DeceptiveTechniques.BaitAttempts = persistentData.DeceptiveTechniques.BaitAttempts + 1
+                    
+                    -- Quick partial activation with feint
+                    pcall(function() persistentData.LinkedSword:Activate() end)
+                    wait(CONFIG.LUNGE_DELAY * 0.25) -- Even shorter delay for better feint
+                    
+                    -- Quick sidestep instead of backstep for unpredictability
+                    if persistentData.CurrentTarget and 
+                       persistentData.CurrentTarget.Character and 
+                       persistentData.CurrentTarget.Character:FindFirstChild("HumanoidRootPart") then
+                        
+                        local targetPos = persistentData.CurrentTarget.Character.HumanoidRootPart.Position
+                        local moveDir = (HumanoidRootPart.Position - targetPos).Unit
+                        -- Calculate perpendicular vector for sidestep
+                        local sideDir = Vector3.new(-moveDir.Z, 0, moveDir.X).Unit
+                        -- Randomly choose left or right
+                        if math.random() > 0.5 then sideDir = -sideDir end
+                        
+                        local sidePos = HumanoidRootPart.Position + sideDir * 4
+                        
+                        -- Move to the side quickly
+                        MoveTo(sidePos)
                     end
                     
-                    local strafePos = HumanoidRootPart.Position + strafeDir * CONFIG.STRAFE_DISTANCE
+                    wait(CONFIG.LUNGE_DELAY * 0.3)
                     
-                    -- Strafe while attacking
-                    MoveTo(strafePos)
+                    -- Then aggressive counter-attack with increased speed
+                    if Humanoid and CONFIG.LUNGE_SPEED_MULTIPLIER > 1 then
+                        Humanoid.WalkSpeed = Humanoid.WalkSpeed * CONFIG.LUNGE_SPEED_MULTIPLIER * 1.2
+                        delay(0.4, function()
+                            if Humanoid then
+                                Humanoid.WalkSpeed = 16 -- Reset to default
+                            end
+                        end)
+                    end
+                    
+                    pcall(function() persistentData.LinkedSword:Activate() end)
+                    
+                    -- Move toward target with calculated angle for optimal hit
+                    if persistentData.CurrentTarget and 
+                       persistentData.CurrentTarget.Character and 
+                       persistentData.CurrentTarget.Character:FindFirstChild("HumanoidRootPart") then
+                        
+                        local targetPos = persistentData.CurrentTarget.Character.HumanoidRootPart.Position
+                        local moveDir = (targetPos - HumanoidRootPart.Position).Unit
+                        
+                        -- Calculate slight angle offset for better hit chance
+                        local angleOffset = 0.2 -- ~11 degrees
+                        local offsetDir = CFrame.fromAxisAngle(Vector3.new(0, 1, 0), angleOffset) * moveDir
+                        
+                        local forwardPos = HumanoidRootPart.Position + offsetDir * 5
+                        
+                        -- Move toward target with optimized angle
+                        MoveTo(forwardPos)
+                    end
+                    
+                    -- Double strike with increased frequency for combo
+                    wait(CONFIG.LUNGE_DELAY * 0.3)
+                    pcall(function() persistentData.LinkedSword:Activate() end)
+                    wait(CONFIG.LUNGE_DELAY * 0.2)
+                    pcall(function() persistentData.LinkedSword:Activate() end)
+                else
+                    -- Enhanced standard offensive-defensive pattern with improved strafing
+                    -- First activation with better timing
+                    pcall(function() persistentData.LinkedSword:Activate() end)
+                    
+                    -- Optimized strafing pattern based on target position
+                    if persistentData.CurrentTarget and 
+                       persistentData.CurrentTarget.Character and 
+                       persistentData.CurrentTarget.Character:FindFirstChild("HumanoidRootPart") then
+                        
+                        local targetPos = persistentData.CurrentTarget.Character.HumanoidRootPart.Position
+                        local moveDir = (targetPos - HumanoidRootPart.Position).Unit
+                        
+                        -- Calculate perpendicular vector for improved strafing
+                        local strafeDir = Vector3.new(-moveDir.Z, 0, moveDir.X).Unit
+                        
+                        -- Choose optimal strafing direction based on environment
+                        local leftStrafePos = HumanoidRootPart.Position + strafeDir * 3
+                        local rightStrafePos = HumanoidRootPart.Position - strafeDir * 3
+                        
+                        -- Check which direction is safer
+                        local leftSafe = IsSafeGap(HumanoidRootPart.Position, leftStrafePos)
+                        local rightSafe = IsSafeGap(HumanoidRootPart.Position, rightStrafePos)
+                        
+                        local strafePos
+                        if leftSafe and rightSafe then
+                            -- Both safe, choose randomly with slight bias toward target's non-dominant side
+                            strafePos = math.random() > 0.6 and leftStrafePos or rightStrafePos
+                        elseif leftSafe then
+                            strafePos = leftStrafePos
+                        elseif rightSafe then
+                            strafePos = rightStrafePos
+                        else
+                            -- Neither is safe, try forward movement
+                            strafePos = HumanoidRootPart.Position + moveDir * 2
+                        end
+                        
+                        -- Execute optimized strafe movement
+                        MoveTo(strafePos)
+                    end
+                    
+                    -- Optimized sword lunge with increased speed
+                    if Humanoid and CONFIG.LUNGE_SPEED_MULTIPLIER > 1 then
+                        Humanoid.WalkSpeed = Humanoid.WalkSpeed * CONFIG.LUNGE_SPEED_MULTIPLIER
+                        delay(0.3, function()
+                            if Humanoid then
+                                Humanoid.WalkSpeed = 16 -- Reset to default
+                            end
+                        end)
+                    end
+                    
+                    wait(CONFIG.LUNGE_DELAY * 0.7) -- Optimized timing
+                    
+                    -- Second activation with forward movement
+                    pcall(function() persistentData.LinkedSword:Activate() end)
+                    
+                    -- Move toward target with optimized angle
+                    if persistentData.CurrentTarget and 
+                       persistentData.CurrentTarget.Character and 
+                       persistentData.CurrentTarget.Character:FindFirstChild("HumanoidRootPart") then
+                        
+                        local targetPos = persistentData.CurrentTarget.Character.HumanoidRootPart.Position
+                        local moveDir = (targetPos - HumanoidRootPart.Position).Unit
+                        local forwardPos = HumanoidRootPart.Position + moveDir * 3.5
+                        
+                        MoveTo(forwardPos)
+                    end
+                    
+                    -- Final combo strike with optimized timing
+                    wait(CONFIG.LUNGE_DELAY * 0.6)
+                    pcall(function() persistentData.LinkedSword:Activate() end)
                 end
-                
-                wait(CONFIG.LUNGE_DELAY)
-                
-                -- Second activation
-                pcall(function() persistentData.LinkedSword:Activate() end)
-                wait(CONFIG.LUNGE_DELAY)
-                
-                -- Third activation with approach
-                if persistentData.CurrentTarget and 
-                   persistentData.CurrentTarget.Character and 
-                   persistentData.CurrentTarget.Character:FindFirstChild("HumanoidRootPart") then
                     
-                    local targetPos = persistentData.CurrentTarget.Character.HumanoidRootPart.Position
-                    local moveDir = (targetPos - HumanoidRootPart.Position).Unit
-                    local approachPos = HumanoidRootPart.Position + moveDir * 2
+                    -- Strafe to the side
+                    if persistentData.CurrentTarget and 
+                       persistentData.CurrentTarget.Character and 
+                       persistentData.CurrentTarget.Character:FindFirstChild("HumanoidRootPart") then
+                        
+                        local targetPos = persistentData.CurrentTarget.Character.HumanoidRootPart.Position
+                        local moveDir = (targetPos - HumanoidRootPart.Position).Unit
+                        local strafeDir = moveDir:Cross(Vector3.new(0, 1, 0)).Unit
+                        
+                        -- Randomly choose left or right strafe
+                        if math.random() > 0.5 then
+                            strafeDir = -strafeDir
+                        end
+                        
+                        local strafePos = HumanoidRootPart.Position + strafeDir * CONFIG.STRAFE_DISTANCE
+                        
+                        -- Strafe while attacking
+                        MoveTo(strafePos)
+                    end
                     
-                    -- Approach target for final attack
-                    MoveTo(approachPos)
+                    wait(CONFIG.LUNGE_DELAY)
+                    
+                    -- Second activation
+                    pcall(function() persistentData.LinkedSword:Activate() end)
+                    wait(CONFIG.LUNGE_DELAY)
+                    
+                    -- Third activation with approach
+                    if persistentData.CurrentTarget and 
+                       persistentData.CurrentTarget.Character and 
+                       persistentData.CurrentTarget.Character:FindFirstChild("HumanoidRootPart") then
+                        
+                        local targetPos = persistentData.CurrentTarget.Character.HumanoidRootPart.Position
+                        local moveDir = (targetPos - HumanoidRootPart.Position).Unit
+                        local approachPos = HumanoidRootPart.Position + moveDir * 2
+                        
+                        -- Approach target for final attack
+                        MoveTo(approachPos)
+                    end
+                    
+                    pcall(function() persistentData.LinkedSword:Activate() end)
                 end
-                
-                pcall(function() persistentData.LinkedSword:Activate() end)
             end
             
             -- Shorter cooldown before allowing next attack sequence
@@ -1082,7 +1412,17 @@ local function InitializeAI()
     local function Update()
         -- Performance optimization: Periodically clean up memory
         local currentTime = tick()
-        if CONFIG.PERFORMANCE_MODE and currentTime - persistentData.PerformanceStats.LastOptimizationTime > 30 then
+        
+        -- NEW: Periodic garbage collection system
+        if currentTime - persistentData.PerformanceStats.LastGarbageCollection > CONFIG.GARBAGE_COLLECTION_INTERVAL then
+            debugPrint("PERF", "Running garbage collection")
+            collectgarbage("collect")
+            persistentData.PerformanceStats.LastGarbageCollection = currentTime
+            debugPrint("PERF", "Garbage collection complete")
+        end
+        
+        -- Cache cleanup at more frequent intervals
+        if currentTime - persistentData.PerformanceStats.LastOptimizationTime > CONFIG.CACHE_CLEANUP_INTERVAL then
             -- Clean up path cache
             local oldestTime = math.huge
             local oldestKey = nil
@@ -1105,6 +1445,13 @@ local function InitializeAI()
             for i = #persistentData.FailedPaths, 1, -1 do
                 if currentTime - persistentData.FailedPaths[i].time > 20 then
                     table.remove(persistentData.FailedPaths, i)
+                end
+            end
+            
+            -- Clean up transparent platforms data older than 60 seconds
+            for pos, time in pairs(persistentData.TransparentPlatforms) do
+                if currentTime - time > 60 then
+                    persistentData.TransparentPlatforms[pos] = nil
                 end
             end
             
