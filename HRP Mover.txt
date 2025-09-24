@@ -1,225 +1,323 @@
--- Server-Side Visible HRP Anchoring Script
+-- Fixed HRP Separation Script - Server-Side Sync & Camera Correction
 if not game:IsLoaded() then game.Loaded:Wait() end
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
 local LocalPlayer = Players.LocalPlayer
 
--- Wait for character
-if not LocalPlayer.Character then
-    LocalPlayer.CharacterAdded:Wait()
-end
-
-local Character = LocalPlayer.Character
-local HumanoidRootPart = Character:WaitForChild("HumanoidRootPart")
-local Humanoid = Character:FindFirstChildOfClass("Humanoid")
-
 -- Configuration
-local TARGET_POSITION = Vector3.new(0, 500, 0) -- Position far above map
-local ANCHOR_ACTIVE = false
-local OriginalCFrame = HumanoidRootPart.CFrame
+local TARGET_POSITION = Vector3.new(100, 500, 200) -- Position far from character
+local SEPARATION_ACTIVE = false
+local RealCharacter, CharacterClone
+local RealHRP, CloneHRP, CameraFocusPart
 
--- Method 1: Direct HRP manipulation with network ownership
-local function anchorHRPDirect()
-    ANCHOR_ACTIVE = true
+-- Debug logging
+local function debugLog(message)
+    print("[HRP Separation] " .. message)
+end
+
+-- Create a proper character clone with server-side visibility
+local function createServerVisibleClone()
+    if not LocalPlayer.Character then return false end
     
-    -- Store original properties
-    local originalTransparency = HumanoidRootPart.Transparency
-    local originalCanCollide = HumanoidRootPart.CanCollide
+    RealCharacter = LocalPlayer.Character
+    RealHRP = RealCharacter:WaitForChild("HumanoidRootPart")
     
-    -- Make HRP visible but anchored at target position
-    HumanoidRootPart.Transparency = 0 -- Ensure it's visible
-    HumanoidRootPart.CanCollide = false
-    HumanoidRootPart.Anchored = true
+    -- Enable archiving for cloning
+    RealCharacter.Archivable = true
     
-    -- Continuous position maintenance
-    local connection
-    connection = RunService.Heartbeat:Connect(function()
-        if not ANCHOR_ACTIVE or not HumanoidRootPart or not HumanoidRootPart.Parent then
-            if connection then connection:Disconnect() end
+    -- Create server-visible clone
+    CharacterClone = RealCharacter:Clone()
+    
+    -- Position clone where character currently is
+    CharacterClone.Parent = workspace
+    CharacterClone:SetPrimaryPartCFrame(RealHRP.CFrame)
+    
+    -- Configure clone parts for server visibility
+    for _, part in ipairs(CharacterClone:GetDescendants()) do
+        if part:IsA("BasePart") then
+            part.Transparency = 0  -- Make fully visible to server
+            part.CanCollide = false
+            part.Anchored = false  -- Allow natural movement
+            part.Material = Enum.Material.Neon -- Make visually distinct
+        end
+    end
+    
+    -- Remove humanoid from clone to prevent interference
+    local cloneHumanoid = CharacterClone:FindFirstChildOfClass("Humanoid")
+    if cloneHumanoid then
+        cloneHumanoid:Destroy()
+    end
+    
+    -- Create camera focus part
+    CameraFocusPart = Instance.new("Part")
+    CameraFocusPart.Name = "CameraFocus"
+    CameraFocusPart.Size = Vector3.new(2, 2, 2)
+    CameraFocusPart.Transparency = 1
+    CameraFocusPart.CanCollide = false
+    CameraFocusPart.Anchored = true
+    CameraFocusPart.Parent = CharacterClone
+    CameraFocusPart.CFrame = CharacterClone:GetPivot()
+    
+    -- Set camera to focus on clone instead of real character
+    workspace.CurrentCamera.CameraSubject = CharacterClone:FindFirstChild("Humanoid") or CameraFocusPart
+    
+    return true
+end
+
+-- Fix camera to focus on character model, not HRP
+local function setupCameraFocus()
+    if not CharacterClone or not CameraFocusPart then return end
+    
+    -- Create camera controller to maintain focus on clone
+    local cameraConnection
+    cameraConnection = RunService.Heartbeat:Connect(function()
+        if not SEPARATION_ACTIVE or not CharacterClone then
+            if cameraConnection then cameraConnection:Disconnect() end
             return
         end
         
-        -- Force HRP to stay at target position
-        HumanoidRootPart.CFrame = CFrame.new(TARGET_POSITION)
+        -- Smooth camera follow for clone
+        local camera = workspace.CurrentCamera
+        local clonePosition = CharacterClone:GetPivot().Position
+        local cameraGoal = CFrame.new(clonePosition + Vector3.new(0, 3, 10), clonePosition)
         
-        -- Cancel any physics forces
-        HumanoidRootPart.Velocity = Vector3.new(0, 0, 0)
-        HumanoidRootPart.RotVelocity = Vector3.new(0, 0, 0)
-        
-        -- Optional: Create a subtle movement to prevent anti-cheat detection
-        local microMovement = Vector3.new(
-            math.sin(tick() * 5) * 0.01,
-            math.cos(tick() * 3) * 0.01,
-            math.sin(tick() * 4) * 0.01
-        )
-        HumanoidRootPart.Position = TARGET_POSITION + microMovement
+        -- Smooth camera transition
+        camera.CFrame = camera.CFrame:Lerp(cameraGoal, 0.1)
     end)
-    
-    return connection
 end
 
--- Method 2: BodyPosition constraint method (alternative approach)
-local function anchorHRPWithConstraints()
-    ANCHOR_ACTIVE = true
+-- Main separation function with proper server-side handling
+local function startSeparation()
+    if SEPARATION_ACTIVE then return end
     
-    -- Create BodyPosition to force HRP to target
-    local bodyPosition = Instance.new("BodyPosition")
-    bodyPosition.Position = TARGET_POSITION
-    bodyPosition.MaxForce = Vector3.new(40000, 40000, 40000)
-    bodyPosition.P = 1000
-    bodyPosition.Parent = HumanoidRootPart
+    debugLog("Starting HRP separation...")
     
-    -- Create BodyGyro to prevent rotation
-    local bodyGyro = Instance.new("BodyGyro")
-    bodyGyro.MaxTorque = Vector3.new(40000, 40000, 40000)
-    bodyGyro.P = 1000
-    bodyGyro.CFrame = HumanoidRootPart.CFrame
-    bodyGyro.Parent = HumanoidRootPart
+    if not createServerVisibleClone() then
+        warn("Failed to create character clone")
+        return
+    end
     
-    -- Make sure HRP is visible
-    HumanoidRootPart.Transparency = 0
-    HumanoidRootPart.CanCollide = false
+    SEPARATION_ACTIVE = true
     
-    return {bodyPosition, bodyGyro}
+    -- Method 1: Direct HRP manipulation with velocity control
+    local function maintainHRPSeparation()
+        local connection
+        connection = RunService.Heartbeat:Connect(function()
+            if not SEPARATION_ACTIVE or not RealHRP or not RealHRP.Parent then
+                if connection then connection:Disconnect() end
+                return
+            end
+            
+            -- Force HRP to target position with smooth transition
+            RealHRP.CFrame = CFrame.new(TARGET_POSITION) * RealHRP.CFrame.Rotation
+            RealHRP.Velocity = Vector3.new(0, 0, 0)
+            RealHRP.RotVelocity = Vector3.new(0, 0, 0)
+            
+            -- Make real character semi-transparent but server-visible
+            for _, part in ipairs(RealCharacter:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    part.Transparency = 0.7  -- Semi-transparent but server-visible
+                    part.CanCollide = false
+                end
+            end
+        end)
+        return connection
+    end
+    
+    -- Method 2: Sync clone movements with real character
+    local function syncCloneWithCharacter()
+        local connection
+        connection = RunService.Heartbeat:Connect(function()
+            if not SEPARATION_ACTIVE or not RealCharacter or not CharacterClone then
+                if connection then connection:Disconnect() end
+                return
+            end
+            
+            -- Sync clone position with slight offset for visual clarity
+            local realPosition = RealHRP.Position
+            CharacterClone:SetPrimaryPartCFrame(CFrame.new(realPosition) * RealHRP.CFrame.Rotation)
+            
+            -- Sync all parts for natural animation
+            for _, realPart in ipairs(RealCharacter:GetDescendants()) do
+                if realPart:IsA("BasePart") then
+                    local clonePart = CharacterClone:FindFirstChild(realPart.Name, true)
+                    if clonePart then
+                        clonePart.CFrame = realPart.CFrame
+                    end
+                end
+            end
+        end)
+        return connection
+    end
+    
+    -- Start both maintenance systems
+    local hrpConnection = maintainHRPSeparation()
+    local syncConnection = syncCloneWithCharacter()
+    setupCameraFocus()
+    
+    debugLog("HRP separation active - Server-side visibility enabled")
+    debugLog("Real HRP at: " .. tostring(TARGET_POSITION))
+    debugLog("Character clone visible at original position")
 end
 
--- Method 3: Hybrid approach with continuous updates
-local function anchorHRPHybrid()
-    ANCHOR_ACTIVE = true
+local function stopSeparation()
+    if not SEPARATION_ACTIVE then return end
     
-    -- Use constraints for smooth movement
-    local constraints = anchorHRPWithConstraints()
+    debugLog("Stopping HRP separation...")
+    SEPARATION_ACTIVE = false
     
-    -- Also use direct position updates as backup
-    local connection
-    connection = RunService.Heartbeat:Connect(function()
-        if not ANCHOR_ACTIVE or not HumanoidRootPart then
-            if connection then connection:Disconnect() end
-            return
-        end
-        
-        -- Double-check position
-        HumanoidRootPart.Position = TARGET_POSITION
-    end)
-    
-    return {connection = connection, constraints = constraints}
-end
-
-local function releaseHRP()
-    ANCHOR_ACTIVE = false
-    
-    -- Restore original properties
-    if HumanoidRootPart then
-        HumanoidRootPart.Anchored = false
-        HumanoidRootPart.CanCollide = true
-        
-        -- Remove any constraints
-        for _, obj in pairs(HumanoidRootPart:GetChildren()) do
-            if obj:IsA("BodyPosition") or obj:IsA("BodyGyro") then
-                obj:Destroy()
+    -- Restore real character visibility and properties
+    if RealCharacter then
+        for _, part in ipairs(RealCharacter:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.Transparency = 0
+                part.CanCollide = true
             end
         end
+        
+        -- Restore camera to real character
+        workspace.CurrentCamera.CameraSubject = RealCharacter:FindFirstChildOfClass("Humanoid")
     end
+    
+    -- Clean up clone and focus part
+    if CharacterClone then
+        CharacterClone:Destroy()
+        CharacterClone = nil
+    end
+    
+    if CameraFocusPart then
+        CameraFocusPart:Destroy()
+        CameraFocusPart = nil
+    end
+    
+    debugLog("HRP separation stopped - Normal state restored")
 end
 
--- Main toggle function
-local function toggleHRPAnchor()
-    if ANCHOR_ACTIVE then
-        releaseHRP()
-        print("HRP anchoring: DISABLED")
-    else
-        -- Try different methods until one works
-        local success = pcall(function()
-            anchorHRPHybrid()
-        end)
-        
-        if not success then
-            success = pcall(function()
-                anchorHRPDirect()
-            end)
+-- Improved movement handling to prevent phasing
+local function setupMovementSync()
+    if not SEPARATION_ACTIVE then return end
+    
+    local movementConnection
+    movementConnection = RunService.Heartbeat:Connect(function()
+        if not SEPARATION_ACTIVE then
+            if movementConnection then movementConnection:Disconnect() end
+            return
         end
         
-        if success then
-            print("HRP anchoring: ENABLED")
-            print("HRP anchored at: " .. tostring(TARGET_POSITION))
-        else
-            print("Failed to anchor HRP")
+        -- Smooth rotation sync to prevent phasing
+        if RealHRP and CharacterClone then
+            local cloneHRP = CharacterClone:FindFirstChild("HumanoidRootPart")
+            if cloneHRP then
+                -- Apply smooth rotation matching
+                local smoothRotation = cloneHRP.CFrame:Lerp(
+                    CFrame.new(cloneHRP.Position) * RealHRP.CFrame.Rotation,
+                    0.3
+                )
+                cloneHRP.CFrame = smoothRotation
+            end
         end
-    end
+    end)
 end
 
--- Update target position function
-local function updateTargetPosition(newPosition)
-    TARGET_POSITION = newPosition
-    print("Target position updated to: " .. tostring(newPosition))
-end
-
--- Key binding - Using F key for easy access
+-- Key binding with proper input handling
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then return end
     
     if input.KeyCode == Enum.KeyCode.F then
-        toggleHRPAnchor()
-    elseif input.KeyCode == Enum.KeyCode.G then
-        -- Example: Change to a position 100 studs above current position
-        updateTargetPosition(HumanoidRootPart.Position + Vector3.new(0, 100, 0))
-    end
-end)
-
--- Auto-reapply on respawn
-LocalPlayer.CharacterAdded:Connect(function(newCharacter)
-    Character = newCharacter
-    HumanoidRootPart = Character:WaitForChild("HumanoidRootPart")
-    Humanoid = Character:FindFirstChildOfClass("Humanoid")
-    
-    if ANCHOR_ACTIVE then
-        wait(2) -- Wait for character to stabilize
-        toggleHRPAnchor() -- Turn off
-        wait(0.5)
-        toggleHRPAnchor() -- Turn back on
-    end
-end)
-
--- Visual feedback
-local function createIndicator()
-    local screenGui = Instance.new("ScreenGui")
-    screenGui.Parent = game.Players.LocalPlayer:WaitForChild("PlayerGui")
-    
-    local textLabel = Instance.new("TextLabel")
-    textLabel.Size = UDim2.new(0, 200, 0, 30)
-    textLabel.Position = UDim2.new(0, 10, 0, 10)
-    textLabel.BackgroundColor3 = Color3.new(0, 0, 0)
-    textLabel.TextColor3 = Color3.new(1, 1, 1)
-    textLabel.Text = "HRP Anchor: INACTIVE"
-    textLabel.Parent = screenGui
-    
-    -- Update indicator based on state
-    while true do
-        if ANCHOR_ACTIVE then
-            textLabel.Text = "HRP Anchor: ACTIVE"
-            textLabel.BackgroundColor3 = Color3.new(0, 0.5, 0)
+        if SEPARATION_ACTIVE then
+            stopSeparation()
         else
-            textLabel.Text = "HRP Anchor: INACTIVE"
-            textLabel.BackgroundColor3 = Color3.new(0.5, 0, 0)
+            startSeparation()
+        end
+    elseif input.KeyCode == Enum.KeyCode.G then
+        -- Update target position
+        TARGET_POSITION = TARGET_POSITION + Vector3.new(0, 50, 0)
+        debugLog("Target position updated: " .. tostring(TARGET_POSITION))
+    end
+end)
+
+-- Handle character respawns with proper cleanup
+LocalPlayer.CharacterAdded:Connect(function(newCharacter)
+    debugLog("Character respawn detected...")
+    
+    if SEPARATION_ACTIVE then
+        stopSeparation()
+        wait(3) -- Allow character to stabilize
+        startSeparation()
+    end
+end)
+
+-- Auto-initialize when ready
+local function initialize()
+    if not LocalPlayer.Character then
+        LocalPlayer.CharacterAdded:Wait()
+    end
+    
+    wait(2) -- Ensure full character load
+    
+    debugLog("HRP Separation System Initialized")
+    debugLog("Press F to toggle separation")
+    debugLog("Press G to move target higher")
+    debugLog("Camera will focus on character model, not HRP")
+end
+
+-- Start initialization
+initialize()
+
+-- Export control functions
+getgenv().HRPSeparation = {
+    start = startSeparation,
+    stop = stopSeparation,
+    setTarget = function(pos) TARGET_POSITION = pos end,
+    getStatus = function() return SEPARATION_ACTIVE end
+}
+
+-- Visual status indicator
+local function createStatusIndicator()
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+    
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(0, 250, 0, 80)
+    frame.Position = UDim2.new(0, 10, 0, 10)
+    frame.BackgroundColor3 = Color3.new(0, 0, 0)
+    frame.BackgroundTransparency = 0.3
+    frame.Parent = screenGui
+    
+    local statusLabel = Instance.new("TextLabel")
+    statusLabel.Size = UDim2.new(1, 0, 0.5, 0)
+    statusLabel.BackgroundTransparency = 1
+    statusLabel.TextColor3 = Color3.new(1, 1, 1)
+    statusLabel.Text = "HRP Separation: INACTIVE"
+    statusLabel.Font = Enum.Font.GothamBold
+    statusLabel.Parent = frame
+    
+    local infoLabel = Instance.new("TextLabel")
+    infoLabel.Size = UDim2.new(1, 0, 0.5, 0)
+    infoLabel.Position = UDim2.new(0, 0, 0.5, 0)
+    infoLabel.BackgroundTransparency = 1
+    infoLabel.TextColor3 = Color3.new(1, 1, 1)
+    infoLabel.Text = "Press F to toggle | G to adjust"
+    infoLabel.Font = Enum.Font.Gotham
+    infoLabel.Parent = frame
+    
+    -- Update status
+    while true do
+        if SEPARATION_ACTIVE then
+            statusLabel.Text = "HRP Separation: ACTIVE"
+            statusLabel.TextColor3 = Color3.new(0, 1, 0)
+            frame.BackgroundColor3 = Color3.new(0, 0.2, 0)
+        else
+            statusLabel.Text = "HRP Separation: INACTIVE"
+            statusLabel.TextColor3 = Color3.new(1, 0, 0)
+            frame.BackgroundColor3 = Color3.new(0.2, 0, 0)
         end
         wait(0.5)
     end
 end
 
--- Start indicator
-spawn(createIndicator)
-
-print("HRP Anchoring System Loaded")
-print("Press F to toggle HRP anchoring")
-print("Press G to set target above current position")
-print("HRP will be visible and anchored at the target location")
-
--- Export functions for manual control
-getgenv().HRPAnchor = {
-    enable = function() if not ANCHOR_ACTIVE then toggleHRPAnchor() end end,
-    disable = function() if ANCHOR_ACTIVE then toggleHRPAnchor() end end,
-    setPosition = updateTargetPosition,
-    getStatus = function() return ANCHOR_ACTIVE end
-}
+-- Start status indicator
+spawn(createStatusIndicator)
