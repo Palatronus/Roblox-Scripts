@@ -1,37 +1,86 @@
+-- Client-side movement request handler
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
-local player = game:GetService("Players").LocalPlayer
-local character = player.CharacterAdded:Wait()
-local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
 
-local function smoothDash(speed, duration)
-    -- Create the necessary instances for LinearVelocity
-    local velocity = Instance.new("LinearVelocity")
-    local attachment = Instance.new("Attachment")
+local player = Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
 
-    -- Parent the attachment to the HRP and assign it to the velocity
-    attachment.Parent = humanoidRootPart
-    velocity.Attachment0 = attachment
-    velocity.RelativeTo = Enum.ActuatorRelativeTo.World -- Move in world space
-    velocity.MaxForce = 100000 -- A high value for immediate response
+-- Wait for RemoteEvent to be created by server
+local MovementEvent = ReplicatedStorage:WaitForChild("MovementEvent")
 
-    -- Calculate movement direction based on where the character is looking
-    local movement = humanoidRootPart.CFrame.LookVector * speed
-    velocity.VectorVelocity = movement
+local function requestMovement(distance, direction)
+    -- Input validation
+    if not distance or type(distance) ~= "number" then
+        warn("Invalid distance parameter")
+        return false
+    end
+    
+    if distance > 100 then -- Safety limit
+        warn("Distance exceeds maximum allowed")
+        return false
+    end
+    
+    -- Prepare movement data
+    local movementData = {
+        distance = distance,
+        direction = direction or "Forward",
+        playerId = player.UserId,
+        timestamp = os.time()
+    }
+    
+    -- Send request to server
+    local success, result = pcall(function()
+        return MovementEvent:InvokeServer(movementData)
+    end)
+    
+    if success and result then
+        -- Server approved movement, apply client-side prediction
+        local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
+        if humanoidRootPart then
+            -- Visual feedback while waiting for server confirmation
+            applyMovementEffects(humanoidRootPart)
+        end
+        return true
+    else
+        warn("Movement request failed:", result)
+        return false
+    end
+end
 
-    -- Parent the velocity to start the movement
-    velocity.Parent = humanoidRootPart
-
-    -- Create a tween to smoothly reduce the velocity to zero
-    local tween = TweenService:Create(velocity, TweenInfo.new(duration), {VectorVelocity = Vector3.new(0,10000000,0)})
+local function applyMovementEffects(hrp)
+    -- Client-side visual effects only
+    local tweenInfo = TweenInfo.new(0.3, Enum.EasingStyle.Quad)
+    local goal = {Size = Vector3.new(4, 4, 4)}
+    local tween = TweenService:Create(hrp, tweenInfo, goal)
     tween:Play()
-
-    -- Clean up after the tween is done
-    tween.Completed:Connect(function()
-        velocity:Destroy()
-        attachment:Destroy()
+    
+    -- Reset after effect
+    delay(0.3, function()
+        local resetTween = TweenService:Create(hrp, tweenInfo, {Size = Vector3.new(2, 2, 1)})
+        resetTween:Play()
     end)
 end
 
--- Example: Dash at a speed of 50 for 0.5 seconds
-smoothDash(50, 0.5)
+-- Example usage with error handling
+local function safeMovementExecution()
+    local success, error = pcall(function()
+        requestMovement(10, "Forward")
+    end)
+    
+    if not success then
+        warn("Movement execution error:", error)
+    end
+end
 
+-- Bind to user input or other triggers
+game:GetService("UserInputService").InputBegan:Connect(function(input)
+    if input.KeyCode == Enum.KeyCode.E then
+        safeMovementExecution()
+    end
+end)
+
+return {
+    RequestMovement = requestMovement,
+    SafeMovementExecution = safeMovementExecution
+}
