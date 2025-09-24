@@ -1,86 +1,36 @@
--- Client-side movement request handler
-local Players = game:GetService("Players")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local TweenService = game:GetService("TweenService")
+-- Target coordinates (X, Y, Z)
+local targetPosition = Vector3.new(100, 50, 200)
+-- Control variable for the locking loop
+local keepTeleporting = true
 
-local player = Players.LocalPlayer
-local character = player.Character or player.CharacterAdded:Wait()
-
--- Wait for RemoteEvent to be created by server
-local MovementEvent = ReplicatedStorage:WaitForChild("MovementEvent")
-
-local function requestMovement(distance, direction)
-    -- Input validation
-    if not distance or type(distance) ~= "number" then
-        warn("Invalid distance parameter")
-        return false
-    end
-    
-    if distance > 100 then -- Safety limit
-        warn("Distance exceeds maximum allowed")
-        return false
-    end
-    
-    -- Prepare movement data
-    local movementData = {
-        distance = distance,
-        direction = direction or "Forward",
-        playerId = player.UserId,
-        timestamp = os.time()
-    }
-    
-    -- Send request to server
-    local success, result = pcall(function()
-        return MovementEvent:InvokeServer(movementData)
-    end)
-    
-    if success and result then
-        -- Server approved movement, apply client-side prediction
-        local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
-        if humanoidRootPart then
-            -- Visual feedback while waiting for server confirmation
-            applyMovementEffects(humanoidRootPart)
+local function teleportLoop()
+    -- Use pcall for error handling :cite[5]
+    local success, errorMessage = pcall(function()
+        local player = game:GetService("Players").LocalPlayer
+        -- Wait for character to load
+        if not player.Character then
+            player.CharacterAdded:Wait()
         end
-        return true
-    else
-        warn("Movement request failed:", result)
-        return false
-    end
-end
-
-local function applyMovementEffects(hrp)
-    -- Client-side visual effects only
-    local tweenInfo = TweenInfo.new(0.3, Enum.EasingStyle.Quad)
-    local goal = {Size = Vector3.new(4, 4, 4)}
-    local tween = TweenService:Create(hrp, tweenInfo, goal)
-    tween:Play()
-    
-    -- Reset after effect
-    delay(0.3, function()
-        local resetTween = TweenService:Create(hrp, tweenInfo, {Size = Vector3.new(2, 2, 1)})
-        resetTween:Play()
-    end)
-end
-
--- Example usage with error handling
-local function safeMovementExecution()
-    local success, error = pcall(function()
-        requestMovement(10, "Forward")
+        local character = player.Character
+        -- Find the HumanoidRootPart with error checking :cite[7]
+        local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
+        
+        while keepTeleporting and task.wait(0.1) do -- Loop to maintain position
+            if humanoidRootPart and humanoidRootPart.Parent then
+                -- Set the CFrame to the target position :cite[3]:cite[7]
+                humanoidRootPart.CFrame = CFrame.new(targetPosition)
+            else
+                break -- Exit loop if HRP is no longer valid
+            end
+        end
     end)
     
     if not success then
-        warn("Movement execution error:", error)
+        warn("An error occurred: " .. errorMessage)
     end
 end
 
--- Bind to user input or other triggers
-game:GetService("UserInputService").InputBegan:Connect(function(input)
-    if input.KeyCode == Enum.KeyCode.E then
-        safeMovementExecution()
-    end
-end)
+-- Start the teleportation loop
+teleportLoop()
 
-return {
-    RequestMovement = requestMovement,
-    SafeMovementExecution = safeMovementExecution
-}
+-- To stop the teleportation, set 'keepTeleporting' to false
