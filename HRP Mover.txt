@@ -1,114 +1,138 @@
--- Full HRP Separation Script (Reanimation Method)
+-- HRP Manipulation using Reanimation Technique
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
-local TweenService = game:GetService("TweenService")
 
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 
-local TARGET_POSITION = Vector3.new(100, 500, 200)
+-- Configuration
+local TARGET_POSITION = Vector3.new(100, 500, 200) -- Set your desired coordinates here
 local REANIMATION_ACTIVE = false
-local RealCharacter, FakeCharacter
-local RealHRP, FakeHRP, FakeHumanoid
+local RealCharacter, FakeRig
+local RealHRP, FakeHRP
 
-local function CreateFakeCharacter()
+local function CreateFakeRig()
     if not LocalPlayer.Character then return false end
     
     RealCharacter = LocalPlayer.Character
     RealHRP = RealCharacter:WaitForChild("HumanoidRootPart")
-    local RealHumanoid = RealCharacter:FindFirstChildOfClass("Humanoid")
     
+    -- Enable archiving and clone the real character for the fake rig
     RealCharacter.Archivable = true
-    FakeCharacter = RealCharacter:Clone()
+    FakeRig = RealCharacter:Clone()
     
-    for _, part in ipairs(FakeCharacter:GetDescendants()) do
+    -- Configure the fake rig for client-side use
+    for _, part in ipairs(FakeRig:GetDescendants()) do
         if part:IsA("BasePart") then
-            part.Transparency = 0
+            part.Transparency = 0  -- Make fully visible
             part.CanCollide = false
-            part.Material = Enum.Material.ForceField
+            part.Anchored = false
         end
     end
     
-    for _, obj in ipairs(FakeCharacter:GetDescendants()) do
-        if obj:IsA("Decal") then
-            obj:Destroy()
-        end
+    -- Remove the humanoid from the fake rig to prevent interference
+    local fakeHum = FakeRig:FindFirstChildOfClass("Humanoid")
+    if fakeHum then
+        fakeHum:Destroy()
     end
     
-    local oldHum = FakeCharacter:FindFirstChildOfClass("Humanoid")
-    if oldHum then oldHum:Destroy() end
-    
-    FakeHumanoid = Instance.new("Humanoid")
-    FakeHumanoid.Parent = FakeCharacter
-    FakeHRP = FakeCharacter:WaitForChild("HumanoidRootPart")
-    
-    FakeCharacter.Parent = workspace
-    FakeCharacter:SetPrimaryPartCFrame(RealHRP.CFrame)
+    FakeHRP = FakeRig:FindFirstChild("HumanoidRootPart")
+    FakeRig.Parent = workspace
+    FakeRig:SetPrimaryPartCFrame(RealHRP.CFrame) -- Spawn fake at real character's location
     
     return true
 end
 
 local function SetupCamera()
-    if not FakeCharacter then return end
-    Camera.CameraSubject = FakeHumanoid
+    if not FakeRig then return end
+    
+    -- Create a fake Humanoid for the camera to follow the fake rig
+    local fakeHumanoid = Instance.new("Humanoid")
+    fakeHumanoid.Parent = FakeRig
+    
+    -- Force the camera to focus on the fake rig, not the real HRP:cite[1]
+    Camera.CameraSubject = fakeHumanoid
 end
 
-local function AnchorRealHRP()
+local function ControlRealHRP()
     if not RealHRP then return end
     
+    -- Anchor the real HRP at the target coordinates
     RealHRP.Anchored = true
     RealHRP.CFrame = CFrame.new(TARGET_POSITION)
     
+    -- Make the real character transparent on your client only
     for _, part in ipairs(RealCharacter:GetDescendants()) do
         if part:IsA("BasePart") then
-            part.Transparency = 0.9
+            part.Transparency = 0.8
             part.CanCollide = false
         end
     end
 end
 
-local function StartReanimation()
-    if REANIMATION_ACTIVE then return end
-    
-    if not CreateFakeCharacter() then
-        warn("Failed to create fake character")
-        return
-    end
-    
-    REANIMATION_ACTIVE = true
-    AnchorRealHRP()
-    SetupCamera()
-    
+local function SyncFakeWithInput()
+    -- Heartbeat loop to synchronize the fake rig with your input
     local connection
     connection = RunService.Heartbeat:Connect(function()
-        if not REANIMATION_ACTIVE or not RealHRP or not FakeHRP then
+        if not REANIMATION_ACTIVE or not FakeHRP or not RealHRP then
             if connection then connection:Disconnect() end
             return
         end
         
+        -- Keep the real HRP anchored at the target:cite[3]
         RealHRP.CFrame = CFrame.new(TARGET_POSITION)
         RealHRP.Velocity = Vector3.new(0, 0, 0)
         
+        -- Synchronize the fake rig's movement based on input
+        local moveDirection = Vector3.new(0, 0, 0)
+        
         if UserInputService:IsKeyDown(Enum.KeyCode.W) then
-            FakeHRP.CFrame = FakeHRP.CFrame + FakeHRP.CFrame.LookVector * -0.5
+            moveDirection = moveDirection - FakeHRP.CFrame.LookVector
         end
         if UserInputService:IsKeyDown(Enum.KeyCode.S) then
-            FakeHRP.CFrame = FakeHRP.CFrame + FakeHRP.CFrame.LookVector * 0.5
+            moveDirection = moveDirection + FakeHRP.CFrame.LookVector
         end
         if UserInputService:IsKeyDown(Enum.KeyCode.A) then
-            FakeHRP.CFrame = FakeHRP.CFrame * CFrame.Angles(0, math.rad(3), 0)
+            moveDirection = moveDirection - FakeHRP.CFrame.RightVector
         end
         if UserInputService:IsKeyDown(Enum.KeyCode.D) then
-            FakeHRP.CFrame = FakeHRP.CFrame * CFrame.Angles(0, math.rad(-3), 0)
+            moveDirection = moveDirection + FakeHRP.CFrame.RightVector
+        end
+        
+        -- Apply movement to fake rig
+        if moveDirection.Magnitude > 0 then
+            moveDirection = moveDirection.Unit * 0.7
+            FakeHRP.Position = FakeHRP.Position + moveDirection
         end
     end)
+    
+    return connection
+end
+
+local function StartReanimation()
+    if REANIMATION_ACTIVE then return end
+    
+    if not CreateFakeRig() then
+        warn("Failed to create fake rig")
+        return
+    end
+    
+    REANIMATION_ACTIVE = true
+    ControlRealHRP()
+    SetupCamera()
+    SyncFakeWithInput()
+    
+    print("Reanimation Active | Real HRP anchored at: " .. tostring(TARGET_POSITION))
+    print("Fake rig active - Camera follows fake model")
 end
 
 local function StopReanimation()
     if not REANIMATION_ACTIVE then return end
+    
     REANIMATION_ACTIVE = false
     
+    -- Restore real character
     if RealCharacter then
         RealHRP.Anchored = false
         for _, part in ipairs(RealCharacter:GetDescendants()) do
@@ -117,17 +141,27 @@ local function StopReanimation()
                 part.CanCollide = true
             end
         end
-        Camera.CameraSubject = RealCharacter:FindFirstChildOfClass("Humanoid")
+        
+        -- Restore camera to real character
+        local realHumanoid = RealCharacter:FindFirstChildOfClass("Humanoid")
+        if realHumanoid then
+            Camera.CameraSubject = realHumanoid
+        end
     end
     
-    if FakeCharacter then
-        FakeCharacter:Destroy()
-        FakeCharacter = nil
+    -- Remove fake rig
+    if FakeRig then
+        FakeRig:Destroy()
+        FakeRig = nil
     end
+    
+    print("Reanimation Stopped - Normal state restored")
 end
 
+-- Control via the 'F' key
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then return end
+    
     if input.KeyCode == Enum.KeyCode.F then
         if REANIMATION_ACTIVE then
             StopReanimation()
@@ -137,17 +171,15 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
     end
 end)
 
+-- Auto-reconnect on respawn
 LocalPlayer.CharacterAdded:Connect(function(newCharacter)
     if REANIMATION_ACTIVE then
         StopReanimation()
-        wait(2)
+        wait(2) -- Allow character to stabilize
         StartReanimation()
     end
 end)
 
-if LocalPlayer.Character then
-    RealCharacter = LocalPlayer.Character
-    RealHRP = RealCharacter:WaitForChild("HumanoidRootPart")
-end
-
-print("HRP Separation System Loaded - Press F to toggle")
+print("Reanimation HRP System Loaded | Press 'F' to toggle")
+print("Real HRP will be anchored at target position")
+print("You will control a fake model while your hitbox stays separated")
