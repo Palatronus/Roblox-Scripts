@@ -1,77 +1,197 @@
--- Enhanced HRP Teleport & Transparency Script
--- Client-Side, Executor Compatible
-
+-- HRP Separation Script - Client-Side Character Cloning
 if not game:IsLoaded() then game.Loaded:Wait() end
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
-local TweenService = game:GetService("TweenService")
-
 local LocalPlayer = Players.LocalPlayer
-local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
-local HumanoidRootPart = Character:WaitForChild("HumanoidRootPart")
 
--- Configuration: Set your desired coordinates and transparency here.
-local TARGET_POSITION = Vector3.new(100, 50, 200) -- World coordinates (X, Y, Z)
-local HRP_TRANSPARENCY = 0.5 -- 0 is fully visible, 1 is fully invisible.
-local IS_ACTIVE = false
+-- Configuration
+local TARGET_POSITION = Vector3.new(100, 50, 200) -- HRP destination
+local SEPARATION_ACTIVE = false
+local RealCharacter, CharacterClone
+local RealHRP, CloneHRP
 
--- Core function to safely manipulate the HRP
-local function manipulateHRP()
-    local success, err = pcall(function()
-        if not Character or not HumanoidRootPart or not HumanoidRootPart.Parent then
-            error("HRP or Character is invalid. They may have been destroyed.")
+local function createCharacterClone()
+    if not LocalPlayer.Character then return false end
+    
+    RealCharacter = LocalPlayer.Character
+    RealCharacter.Archivable = true
+    
+    -- Create clone for visual representation
+    CharacterClone = RealCharacter:Clone()
+    
+    -- Position clone where character currently is
+    local realHRP = RealCharacter:FindFirstChild("HumanoidRootPart")
+    if not realHRP then return false end
+    
+    CharacterClone.Parent = workspace
+    CharacterClone:SetPrimaryPartCFrame(realHRP.CFrame)
+    
+    -- Make real character invisible
+    for _, part in ipairs(RealCharacter:GetDescendants()) do
+        if part:IsA("BasePart") then
+            part.Transparency = 1
+            part.CanCollide = false
         end
+    end
+    
+    -- Make clone visible and setup
+    for _, part in ipairs(CharacterClone:GetDescendants()) do
+        if part:IsA("BasePart") then
+            part.Transparency = 0
+            part.CanCollide = false
+        end
+    end
+    
+    -- Disable clone humanoid to prevent interference
+    local cloneHumanoid = CharacterClone:FindFirstChildOfClass("Humanoid")
+    if cloneHumanoid then
+        cloneHumanoid:Destroy()
+    end
+    
+    return true
+end
 
-        -- Use CFrame to set position and preserve rotation, avoiding known bugs :cite[1].
-        HumanoidRootPart.CFrame = CFrame.new(TARGET_POSITION) * HumanoidRootPart.CFrame.Rotation
-        HumanoidRootPart.Transparency = HRP_TRANSPARENCY
-        HumanoidRootPart.AssemblyLinearVelocity = Vector3.new(0, 0, 0) -- Stop physics-induced movement.
+local function startSeparation()
+    if SEPARATION_ACTIVE then return end
+    
+    if not createCharacterClone() then
+        warn("Failed to create character clone")
+        return
+    end
+    
+    RealHRP = RealCharacter:FindFirstChild("HumanoidRootPart")
+    CloneHRP = CharacterClone:FindFirstChild("HumanoidRootPart")
+    
+    if not RealHRP or not CloneHRP then
+        warn("HRP not found in character or clone")
+        return
+    end
+    
+    SEPARATION_ACTIVE = true
+    
+    -- Main separation loop
+    local connection
+    connection = RunService.Heartbeat:Connect(function()
+        if not SEPARATION_ACTIVE or not RealCharacter or not CharacterClone then
+            if connection then connection:Disconnect() end
+            return
+        end
+        
+        -- Keep real HRP at target position
+        RealHRP.CFrame = CFrame.new(TARGET_POSITION)
+        RealHRP.Velocity = Vector3.new(0, 0, 0)
+        
+        -- Update clone position based on real character's intended movement
+        -- This creates the illusion that the visible character is moving normally
+        local currentClonePos = CloneHRP.Position
+        CloneHRP.CFrame = CFrame.new(currentClonePos) * RealHRP.CFrame.Rotation
     end)
-
-    if not success then
-        warn("HRP Manipulation Error: " .. err)
-    end
+    
+    print("HRP Separation: ACTIVE")
+    print("Real HRP at: " .. tostring(TARGET_POSITION))
+    print("Clone visible at original position")
 end
 
--- Function to toggle the effect on and off
-local function toggleHRPControl()
-    IS_ACTIVE = not IS_ACTIVE
-    if IS_ACTIVE then
-        print("HRP Control [ACTIVE] - HRP is being teleported and made transparent.")
-        -- Run the manipulation in a loop while active.
-        while IS_ACTIVE and task.wait(0.1) do -- Adjust the wait time for responsiveness.
-            manipulateHRP()
+local function stopSeparation()
+    if not SEPARATION_ACTIVE then return end
+    
+    SEPARATION_ACTIVE = false
+    
+    -- Restore real character visibility
+    if RealCharacter then
+        for _, part in ipairs(RealCharacter:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.Transparency = 0
+                part.CanCollide = true
+            end
         end
-    else
-        print("HRP Control [INACTIVE]")
     end
+    
+    -- Destroy clone
+    if CharacterClone then
+        CharacterClone:Destroy()
+        CharacterClone = nil
+    end
+    
+    -- Move real character back to clone position if needed
+    if RealHRP and CloneHRP then
+        RealHRP.CFrame = CloneHRP.CFrame
+    end
+    
+    print("HRP Separation: DISABLED")
 end
 
--- Robust key connection using UserInputService :cite[2]:cite[6]
-local keyConnection
-keyConnection = UserInputService.InputBegan:Connect(function(input, gameProcessedEvent)
-    -- Check if the key is 'P' and ensure the game isn't using the input (like in a text box).
-    if input.KeyCode == Enum.KeyCode.P and not gameProcessedEvent then
-        toggleHRPControl()
+local function updateTargetPosition(newPosition)
+    if typeof(newPosition) == "Vector3" then
+        TARGET_POSITION = newPosition
+        print("Target position updated to: " .. tostring(newPosition))
+        return true
     end
-end)
+    return false
+end
 
--- Automatic re-initialization after character respawn
+-- Handle character respawns
 LocalPlayer.CharacterAdded:Connect(function(newCharacter)
-    Character = newCharacter
-    -- Wait for the character model to be fully loaded.
-    local newHRP = newCharacter:WaitForChild("HumanoidRootPart")
-    HumanoidRootPart = newHRP
-    print("Character respawn detected. HRP Control has been re-linked.")
-
-    -- If the control was active before respawn, re-activate it.
-    if IS_ACTIVE then
-        task.wait(0.5) -- Brief delay for character stabilization.
-        toggleHRPControl()
+    -- Clean up existing separation
+    if SEPARATION_ACTIVE then
+        stopSeparation()
+    end
+    
+    -- Wait for character to fully load
+    task.wait(1)
+    
+    -- Re-apply separation if it was active
+    if SEPARATION_ACTIVE then
+        task.wait(1)
+        startSeparation()
     end
 end)
 
-print("HRP Teleport & Transparency Script Initialized Successfully.")
-print("Press 'P' to toggle the effect. Current target: " .. tostring(TARGET_POSITION))
+-- Key bindings
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    
+    if input.KeyCode == Enum.KeyCode.Insert then
+        startSeparation()
+    elseif input.KeyCode == Enum.KeyCode.Delete then
+        stopSeparation()
+    elseif input.KeyCode == Enum.KeyCode.Home then
+        updateTargetPosition(Vector3.new(0, 100, 0)) -- Example new position
+    end
+end)
+
+-- Advanced movement synchronization (optional)
+local function setupMovementSync()
+    if not SEPARATION_ACTIVE then return end
+    
+    -- Sync limb movements for more realistic clone
+    local function syncLimbs()
+        if not RealCharacter or not CharacterClone then return end
+        
+        for _, realPart in ipairs(RealCharacter:GetDescendants()) do
+            if realPart:IsA("BasePart") then
+                local clonePart = CharacterClone:FindFirstChild(realPart.Name)
+                if clonePart then
+                    clonePart.CFrame = realPart.CFrame
+                end
+            end
+        end
+    end
+    
+    -- High-frequency sync for smooth animation
+    RunService.Heartbeat:Connect(syncLimbs)
+end
+
+print("HRP Separation System Loaded")
+print("Controls: INSERT=Start, DELETE=Stop, HOME=Change Position")
+print("Real character HRP will be separated from visible clone")
+
+-- Export functions for external control
+getgenv().HRPSeparation = {
+    start = startSeparation,
+    stop = stopSeparation,
+    updatePosition = updateTargetPosition,
+    isActive = function() return SEPARATION_ACTIVE end
+}
