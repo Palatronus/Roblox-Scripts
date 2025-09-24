@@ -1,124 +1,29 @@
--- HRP Separation Script - Executor Ready
-if not game:IsLoaded() then game.Loaded:Wait() end
-
+-- Simple HRP Anchor Script
 local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
-local LocalPlayer = Players.LocalPlayer
+local player = Players.LocalPlayer
 
--- Wait for character
-if not LocalPlayer.Character then
-    LocalPlayer.CharacterAdded:Wait()
-end
-
-local Character = LocalPlayer.Character
-local OriginalHRP = Character:WaitForChild("HumanoidRootPart")
-local Humanoid = Character:FindFirstChildOfClass("Humanoid")
-
--- Configuration
-local TARGET_POSITION = Vector3.new(0, 500, 0) -- Safe location above map
-local HRP_TRANSPARENCY = 1 -- 0=Visible, 1=Invisible (default invisible)
-local SeparationActive = false
-local SafeHRP = nil
-
-local function CreateSafeHRP()
-    -- Clone original HRP for safe location
-    SafeHRP = OriginalHRP:Clone()
-    SafeHRP.Name = "SafeHRP"
-    SafeHRP.Transparency = HRP_TRANSPARENCY
-    SafeHRP.CanCollide = false
-    SafeHRP.Anchored = true
-    SafeHRP.CFrame = CFrame.new(TARGET_POSITION)
-    SafeHRP.Parent = Character
-    
-    -- Modify original HRP to be decoy (visible but non-functional for hitbox)
-    OriginalHRP.Name = "DecoyHRP"
-    OriginalHRP.CanCollide = false
-    OriginalHRP.Transparency = 0 -- Keep visible
-    
-    return SafeHRP
-end
-
-local function StartSeparation()
-    if SeparationActive then return end
-    
-    SafeHRP = CreateSafeHRP()
-    SeparationActive = true
-    
-    -- Maintain separation loop
-    local Connection
-    Connection = RunService.Heartbeat:Connect(function()
-        if not SeparationActive or not SafeHRP or not SafeHRP.Parent then
-            if Connection then Connection:Disconnect() end
-            return
+local function AnchorHRP()
+    if player.Character then
+        local hrp = player.Character:FindFirstChild("HumanoidRootPart")
+        if hrp then
+            hrp.Anchored = true
+            hrp.CanCollide = false
+            hrp.Transparency = 1 -- Make invisible
+            hrp.CFrame = CFrame.new(0, 1000, 0) -- Move to safe location
+            
+            -- Create visible decoy at original position
+            local decoy = hrp:Clone()
+            decoy.Name = "VisibleDecoy"
+            decoy.Transparency = 0
+            decoy.Anchored = true
+            decoy.CFrame = hrp.CFrame
+            decoy.Parent = player.Character
         end
-        
-        -- Keep safe HRP at target position
-        SafeHRP.CFrame = CFrame.new(TARGET_POSITION)
-        SafeHRP.Transparency = HRP_TRANSPARENCY
-        
-        -- Optional: Make decoy follow some movement (comment out to keep stationary)
-        -- OriginalHRP.CFrame = OriginalHRP.CFrame
-    end)
-    
-    print("HRP Separation: ACTIVE")
-    print("Safe HRP at: " .. tostring(TARGET_POSITION))
-    print("Transparency: " .. HRP_TRANSPARENCY)
+    end
 end
 
-local function StopSeparation()
-    if not SeparationActive then return end
-    SeparationActive = false
-    
-    -- Restore original setup
-    if SafeHRP then
-        SafeHRP:Destroy()
-        SafeHRP = nil
-    end
-    
-    OriginalHRP.Name = "HumanoidRootPart"
-    OriginalHRP.CanCollide = true
-    OriginalHRP.Anchored = false
-    
-    print("HRP Separation: DISABLED")
-end
+-- Execute immediately
+AnchorHRP()
 
-local function UpdateTransparency(value)
-    HRP_TRANSPARENCY = math.clamp(value, 0, 1)
-    if SafeHRP then
-        SafeHRP.Transparency = HRP_TRANSPARENCY
-    end
-    print("HRP Transparency set to: " .. HRP_TRANSPARENCY)
-end
-
--- Control bindings
-local UIS = game:GetService("UserInputService")
-UIS.InputBegan:Connect(function(input)
-    if input.KeyCode == Enum.KeyCode.Insert then
-        StartSeparation()
-    elseif input.KeyCode == Enum.KeyCode.Delete then
-        StopSeparation()
-    elseif input.KeyCode == Enum.KeyCode.Home then
-        UpdateTransparency(1) -- Fully invisible
-    elseif input.KeyCode == Enum.KeyCode.End then
-        UpdateTransparency(0.5) -- Semi-visible
-    end
-end)
-
--- Auto-restart on respawn
-LocalPlayer.CharacterAdded:Connect(function(newChar)
-    Character = newChar
-    OriginalHRP = Character:WaitForChild("HumanoidRootPart")
-    Humanoid = Character:FindFirstChildOfClass("Humanoid")
-    
-    if SeparationActive then
-        wait(1) -- Allow character to fully load
-        StartSeparation()
-    end
-end)
-
-print("HRP Separation Script Loaded")
-print("Controls:")
-print("INSERT - Start Separation")
-print("DELETE - Stop Separation") 
-print("HOME - HRP Fully Invisible")
-print("END - HRP Semi-Visible")
+-- Re-anchor on respawn
+player.CharacterAdded:Connect(AnchorHRP)
