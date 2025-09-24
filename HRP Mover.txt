@@ -1,70 +1,94 @@
--- Revised Teleport Script with Robust Methods
 local Players = game:GetService("Players")
-local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
 local LocalPlayer = Players.LocalPlayer
 
 local TARGET_POSITION = Vector3.new(100, 50, 200) -- Your coordinates
-local ACTIVATION_KEY = Enum.KeyCode.G -- Your chosen key
+local SEPARATION_ACTIVE = false
+local RealCharacter, CharacterClone
 
-local function teleportCharacter()
-    -- Wait for and validate the character
-    local character = LocalPlayer.Character
-    if not character then
-        warn("Character not found.")
-        return
-    end
-    
-    local humanoid = character:FindFirstChildOfClass("Humanoid")
-    local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
-    
-    if not humanoid or not humanoidRootPart then
-        warn("Character components not ready.")
-        return
+local function createCharacterClone()
+    if not LocalPlayer.Character then return false end
+    RealCharacter = LocalPlayer.Character
+    RealCharacter.Archivable = true -- Must be true to clone
+
+    -- Create a visual clone and position it where the character is
+    CharacterClone = RealCharacter:Clone()
+    CharacterClone.Parent = workspace
+    CharacterClone:SetPrimaryPartCFrame(RealCharacter.HumanoidRootPart.CFrame)
+
+    -- Make the real character invisible and non-collidable
+    for _, part in ipairs(RealCharacter:GetDescendants()) do
+        if part:IsA("BasePart") then
+            part.Transparency = 1
+            part.CanCollide = false
+        end
     end
 
-    -- METHOD 1: Use PivotTo (Recommended)
-    local targetCFrame = CFrame.new(TARGET_POSITION)
-    local success, errorMessage = pcall(function()
-        character:PivotTo(targetCFrame)
+    -- Ensure the clone is visible but non-interactive
+    for _, part in ipairs(CharacterClone:GetDescendants()) do
+        if part:IsA("BasePart") then
+            part.Transparency = 0
+            part.CanCollide = false
+            part.Anchored = true -- Keep the clone in place
+        end
+    end
+
+    -- Remove the Humanoid from the clone to prevent movement
+    local cloneHumanoid = CharacterClone:FindFirstChildOfClass("Humanoid")
+    if cloneHumanoid then
+        cloneHumanoid:Destroy()
+    end
+    return true
+end
+
+local function startSeparation()
+    if SEPARATION_ACTIVE then return end
+    if not createCharacterClone() then return end
+
+    SEPARATION_ACTIVE = true
+    local RealHRP = RealCharacter:FindFirstChild("HumanoidRootPart")
+
+    -- Main loop to keep the real HRP at the target position
+    local connection
+    connection = RunService.Heartbeat:Connect(function()
+        if not SEPARATION_ACTIVE or not RealHRP or not RealHRP.Parent then
+            connection:Disconnect()
+            return
+        end
+        -- Use CFrame to maintain the character's rotation and avoid Position
+        RealHRP.CFrame = CFrame.new(TARGET_POSITION) * RealHRP.CFrame.Rotation
+        RealHRP.Velocity = Vector3.new(0,0,0) -- Cancel any physics forces
     end)
-    
-    if success then
-        print("Teleport successful using PivotTo.")
-        return
-    else
-        warn("PivotTo failed: " .. errorMessage)
+end
+
+local function stopSeparation()
+    if not SEPARATION_ACTIVE then return end
+    SEPARATION_ACTIVE = false
+
+    -- Restore the real character's visibility
+    if RealCharacter then
+        for _, part in ipairs(RealCharacter:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.Transparency = 0
+                part.CanCollide = true
+            end
+        end
+        -- Move real character back to the clone's position
+        RealCharacter:SetPrimaryPartCFrame(CharacterClone.HumanoidRootPart.CFrame)
     end
 
-    -- METHOD 2: Use MoveTo (Fallback)
-    local success, errorMessage = pcall(function()
-        character:MoveTo(TARGET_POSITION)
-    end)
-    
-    if success then
-        print("Teleport successful using MoveTo.")
-        return
-    else
-        warn("MoveTo failed: " .. errorMessage)
-    end
-
-    -- METHOD 3: Corrected CFrame approach (Last Resort)
-    local success, errorMessage = pcall(function()
-        -- This preserves the rotation to avoid assembly issues:cite[4]
-        humanoidRootPart.CFrame = CFrame.new(TARGET_POSITION) * humanoidRootPart.CFrame.Rotation
-    end)
-    
-    if success then
-        print("Teleport successful using CFrame.")
-    else
-        warn("All teleport methods failed: " .. errorMessage)
+    -- Destroy the clone
+    if CharacterClone then
+        CharacterClone:Destroy()
+        CharacterClone = nil
     end
 end
 
--- Key connection
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if not gameProcessed and input.KeyCode == ACTIVATION_KEY then
-        teleportCharacter()
+-- Connect this to your 'Ğ' keybind
+local function toggleSeparation()
+    if SEPARATION_ACTIVE then
+        stopSeparation()
+    else
+        startSeparation()
     end
-end)
-
-print("Teleport script loaded. Press the configured key to activate.")
+end
