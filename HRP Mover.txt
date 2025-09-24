@@ -1,304 +1,42 @@
--- HRP Separation Debugging Script
-if not game:IsLoaded() then game.Loaded:Wait() end
+-- Ultra Minimal Test Script
+print("🎯 SCRIPT EXECUTION STARTED")
 
 local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
-local UserInputService = game:GetService("UserInputService")
+print("✅ Players service loaded")
+
 local LocalPlayer = Players.LocalPlayer
+print("✅ LocalPlayer: " .. tostring(LocalPlayer))
 
-print("=== HRP SEPARATION DEBUGGING STARTED ===")
-
--- Debug configuration
-local DEBUG_MODE = true
-local TARGET_POSITION = Vector3.new(100, 50, 200)
-local SEPARATION_ACTIVE = false
-
--- Debug logging function
-local function debugLog(message)
-    if DEBUG_MODE then
-        print("[DEBUG] " .. message)
+if LocalPlayer then
+    print("✅ LocalPlayer name: " .. LocalPlayer.Name)
+    
+    -- Test basic function call
+    local function testFunction()
+        return "FUNCTION_WORKS"
+    end
+    
+    local result = testFunction()
+    print("✅ Function test: " .. result)
+    
+    -- Test simple loop
+    for i = 1, 3 do
+        print("✅ Loop iteration: " .. i)
+        wait(0.5)
     end
 end
 
--- Test basic functionality first
-local function testBasicFunctions()
-    debugLog("Testing basic functions...")
-    
-    -- Test 1: Check if player exists
-    if not LocalPlayer then
-        warn("❌ FAIL: LocalPlayer not found")
-        return false
-    end
-    debugLog("✓ LocalPlayer found: " .. tostring(LocalPlayer.Name))
-    
-    -- Test 2: Check if character exists
-    local character = LocalPlayer.Character
-    if not character then
-        debugLog("Character not found, waiting for CharacterAdded...")
-        LocalPlayer.CharacterAdded:Wait()
-        character = LocalPlayer.Character
-    end
-    
-    if not character then
-        warn("❌ FAIL: Character not found after waiting")
-        return false
-    end
-    debugLog("✓ Character found: " .. character.Name)
-    
-    -- Test 3: Check if HRP exists
-    local hrp = character:WaitForChild("HumanoidRootPart", 5)
-    if not hrp then
-        warn("❌ FAIL: HumanoidRootPart not found after 5 seconds")
-        return false
-    end
-    debugLog("✓ HumanoidRootPart found at position: " .. tostring(hrp.Position))
-    
-    -- Test 4: Test basic teleportation
-    local originalPosition = hrp.Position
-    debugLog("Original HRP position: " .. tostring(originalPosition))
-    
-    local success, err = pcall(function()
-        hrp.CFrame = CFrame.new(originalPosition + Vector3.new(0, 10, 0))
-        wait(0.1)
-        hrp.CFrame = CFrame.new(originalPosition)
-    end)
-    
-    if not success then
-        warn("❌ FAIL: Basic teleport test failed: " .. tostring(err))
-        return false
-    end
-    debugLog("✓ Basic teleport test passed")
-    
-    return true
-end
+print("🎯 SCRIPT EXECUTION COMPLETED")
 
--- Advanced HRP manipulation test
-local function testAdvancedManipulation()
-    debugLog("Testing advanced HRP manipulation...")
-    
-    local character = LocalPlayer.Character
-    local hrp = character:FindFirstChild("HumanoidRootPart")
-    
-    if not hrp then
-        warn("❌ HRP not found for advanced test")
-        return false
-    end
-    
-    -- Test different teleportation methods
-    local testMethods = {
-        {
-            name = "CFrame direct",
-            func = function(pos)
-                hrp.CFrame = CFrame.new(pos)
-            end
-        },
-        {
-            name = "CFrame with rotation",
-            func = function(pos)
-                hrp.CFrame = CFrame.new(pos) * hrp.CFrame.Rotation
-            end
-        },
-        {
-            name = "Position property",
-            func = function(pos)
-                hrp.Position = pos
-            end
-        }
-    }
-    
-    local testPosition = Vector3.new(0, 100, 0)
-    
-    for i, method in ipairs(testMethods) do
-        local success, err = pcall(function()
-            method.func(testPosition)
-            wait(0.2) -- Allow time to observe
-            debugLog("Method " .. i .. " (" .. method.name .. "): " .. tostring(hrp.Position))
-        end)
-        
-        if not success then
-            warn("❌ Method " .. i .. " failed: " .. tostring(err))
-        else
-            debugLog("✓ Method " .. i .. " completed")
-        end
-    end
-    
-    return true
-end
+-- Create a visible indicator
+local screenGui = Instance.new("ScreenGui")
+screenGui.Parent = game.Players.LocalPlayer:WaitForChild("PlayerGui")
 
--- Key binding test
-local function testKeyBindings()
-    debugLog("Testing key bindings...")
-    
-    local keyPressed = false
-    local connection
-    
-    connection = UserInputService.InputBegan:Connect(function(input, gameProcessed)
-        if gameProcessed then return end
-        
-        debugLog("Key pressed: " .. tostring(input.KeyCode))
-        
-        -- Test multiple key options
-        local validKeys = {
-            Enum.KeyCode.G,
-            Enum.KeyCode.Insert,
-            Enum.KeyCode.Delete,
-            Enum.KeyCode.Home,
-            Enum.KeyCode.End
-        }
-        
-        for _, key in ipairs(validKeys) do
-            if input.KeyCode == key then
-                keyPressed = true
-                debugLog("✓ Valid key detected: " .. tostring(key))
-                break
-            end
-        end
-    end)
-    
-    -- Wait for key press with timeout
-    debugLog("Please press any key within 10 seconds...")
-    
-    local startTime = tick()
-    while tick() - startTime < 10 and not keyPressed do
-        wait(0.1)
-    end
-    
-    connection:Disconnect()
-    
-    if keyPressed then
-        debugLog("✓ Key binding test passed")
-        return true
-    else
-        warn("❌ No valid key pressed within 10 seconds")
-        return false
-    end
-end
+local textLabel = Instance.new("TextLabel")
+textLabel.Size = UDim2.new(0, 200, 0, 50)
+textLabel.Position = UDim2.new(0, 10, 0, 10)
+textLabel.BackgroundColor3 = Color3.new(0, 0, 0)
+textLabel.TextColor3 = Color3.new(1, 1, 1)
+textLabel.Text = "SCRIPT LOADED - CHECK CONSOLE"
+textLabel.Parent = screenGui
 
--- Character cloning test
-local function testCharacterCloning()
-    debugLog("Testing character cloning...")
-    
-    local character = LocalPlayer.Character
-    if not character then
-        warn("❌ Character not found for cloning test")
-        return false
-    end
-    
-    -- Test if character can be archived (required for cloning)
-    character.Archivable = true
-    if not character.Archivable then
-        warn("❌ Character cannot be archived - cloning will not work")
-        return false
-    end
-    debugLog("✓ Character can be archived")
-    
-    -- Test cloning
-    local success, clone = pcall(function()
-        return character:Clone()
-    end)
-    
-    if not success or not clone then
-        warn("❌ Character cloning failed")
-        return false
-    end
-    debugLog("✓ Character cloning successful")
-    
-    -- Clean up
-    clone:Destroy()
-    character.Archivable = false
-    
-    return true
-end
-
--- Main debugging function
-local function runDebugTests()
-    debugLog("Starting comprehensive debug tests...")
-    
-    local tests = {
-        {name = "Basic Functions", func = testBasicFunctions},
-        {name = "Key Bindings", func = testKeyBindings},
-        {name = "Character Cloning", func = testCharacterCloning},
-        {name = "Advanced Manipulation", func = testAdvancedManipulation}
-    }
-    
-    local passedTests = 0
-    local totalTests = #tests
-    
-    for i, test in ipairs(tests) do
-        debugLog("--- Running Test " .. i .. ": " .. test.name .. " ---")
-        
-        local success, result = pcall(test.func)
-        if success and result then
-            debugLog("✓ Test " .. i .. " PASSED")
-            passedTests = passedTests + 1
-        else
-            warn("❌ Test " .. i .. " FAILED")
-        end
-        
-        wait(1) -- Delay between tests
-    end
-    
-    debugLog("=== DEBUG SUMMARY ===")
-    debugLog("Passed: " .. passedTests .. "/" .. totalTests)
-    
-    if passedTests == totalTests then
-        print("🎉 All tests passed! The basic system is working.")
-        print("The issue might be in the separation logic itself.")
-        return true
-    else
-        warn("⚠️ Some tests failed. Check the debug output above.")
-        return false
-    end
-end
-
--- Run debug tests automatically
-wait(2) -- Give time for game to fully load
-runDebugTests()
-
--- Provide a simple working separation script based on test results
-local function provideWorkingScript()
-    debugLog("Providing simplified working script...")
-    
-    local character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
-    local hrp = character:WaitForChild("HumanoidRootPart")
-    
-    local simpleSeparationActive = false
-    local originalPosition = hrp.Position
-    
-    -- Simple separation function
-    local function toggleSimpleSeparation()
-        simpleSeparationActive = not simpleSeparationActive
-        
-        if simpleSeparationActive then
-            -- Move HRP to target
-            hrp.CFrame = CFrame.new(TARGET_POSITION)
-            hrp.Velocity = Vector3.new(0, 0, 0)
-            debugLog("Simple separation ACTIVATED")
-        else
-            -- Return HRP to original position
-            hrp.CFrame = CFrame.new(originalPosition)
-            debugLog("Simple separation DEACTIVATED")
-        end
-    end
-    
-    -- Key binding for simple version
-    UserInputService.InputBegan:Connect(function(input, gameProcessed)
-        if gameProcessed then return end
-        
-        if input.KeyCode == Enum.KeyCode.G then
-            toggleSimpleSeparation()
-        end
-    end)
-    
-    print("Simple separation script loaded. Press G to toggle.")
-    print("This will move your entire character. For true HRP-only separation,")
-    print("we need to fix the issues identified in the debug tests above.")
-end
-
--- Wait a bit then provide the simple script
-wait(3)
-provideWorkingScript()
-
-print("=== DEBUGGING COMPLETE ===")
-print("Check the output above for specific failure points.")
-print("The simple working script has been loaded as a fallback.")
+print("✅ Visual indicator created")
