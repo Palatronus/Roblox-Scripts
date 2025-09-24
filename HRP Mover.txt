@@ -1,42 +1,38 @@
--- Ultra Minimal Test Script
-print("🎯 SCRIPT EXECUTION STARTED")
+-- Intermediate HRP Test
+print("=== HRP FUNCTIONALITY TEST ===")
 
 local Players = game:GetService("Players")
-print("✅ Players service loaded")
+local RunService = game:GetService("RunService")
 
-local LocalPlayer = Players.LocalPlayer
-print("✅ LocalPlayer: " .. tostring(LocalPlayer))
-
-if LocalPlayer then
-    print("✅ LocalPlayer name: " .. LocalPlayer.Name)
-    
-    -- Test basic function call
-    local function testFunction()
-        return "FUNCTION_WORKS"
-    end
-    
-    local result = testFunction()
-    print("✅ Function test: " .. result)
-    
-    -- Test simple loop
-    for i = 1, 3 do
-        print("✅ Loop iteration: " .. i)
-        wait(0.5)
-    end
+-- Wait for everything to load
+if not game:IsLoaded() then
+    print("Waiting for game to load...")
+    game.Loaded:Wait()
 end
 
-print("🎯 SCRIPT EXECUTION COMPLETED")
+local LocalPlayer = Players.LocalPlayer
+print("Player: " .. LocalPlayer.Name)
 
--- Create a visible indicator
-local screenGui = Instance.new("ScreenGui")
-screenGui.Parent = game.Players.LocalPlayer:WaitForChild("PlayerGui")
+-- Wait for character
+if not LocalPlayer.Character then
+    print("Waiting for character...")
+    LocalPlayer.CharacterAdded:Wait()
+end
 
-local textLabel = Instance.new("TextLabel")
-textLabel.Size = UDim2.new(0, 200, 0, 50)
-textLabel.Position = UDim2.new(0, 10, 0, 10)
-textLabel.BackgroundColor3 = Color3.new(0, 0, 0)
-textLabel.TextColor3 = Color3.new(1, 1, 1)
-textLabel.Text = "SCRIPT LOADED - CHECK CONSOLE"
-textLabel.Parent = screenGui
+local character = LocalPlayer.Character
+print("Character: " .. character.Name)
 
-print("✅ Visual indicator created")
+-- Find HRP
+local hrp = character:WaitForChild("HumanoidRootPart")
+print("HRP found at: " .. tostring(hrp.Position))
+
+-- Simple teleport test
+print("Testing teleport...")
+local originalPos = hrp.Position
+hrp.CFrame = CFrame.new(originalPos + Vector3.new(0, 10, 0))
+print("Teleported to: " .. tostring(hrp.Position))
+wait(1)
+hrp.CFrame = CFrame.new(originalPos)
+print("Returned to original position")
+
+print("=== TEST COMPLETE ===")
