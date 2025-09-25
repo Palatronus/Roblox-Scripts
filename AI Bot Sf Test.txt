@@ -988,7 +988,10 @@ local function InitializeAI()
                 -- use computed alternative path
                 debugPrint("PATH", "Using precomputed alternative")
                 MoveTo(alternativePath)
-                HumanoidRootPart.CFrame = CFrame.lookAt(HumanoidRootPart.Position, Vector3.new(targetHRP.Position.X, HumanoidRootPart.Position.Y, targetHRP.Position.Z))
+                HumanoidRootPart.CFrame = CFrame.new(
+    HumanoidRootPart.Position,
+    Vector3.new(targetHRP.Position.X, HumanoidRootPart.Position.Y, targetHRP.Position.Z)
+)
                 if distance <= CONFIG.ATTACK_RANGE and persistentData.LinkedSword and currentTime - persistentData.LastAttackTime > CONFIG.ATTACK_COOLDOWN then
                     ExecuteAttack()
                 end
