@@ -829,7 +829,7 @@ local function Initialize()
             Debug("Potentially stuck, attempting to resolve (count: " .. persistentData.StuckCount .. ")")
             
             -- Try to resolve being stuck
-            if persistentData.StuckCount >= 3 then
+            if persistentData.StuckCount and persistentData.StuckCount >= 3 then
                 -- Try jumping
                 Humanoid.Jump = true
                 
@@ -1460,8 +1460,12 @@ local function Initialize()
         end
         
         -- Perform periodic maintenance
-        PerformGarbageCollection()
-        CleanupCaches()
+        if PerformGarbageCollection then
+            PerformGarbageCollection()
+        end
+        if CleanupCaches then
+            CleanupCaches()
+        end
         
         -- Check if character exists
         if not Character or not Character:FindFirstChild("Humanoid") or not Character:FindFirstChild("HumanoidRootPart") then
@@ -1493,11 +1497,11 @@ local function Initialize()
         persistentData.CurrentTarget = target
         
         -- Update status GUI with target info
-        if persistentData.StatusGUI then
+        if persistentData.StatusGUI and persistentData.StatusGUI.UpdateTarget then
             if target then
-                persistentData.StatusGUI.Frame.Target.Text = "Target: " .. target.Name .. " (" .. math.floor(distance) .. " studs)"
+                persistentData.StatusGUI.UpdateTarget(target.Name .. " (" .. math.floor(distance) .. " studs)")
             else
-                persistentData.StatusGUI.Frame.Target.Text = "Target: None"
+                persistentData.StatusGUI.UpdateTarget("None")
             end
         end
         
@@ -1520,19 +1524,37 @@ local function Initialize()
     end
     
     -- Safe update wrapper with error handling
+    local lastErrorTime = 0
+    local errorCount = 0
     local function SafeUpdate(deltaTime)
         local success, errorMessage = pcall(function()
             Update(deltaTime)
         end)
         
         if not success then
-            -- Log error
-            Debug("Error in update: " .. errorMessage)
+            -- Error throttling to prevent console spam
+            local currentTime = tick()
+            if currentTime - lastErrorTime > 5 then -- Reset error count after 5 seconds
+                errorCount = 0
+                lastErrorTime = currentTime
+            end
             
-            -- Update status GUI
-            if persistentData.StatusGUI then
-                persistentData.StatusGUI.UpdateStatus("Error")
-                persistentData.StatusGUI.UpdateDebug("Error: " .. errorMessage)
+            errorCount = errorCount + 1
+            
+            -- Only log errors occasionally to prevent spam
+            if errorCount <= 3 then -- Only show first 3 errors in a 5-second window
+                -- Log error
+                Debug("Error in update: " .. errorMessage)
+                
+                -- Update status GUI
+                if persistentData.StatusGUI then
+                    if persistentData.StatusGUI.UpdateStatus then
+                        persistentData.StatusGUI.UpdateStatus("Error")
+                    end
+                    if persistentData.StatusGUI.UpdateDebug then
+                        persistentData.StatusGUI.UpdateDebug("Error: " .. errorMessage)
+                    end
+                end
             end
         end
     end
