@@ -1531,8 +1531,8 @@ local function Initialize()
             
             -- Update status GUI
             if persistentData.StatusGUI then
-                persistentData.StatusGUI.Frame.Status.Text = "Status: Error"
-                persistentData.StatusGUI.Frame.Target.Text = "Error: " .. errorMessage
+                persistentData.StatusGUI.UpdateStatus("Error")
+                persistentData.StatusGUI.UpdateDebug("Error: " .. errorMessage)
             end
         end
     end
