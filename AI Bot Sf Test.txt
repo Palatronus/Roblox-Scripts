@@ -1,4 +1,4 @@
-[file name]: AI Bot Sf Prototypes_WithGC.txt
+[file name]: AI Bot Sf Prototypes_Debugged.txt
 [file content begin]
 --[[
     Linked Sword AI Combat Script (Fixed Version)
@@ -57,21 +57,24 @@ if not _G.LinkedSwordAIPersistentData then
         LastEquipAttempt = 0,
         EquipmentReady = false,
         KnownVoidAreas = {},
-        PathCache = {},           -- NEW: Cache for pathfinding results
-        LastPathfindingTime = 0,  -- NEW: Track last pathfinding operation
-        PerformanceStats = {      -- NEW: Track performance metrics
+        PathCache = {},
+        LastPathfindingTime = 0,
+        PerformanceStats = {
             PathfindingTime = 0,
             CombatTime = 0,
             MovementTime = 0,
             LastOptimizationTime = 0,
-            MemoryUsage = 0,           -- GC: Track memory usage
-            GarbageCollections = 0,    -- GC: Track GC runs
-            ObjectsCleaned = 0,        -- GC: Track cleanup effectiveness
-            LastGCTime = 0,            -- GC: Track last GC run
+            MemoryUsage = 0,
+            GarbageCollections = 0,
+            ObjectsCleaned = 0,
+            LastGCTime = 0,
         },
-        AlternativePaths = {},     -- NEW: Store alternative paths
+        AlternativePaths = {},
+        CurrentCombatBehavior = nil,
+        LastBehaviorChangeTime = 0,
+        PathCacheCount = 0,
         
-        -- GC: Garbage Collection System
+        -- Garbage Collection System
         GarbageCollector = {
             LastCollectionTime = 0,
             MemorySnapshot = 0,
@@ -86,149 +89,180 @@ local persistentData = _G.LinkedSwordAIPersistentData
 
 -- Configuration
 local CONFIG = {
-    DETECTION_RADIUS = 200,        -- INCREASED: Stud radius for detecting players (was 100)
-    ATTACK_RANGE = 15,             -- Start attacking when within this range
-    ATTACK_COOLDOWN = 0.7,         -- IMPROVED: Slightly faster attacks (was 0.8)
-    LUNGE_DELAY = 0.1,             -- Delay between attacks for lunge combo
-    STUCK_CHECK_DISTANCE = 1.5,    -- Distance to check if stuck on player
-    STUCK_CHECK_TIME = 1.0,        -- Time to wait before considering stuck
-    MAX_TARGET_DISTANCE = 250,     -- INCREASED: Maximum effective reach in studs (was 150)
-    MIN_HEALTH_CHECK = 0,          -- Minimum health to consider player valid
-    RETARGET_CHECK_TIME = 1.5,     -- OPTIMIZED: Less frequent retargeting (was 1.0)
-    VOID_CHECK_DISTANCE = 50,      -- Distance to check for void areas
-    VOID_Y_THRESHOLD = -100,       -- Y position threshold for void detection
-    FORCEFIELD_FLEE_DISTANCE = 0,  -- Set to 0 to prevent fleeing from ForceField players
-    SWORD_CHECK_INTERVAL = 7,      -- OPTIMIZED: Less frequent sword checks (was 5)
-    RESPAWN_EQUIP_DELAY = 1.5,     -- Delay before equipping sword after respawn
-    MOVEMENT_MEMORY_TIME = 0.7,    -- IMPROVED: Remember movement direction longer (was 0.5)
-    SAFE_GAP_DISTANCE = 10,        -- IMPROVED: Increased safe gap distance (was 8)
-    PATH_SMOOTHING_FACTOR = 0.7,   -- IMPROVED: Smoother movement (was 0.6)
-    MOVEMENT_RETRY_DELAY = 1.0,    -- OPTIMIZED: Longer delay before retrying (was 0.5)
-    NARROW_PASSAGE_WIDTH = 3.5,    -- IMPROVED: Slightly wider passage detection (was 3)
-    PATHFINDING_STEPS = 10,        -- IMPROVED: More pathfinding steps (was 8)
-    COMBAT_BEHAVIOR_CHANGE_TIME = 4.0, -- OPTIMIZED: Less frequent behavior changes (was 3.0)
-    COMBAT_DEFENSIVE_CHANCE = 0.25, -- IMPROVED: Less defensive behavior (was 0.33)
-    COMBAT_OFFENSIVE_CHANCE = 0.45, -- IMPROVED: More offensive behavior (was 0.33)
-    STRAFE_DISTANCE = 4,           -- IMPROVED: Increased strafe distance (was 3)
-    BRIDGE_CHECK_DISTANCE = 25,    -- IMPROVED: Increased bridge check distance (was 20)
-    PERFORMANCE_MODE = true,       -- NEW: Enable performance optimizations
-    PATH_CACHE_TIME = 3.0,         -- NEW: How long to cache path results
-    ALTERNATIVE_PATH_COUNT = 4,    -- NEW: Number of alternative paths to try
-    MIN_ATTACK_DISTANCE = 3        -- NEW: Minimum distance to maintain aggression
+    DETECTION_RADIUS = 200,
+    ATTACK_RANGE = 15,
+    ATTACK_COOLDOWN = 0.7,
+    LUNGE_DELAY = 0.1,
+    STUCK_CHECK_DISTANCE = 1.5,
+    STUCK_CHECK_TIME = 1.0,
+    MAX_TARGET_DISTANCE = 250,
+    MIN_HEALTH_CHECK = 0,
+    RETARGET_CHECK_TIME = 1.5,
+    VOID_CHECK_DISTANCE = 50,
+    VOID_Y_THRESHOLD = -100,
+    FORCEFIELD_FLEE_DISTANCE = 0,
+    SWORD_CHECK_INTERVAL = 7,
+    RESPAWN_EQUIP_DELAY = 1.5,
+    MOVEMENT_MEMORY_TIME = 0.7,
+    SAFE_GAP_DISTANCE = 10,
+    PATH_SMOOTHING_FACTOR = 0.7,
+    MOVEMENT_RETRY_DELAY = 1.0,
+    NARROW_PASSAGE_WIDTH = 3.5,
+    PATHFINDING_STEPS = 10,
+    COMBAT_BEHAVIOR_CHANGE_TIME = 4.0,
+    COMBAT_DEFENSIVE_CHANCE = 0.25,
+    COMBAT_OFFENSIVE_CHANCE = 0.45,
+    STRAFE_DISTANCE = 4,
+    BRIDGE_CHECK_DISTANCE = 25,
+    PERFORMANCE_MODE = true,
+    PATH_CACHE_TIME = 3.0,
+    ALTERNATIVE_PATH_COUNT = 4,
+    MIN_ATTACK_DISTANCE = 3
 }
 
--- GC: Memory monitoring function
+-- Safe memory monitoring function
 local function GetMemoryUsage()
-    return collectgarbage("count") / 1024 -- Convert KB to MB
+    local success, result = pcall(function()
+        return collectgarbage("count") / 1024
+    end)
+    return success and result or 0
 end
 
--- GC: Efficient garbage collection system
+-- Safe garbage collection system
 local function RunGarbageCollection(aggressive)
-    if not GC_CONFIG.ENABLED or persistentData.GarbageCollector.IsRunning then
+    if not GC_CONFIG.ENABLED or (persistentData.GarbageCollector and persistentData.GarbageCollector.IsRunning) then
         return
+    end
+    
+    if not persistentData.GarbageCollector then
+        persistentData.GarbageCollector = {
+            LastCollectionTime = 0,
+            MemorySnapshot = 0,
+            ObjectsToClean = {},
+            CleanupQueue = {},
+            IsRunning = false
+        }
     end
     
     persistentData.GarbageCollector.IsRunning = true
     local startTime = tick()
-    local stats = persistentData.PerformanceStats
+    local stats = persistentData.PerformanceStats or {}
     local objectsCleaned = 0
     
     debugPrint("GC", "Starting garbage collection" .. (aggressive and " (aggressive)" or ""))
     
-    -- Clean up PathCache
-    local currentTime = tick()
-    for k, v in pairs(persistentData.PathCache) do
-        if currentTime - v.time > CONFIG.PATH_CACHE_TIME then
-            persistentData.PathCache[k] = nil
+    -- Safe cleanup of PathCache
+    if persistentData.PathCache then
+        local currentTime = tick()
+        for k, v in pairs(persistentData.PathCache) do
+            if v and currentTime - (v.time or 0) > CONFIG.PATH_CACHE_TIME then
+                persistentData.PathCache[k] = nil
+                objectsCleaned = objectsCleaned + 1
+            end
+        end
+    end
+    
+    -- Safe cleanup of FailedPaths
+    if persistentData.FailedPaths then
+        while #persistentData.FailedPaths > GC_CONFIG.MAX_CACHE_ENTRIES do
+            table.remove(persistentData.FailedPaths, 1)
             objectsCleaned = objectsCleaned + 1
         end
     end
     
-    -- Clean up FailedPaths (limit size)
-    while #persistentData.FailedPaths > GC_CONFIG.MAX_CACHE_ENTRIES do
-        table.remove(persistentData.FailedPaths, 1)
-        objectsCleaned = objectsCleaned + 1
-    end
-    
-    -- Clean up KnownVoidAreas (limit size)
-    while #persistentData.KnownVoidAreas > GC_CONFIG.MAX_CACHE_ENTRIES do
-        table.remove(persistentData.KnownVoidAreas, 1)
-        objectsCleaned = objectsCleaned + 1
-    end
-    
-    -- Clean up MovementHistory (limit size)
-    while #persistentData.MovementHistory > GC_CONFIG.MAX_HISTORY_ENTRIES do
-        table.remove(persistentData.MovementHistory, 1)
-        objectsCleaned = objectsCleaned + 1
-    end
-    
-    -- Clean up AlternativePaths (remove old entries)
-    for k, v in pairs(persistentData.AlternativePaths) do
-        if currentTime - (v.lastUsed or 0) > 60 then -- 60 second timeout
-            persistentData.AlternativePaths[k] = nil
+    -- Safe cleanup of KnownVoidAreas
+    if persistentData.KnownVoidAreas then
+        while #persistentData.KnownVoidAreas > GC_CONFIG.MAX_CACHE_ENTRIES do
+            table.remove(persistentData.KnownVoidAreas, 1)
             objectsCleaned = objectsCleaned + 1
         end
     end
     
-    -- Clean up player cache (remove players no longer in game)
-    local validPlayers = {}
-    for playerName, player in pairs(persistentData.PlayersWithForceField) do
-        if player and player.Parent and player.Character then
-            validPlayers[playerName] = player
-        else
+    -- Safe cleanup of MovementHistory
+    if persistentData.MovementHistory then
+        while #persistentData.MovementHistory > GC_CONFIG.MAX_HISTORY_ENTRIES do
+            table.remove(persistentData.MovementHistory, 1)
             objectsCleaned = objectsCleaned + 1
         end
     end
-    persistentData.PlayersWithForceField = validPlayers
+    
+    -- Safe cleanup of AlternativePaths
+    if persistentData.AlternativePaths then
+        local currentTime = tick()
+        for k, v in pairs(persistentData.AlternativePaths) do
+            if v and currentTime - (v.lastUsed or 0) > 60 then
+                persistentData.AlternativePaths[k] = nil
+                objectsCleaned = objectsCleaned + 1
+            end
+        end
+    end
+    
+    -- Safe cleanup of player cache
+    if persistentData.PlayersWithForceField then
+        local validPlayers = {}
+        for playerName, player in pairs(persistentData.PlayersWithForceField) do
+            if player and player.Parent and player.Character then
+                validPlayers[playerName] = player
+            else
+                objectsCleaned = objectsCleaned + 1
+            end
+        end
+        persistentData.PlayersWithForceField = validPlayers
+    end
     
     -- Aggressive cleaning if memory is high
-    if aggressive or stats.MemoryUsage > GC_CONFIG.AGGRESSIVE_THRESHOLD then
-        debugPrint("GC", "Running aggressive cleanup - Memory: " .. string.format("%.1fMB", stats.MemoryUsage))
+    if aggressive or (stats.MemoryUsage or 0) > GC_CONFIG.AGGRESSIVE_THRESHOLD then
+        debugPrint("GC", "Running aggressive cleanup - Memory: " .. string.format("%.1fMB", stats.MemoryUsage or 0))
         
-        -- Clear all caches
-        persistentData.PathCache = {}
-        persistentData.AlternativePaths = {}
-        persistentData.FailedPaths = {}
-        persistentData.KnownVoidAreas = {}
-        persistentData.MovementHistory = {}
+        -- Clear all caches safely
+        if persistentData.PathCache then persistentData.PathCache = {} end
+        if persistentData.AlternativePaths then persistentData.AlternativePaths = {} end
+        if persistentData.FailedPaths then persistentData.FailedPaths = {} end
+        if persistentData.KnownVoidAreas then persistentData.KnownVoidAreas = {} end
+        if persistentData.MovementHistory then persistentData.MovementHistory = {} end
         
-        objectsCleaned = objectsCleaned + 20 -- Estimate for bulk cleanup
+        objectsCleaned = objectsCleaned + 20
         
         -- Force Lua garbage collection
-        collectgarbage("collect")
+        pcall(collectgarbage, "collect")
     end
     
-    -- Update statistics
-    stats.GarbageCollections = stats.GarbageCollections + 1
-    stats.ObjectsCleaned = stats.ObjectsCleaned + objectsCleaned
-    stats.LastGCTime = tick()
+    -- Update statistics safely
+    if stats then
+        stats.GarbageCollections = (stats.GarbageCollections or 0) + 1
+        stats.ObjectsCleaned = (stats.ObjectsCleaned or 0) + objectsCleaned
+        stats.LastGCTime = tick()
+    end
     
-    persistentData.GarbageCollector.LastCollectionTime = tick()
-    persistentData.GarbageCollector.IsRunning = false
+    if persistentData.GarbageCollector then
+        persistentData.GarbageCollector.LastCollectionTime = tick()
+        persistentData.GarbageCollector.IsRunning = false
+    end
     
     local gcTime = tick() - startTime
     debugPrint("GC", string.format("Collection completed: %d objects in %.3fs", objectsCleaned, gcTime))
-    debugPrint("GC", string.format("Memory: %.1fMB -> %.1fMB", stats.MemoryUsage, GetMemoryUsage()))
+    debugPrint("GC", string.format("Memory: %.1fMB -> %.1fMB", stats.MemoryUsage or 0, GetMemoryUsage()))
 end
 
--- GC: Lightweight periodic cleanup
+-- Safe lightweight periodic cleanup
 local function RunLightCleanup()
     local currentTime = tick()
     local cleaned = 0
     
-    -- Quick cleanup of oldest cache entries
-    if #persistentData.FailedPaths > GC_CONFIG.MAX_CACHE_ENTRIES then
+    -- Safe cleanup of FailedPaths
+    if persistentData.FailedPaths and #persistentData.FailedPaths > GC_CONFIG.MAX_CACHE_ENTRIES then
         table.remove(persistentData.FailedPaths, 1)
         cleaned = cleaned + 1
     end
     
-    if #persistentData.KnownVoidAreas > GC_CONFIG.MAX_CACHE_ENTRIES then
+    -- Safe cleanup of KnownVoidAreas
+    if persistentData.KnownVoidAreas and #persistentData.KnownVoidAreas > GC_CONFIG.MAX_CACHE_ENTRIES then
         table.remove(persistentData.KnownVoidAreas, 1)
         cleaned = cleaned + 1
     end
     
-    -- Clean old movement history
-    if #persistentData.MovementHistory > GC_CONFIG.MAX_HISTORY_ENTRIES then
+    -- Safe cleanup of MovementHistory
+    if persistentData.MovementHistory and #persistentData.MovementHistory > GC_CONFIG.MAX_HISTORY_ENTRIES then
         table.remove(persistentData.MovementHistory, 1)
         cleaned = cleaned + 1
     end
@@ -329,42 +363,56 @@ local function CreateStatusGUI()
     debug.TextXAlignment = Enum.TextXAlignment.Left
     debug.Parent = frame
     
-    -- GUI functions
+    -- GUI functions with nil checks
     function gui.UpdateStatus(text)
-        if status then
-            status.Text = "Status: " .. text
+        if status and status.Parent then
+            status.Text = "Status: " .. (text or "N/A")
         end
     end
     
     function gui.UpdateTarget(text)
-        if target then
-            target.Text = "Target: " .. text
+        if target and target.Parent then
+            target.Text = "Target: " .. (text or "None")
         end
     end
     
     function gui.UpdateDistance(dist)
-        if distance then
+        if distance and distance.Parent then
             distance.Text = "Distance: " .. (dist and string.format("%.1f", dist) or "N/A")
         end
     end
     
     function gui.UpdateDebug(text)
-        if debug then
-            debug.Text = "Debug: " .. text
+        if debug and debug.Parent then
+            debug.Text = "Debug: " .. (text or "N/A")
+        end
+    end
+    
+    function gui.Destroy()
+        if screenGui and screenGui.Parent then
+            screenGui:Destroy()
         end
     end
     
     return gui
 end
 
--- Main execution in protected call
+-- Safe main execution with comprehensive error handling
 local function InitializeAI()
-    -- Services
-    local Players = game:GetService("Players")
-    local RunService = game:GetService("RunService")
-    local Workspace = game:GetService("Workspace")
+    -- Services with error handling
+    local Players, RunService, Workspace
+    local success, err = pcall(function()
+        Players = game:GetService("Players")
+        RunService = game:GetService("RunService")
+        Workspace = game:GetService("Workspace")
+    end)
     
-    -- Get player and character
+    if not success or not Players then
+        forcePrint("LinkedSwordAI: Failed to get services - " .. tostring(err))
+        return false
+    end
+    
+    -- Get player and character with error handling
     local LocalPlayer = Players.LocalPlayer
     if not LocalPlayer then
         forcePrint("LinkedSwordAI: LocalPlayer not found")
@@ -379,15 +427,50 @@ local function InitializeAI()
         return false
     end
     
+    -- Wait for character to fully load
+    wait(1)
+    
+    Character = LocalPlayer.Character
+    if not Character then
+        forcePrint("LinkedSwordAI: Character still not found after wait")
+        return false
+    end
+    
     local Humanoid = Character:FindFirstChild("Humanoid")
     local HumanoidRootPart = Character:FindFirstChild("HumanoidRootPart")
     
     if not Humanoid or not HumanoidRootPart then
         forcePrint("LinkedSwordAI: Humanoid or HumanoidRootPart not found")
-        return false
+        -- Try again after a delay
+        wait(1)
+        Humanoid = Character:FindFirstChild("Humanoid")
+        HumanoidRootPart = Character:FindFirstChild("HumanoidRootPart")
+        
+        if not Humanoid or not HumanoidRootPart then
+            forcePrint("LinkedSwordAI: Humanoid components still missing after retry")
+            return false
+        end
     end
     
     forcePrint("LinkedSwordAI: Character components found")
+    
+    -- Initialize missing persistent data fields safely
+    if not persistentData.FailedPaths then persistentData.FailedPaths = {} end
+    if not persistentData.KnownVoidAreas then persistentData.KnownVoidAreas = {} end
+    if not persistentData.MovementHistory then persistentData.MovementHistory = {} end
+    if not persistentData.PathCache then persistentData.PathCache = {} end
+    if not persistentData.AlternativePaths then persistentData.AlternativePaths = {} end
+    if not persistentData.PlayersWithForceField then persistentData.PlayersWithForceField = {} end
+    if not persistentData.PerformanceStats then persistentData.PerformanceStats = {} end
+    if not persistentData.GarbageCollector then 
+        persistentData.GarbageCollector = {
+            LastCollectionTime = 0,
+            MemorySnapshot = 0,
+            ObjectsToClean = {},
+            CleanupQueue = {},
+            IsRunning = false
+        }
+    end
     
     -- Create status GUI if it doesn't exist
     if not persistentData.StatusGUI then
@@ -399,8 +482,10 @@ local function InitializeAI()
         end
     end
     
-    -- Find the Linked Sword tool
+    -- Safe function to find Linked Sword tool
     local function FindLinkedSword()
+        if not Character or not LocalPlayer then return nil end
+        
         -- First check if we have a stored sword name and try to find that specific sword
         if persistentData.SwordToolName then
             -- Check character for the specific sword
@@ -414,13 +499,16 @@ local function InitializeAI()
             end
             
             -- Check backpack for the specific sword
-            storedSword = LocalPlayer.Backpack:FindFirstChild(persistentData.SwordToolName)
-            if storedSword and storedSword:IsA("Tool") then
-                if persistentData.StatusGUI then 
-                    persistentData.StatusGUI.UpdateStatus("Found stored sword in backpack: " .. storedSword.Name) 
+            local backpack = LocalPlayer:FindFirstChild("Backpack")
+            if backpack then
+                storedSword = backpack:FindFirstChild(persistentData.SwordToolName)
+                if storedSword and storedSword:IsA("Tool") then
+                    if persistentData.StatusGUI then 
+                        persistentData.StatusGUI.UpdateStatus("Found stored sword in backpack: " .. storedSword.Name) 
+                    end
+                    forcePrint("LinkedSwordAI: Found stored sword in backpack - " .. storedSword.Name)
+                    return storedSword
                 end
-                forcePrint("LinkedSwordAI: Found stored sword in backpack - " .. storedSword.Name)
-                return storedSword
             end
         end
         
@@ -437,14 +525,17 @@ local function InitializeAI()
         end
         
         -- Check backpack if not found in character
-        for _, tool in pairs(LocalPlayer.Backpack:GetChildren()) do
-            if tool:IsA("Tool") and tool.Name:find("Sword") then
-                persistentData.SwordToolName = tool.Name
-                if persistentData.StatusGUI then 
-                    persistentData.StatusGUI.UpdateStatus("Found sword in backpack: " .. tool.Name) 
+        local backpack = LocalPlayer:FindFirstChild("Backpack")
+        if backpack then
+            for _, tool in pairs(backpack:GetChildren()) do
+                if tool:IsA("Tool") and tool.Name:find("Sword") then
+                    persistentData.SwordToolName = tool.Name
+                    if persistentData.StatusGUI then 
+                        persistentData.StatusGUI.UpdateStatus("Found sword in backpack: " .. tool.Name) 
+                    end
+                    forcePrint("LinkedSwordAI: Found sword in backpack - " .. tool.Name)
+                    return tool
                 end
-                forcePrint("LinkedSwordAI: Found sword in backpack - " .. tool.Name)
-                return tool
             end
         end
         
@@ -455,10 +546,12 @@ local function InitializeAI()
         return nil
     end
     
-    -- Check for sword periodically
+    -- Safe check for sword periodically
     local function CheckForSword()
+        if not Character then return end
+        
         local currentTime = tick()
-        if currentTime - persistentData.LastSwordCheckTime > CONFIG.SWORD_CHECK_INTERVAL then
+        if currentTime - (persistentData.LastSwordCheckTime or 0) > CONFIG.SWORD_CHECK_INTERVAL then
             if not persistentData.LinkedSword or persistentData.LinkedSword.Parent ~= Character then
                 persistentData.LinkedSword = FindLinkedSword()
             end
@@ -466,15 +559,17 @@ local function InitializeAI()
         end
     end
     
-    -- Find players in range
+    -- Safe function to find players in range
     local function FindPlayersInRange()
         local playersInRange = {}
+        
+        if not HumanoidRootPart then return playersInRange end
         
         for _, player in pairs(Players:GetPlayers()) do
             if player ~= LocalPlayer and player.Character and 
                player.Character:FindFirstChild("HumanoidRootPart") and
                player.Character:FindFirstChild("Humanoid") and
-               player.Character.Humanoid.Health > CONFIG.MIN_HEALTH_CHECK then
+               (player.Character.Humanoid.Health or 0) > CONFIG.MIN_HEALTH_CHECK then
                 
                 local playerHRP = player.Character.HumanoidRootPart
                 local distance = (playerHRP.Position - HumanoidRootPart.Position).Magnitude
@@ -505,24 +600,29 @@ local function InitializeAI()
         
         -- Sort by distance
         table.sort(playersInRange, function(a, b)
-            return a.distance < b.distance
+            return (a.distance or 0) < (b.distance or 0)
         end)
         
         return playersInRange
     end
     
-    -- Check if a position is in a void area
+    -- Safe function to check if position is in void area
     local function IsVoidArea(position)
+        if not position then return true end
+        
         -- Check against known void areas first
-        for i, voidPos in ipairs(persistentData.KnownVoidAreas) do
-            if (position - voidPos).Magnitude < 5 then
-                return true
+        if persistentData.KnownVoidAreas then
+            for i, voidPos in ipairs(persistentData.KnownVoidAreas) do
+                if voidPos and (position - voidPos).Magnitude < 5 then
+                    return true
+                end
             end
         end
         
         -- Basic Y-threshold check
         if position.Y < CONFIG.VOID_Y_THRESHOLD then
             -- Add to known void areas if not too many stored
+            if not persistentData.KnownVoidAreas then persistentData.KnownVoidAreas = {} end
             if #persistentData.KnownVoidAreas < 50 then
                 table.insert(persistentData.KnownVoidAreas, position)
             else
@@ -539,6 +639,7 @@ local function InitializeAI()
         
         if not hit then
             -- Add to known void areas if not too many stored
+            if not persistentData.KnownVoidAreas then persistentData.KnownVoidAreas = {} end
             if #persistentData.KnownVoidAreas < 50 then
                 table.insert(persistentData.KnownVoidAreas, position)
             else
@@ -552,8 +653,10 @@ local function InitializeAI()
         return false
     end
     
-    -- Check if a gap between two points is safe to traverse
+    -- Safe function to check if gap is safe to traverse
     local function IsSafeGap(startPos, endPos)
+        if not startPos or not endPos then return false end
+        
         local distance = (endPos - startPos).Magnitude
         
         -- For small gaps, just check the end position
@@ -570,7 +673,7 @@ local function InitializeAI()
         
         -- For larger gaps, check multiple points along the path
         local direction = (endPos - startPos).Unit
-        local checkCount = math.ceil(distance / 2) -- Check every 2 studs
+        local checkCount = math.ceil(distance / 2)
         
         for i = 1, checkCount do
             local checkPoint = startPos + direction * (i * 2)
@@ -585,8 +688,10 @@ local function InitializeAI()
         return true
     end
     
-    -- Check if a passage is narrow and requires special handling
+    -- Safe function to check if passage is narrow
     local function IsNarrowPassage(position, direction)
+        if not position or not direction then return false end
+        
         local leftRay = Ray.new(position, direction:Cross(Vector3.new(0, 1, 0)).Unit * CONFIG.NARROW_PASSAGE_WIDTH)
         local rightRay = Ray.new(position, direction:Cross(Vector3.new(0, 1, 0)).Unit * -CONFIG.NARROW_PASSAGE_WIDTH)
         
@@ -596,8 +701,10 @@ local function InitializeAI()
         return leftHit and rightHit
     end
     
-    -- Check if there's a bridge or platform that can be used to reach the target
+    -- Safe function to find bridge path
     local function FindBridgePath(startPos, endPos)
+        if not startPos or not endPos then return nil end
+        
         local direction = (endPos - startPos).Unit
         local distance = (endPos - startPos).Magnitude
         
@@ -613,7 +720,7 @@ local function InitializeAI()
                 
                 if hit then
                     -- Found potential bridge, check if it leads to target
-                    local bridgePath = hitPos + Vector3.new(0, 3, 0) -- Position above the bridge
+                    local bridgePath = hitPos + Vector3.new(0, 3, 0)
                     
                     -- Check if we can reach the bridge and if it's safe
                     if IsSafeGap(startPos, bridgePath) then
@@ -626,35 +733,22 @@ local function InitializeAI()
         return nil
     end
     
-    -- Check if path to target is safe (no voids)
+    -- Safe function to check if path is safe
     local function IsSafePath(targetPosition)
-        -- Performance optimization: Check cache first using hash-based lookup
+        if not targetPosition or not HumanoidRootPart then return false end
+        
+        -- Performance optimization: Check cache first
         if CONFIG.PERFORMANCE_MODE then
             local currentTime = tick()
-            -- Create a hash key for faster lookup (rounded to nearest unit)
             local hashKey = math.floor(targetPosition.X) .. "," .. 
                            math.floor(targetPosition.Y) .. "," .. 
                            math.floor(targetPosition.Z)
             
-            local data = persistentData.PathCache[hashKey]
-            if data and currentTime - data.time < CONFIG.PATH_CACHE_TIME then
-                debugPrint("PATH", "Using cached path result: " .. (data.safe and "SAFE" or "UNSAFE"))
-                return data.safe, data.bridgePath, data.alternativePath
-            end
-        end
-        
-        -- Start performance tracking
-        local startTime = tick()
-        
-        -- Check if this path has failed recently using a more efficient approach
-        local failedPathsCount = #persistentData.FailedPaths
-        if failedPathsCount > 0 then
-            -- Check most recent failed paths first (more likely to be relevant)
-            for i = failedPathsCount, math.max(1, failedPathsCount - 3), -1 do
-                local failedPath = persistentData.FailedPaths[i]
-                if failedPath and (targetPosition - failedPath.position).Magnitude < 5 and 
-                   tick() - failedPath.time < 10 then
-                    return false
+            if persistentData.PathCache then
+                local data = persistentData.PathCache[hashKey]
+                if data and currentTime - (data.time or 0) < CONFIG.PATH_CACHE_TIME then
+                    debugPrint("PATH", "Using cached path result: " .. ((data.safe and "SAFE") or "UNSAFE"))
+                    return data.safe, data.bridgePath, data.alternativePath
                 end
             end
         end
@@ -668,26 +762,23 @@ local function InitializeAI()
         
         -- If in narrow passage, use more careful pathfinding
         if isNarrow then
-            -- Use smaller increments for narrow passages
             local narrowIncrement = math.min(2, distance / 8)
             
             for i = narrowIncrement, distance, narrowIncrement do
                 local checkPos = startPos + direction * i
                 
-                -- Check for walls on both sides
                 if not IsNarrowPassage(checkPos, direction) then
-                    -- We've exited the narrow passage, check if it's safe
                     if IsVoidArea(checkPos) then
-                        if #persistentData.FailedPaths >= 10 then
+                        if persistentData.FailedPaths and #persistentData.FailedPaths >= 10 then
                             table.remove(persistentData.FailedPaths, 1)
                         end
+                        if not persistentData.FailedPaths then persistentData.FailedPaths = {} end
                         table.insert(persistentData.FailedPaths, {
                             position = targetPosition,
                             time = tick()
                         })
                         
-                        -- Cache the result with hash key
-                        if CONFIG.PERFORMANCE_MODE then
+                        if CONFIG.PERFORMANCE_MODE and persistentData.PathCache then
                             local hashKey = math.floor(targetPosition.X) .. "," .. 
                                            math.floor(targetPosition.Y) .. "," .. 
                                            math.floor(targetPosition.Z)
@@ -698,19 +789,15 @@ local function InitializeAI()
                                 bridgePath = nil
                             }
                             
-                            -- Limit cache size more efficiently
                             persistentData.PathCacheCount = (persistentData.PathCacheCount or 0) + 1
                             if persistentData.PathCacheCount > 20 then
-                                -- Clear oldest 25% of cache when limit reached
                                 local cacheEntries = {}
                                 for k, v in pairs(persistentData.PathCache) do
-                                    table.insert(cacheEntries, {key = k, time = v.time})
+                                    table.insert(cacheEntries, {key = k, time = v.time or 0})
                                 end
                                 
-                                -- Sort by time (oldest first)
-                                table.sort(cacheEntries, function(a, b) return a.time < b.time end)
+                                table.sort(cacheEntries, function(a, b) return (a.time or 0) < (b.time or 0) end)
                                 
-                                -- Remove oldest 25%
                                 local removeCount = math.floor(persistentData.PathCacheCount * 0.25)
                                 for i = 1, removeCount do
                                     if cacheEntries[i] then
@@ -723,50 +810,36 @@ local function InitializeAI()
                         
                         return false
                     end
-                    
-                    -- We've found a safe exit from the narrow passage
                     break
                 end
             end
         else
-            -- Standard path checking for open areas
-            -- Adjust increment based on distance
             local increment = math.min(5, distance / 5)
             
             for i = increment, distance, increment do
                 local checkPos = startPos + direction * i
                 if IsVoidArea(checkPos) then
-                    -- Try to find a bridge path if direct path is unsafe
                     local bridgePath = FindBridgePath(startPos, targetPosition)
                     if bridgePath then
-                        -- We found a bridge path, use it instead
-                        
-                        -- Cache the result
-                        if CONFIG.PERFORMANCE_MODE then
+                        if CONFIG.PERFORMANCE_MODE and persistentData.PathCache then
                             persistentData.PathCache[targetPosition] = {
                                 safe = true,
                                 time = tick(),
                                 bridgePath = bridgePath
                             }
-                            persistentData.PerformanceStats.PathfindingTime = tick() - startTime
                         end
-                        
                         return true, bridgePath
                     end
                     
-                    -- Try alternative paths if direct path is unsafe (optimized)
-                    -- Pre-calculate common values outside the loop
                     local halfDistance = distance * 0.5
                     local piDivided = math.pi / CONFIG.ALTERNATIVE_PATH_COUNT
                     local upVector = Vector3.new(0, 1, 0)
                     
                     for altIndex = 1, CONFIG.ALTERNATIVE_PATH_COUNT do
-                        -- Try different angles (optimized calculation)
                         local angle = altIndex * piDivided
                         local altDirection = CFrame.fromAxisAngle(upVector, angle) * direction
                         local altTargetPos = startPos + altDirection * halfDistance
                         
-                        -- Check if this alternative path is safe
                         local altSafe = true
                         for j = increment, distance * 0.5, increment do
                             local altCheckPos = startPos + altDirection * j
@@ -777,41 +850,37 @@ local function InitializeAI()
                         end
                         
                         if altSafe then
-                            -- Store this alternative path
+                            if not persistentData.AlternativePaths then persistentData.AlternativePaths = {} end
                             persistentData.AlternativePaths[targetPosition] = altTargetPos
                             
-                            -- Cache the result
-                            if CONFIG.PERFORMANCE_MODE then
+                            if CONFIG.PERFORMANCE_MODE and persistentData.PathCache then
                                 persistentData.PathCache[targetPosition] = {
                                     safe = false,
                                     time = tick(),
                                     bridgePath = nil,
                                     alternativePath = altTargetPos
                                 }
-                                persistentData.PerformanceStats.PathfindingTime = tick() - startTime
                             end
                             
                             return false, nil, altTargetPos
                         end
                     end
                     
-                    -- Remember this failed path
-                    if #persistentData.FailedPaths >= 10 then
+                    if persistentData.FailedPaths and #persistentData.FailedPaths >= 10 then
                         table.remove(persistentData.FailedPaths, 1)
                     end
+                    if not persistentData.FailedPaths then persistentData.FailedPaths = {} end
                     table.insert(persistentData.FailedPaths, {
                         position = targetPosition,
                         time = tick()
                     })
                     
-                    -- Cache the result
-                    if CONFIG.PERFORMANCE_MODE then
+                    if CONFIG.PERFORMANCE_MODE and persistentData.PathCache then
                         persistentData.PathCache[targetPosition] = {
                             safe = false,
                             time = tick(),
                             bridgePath = nil
                         }
-                        persistentData.PerformanceStats.PathfindingTime = tick() - startTime
                     end
                     
                     return false
@@ -819,45 +888,42 @@ local function InitializeAI()
             end
         end
         
-        -- Final check at target position
         if IsVoidArea(targetPosition) then
-            -- Remember this failed path
-            if #persistentData.FailedPaths >= 10 then
+            if persistentData.FailedPaths and #persistentData.FailedPaths >= 10 then
                 table.remove(persistentData.FailedPaths, 1)
             end
+            if not persistentData.FailedPaths then persistentData.FailedPaths = {} end
             table.insert(persistentData.FailedPaths, {
                 position = targetPosition,
                 time = tick()
             })
             
-            -- Cache the result
-            if CONFIG.PERFORMANCE_MODE then
+            if CONFIG.PERFORMANCE_MODE and persistentData.PathCache then
                 persistentData.PathCache[targetPosition] = {
                     safe = false,
                     time = tick(),
                     bridgePath = nil
                 }
-                persistentData.PerformanceStats.PathfindingTime = tick() - startTime
             end
             
             return false
         end
         
-        -- Cache the result
-        if CONFIG.PERFORMANCE_MODE then
+        if CONFIG.PERFORMANCE_MODE and persistentData.PathCache then
             persistentData.PathCache[targetPosition] = {
                 safe = true,
                 time = tick(),
                 bridgePath = nil
             }
-            persistentData.PerformanceStats.PathfindingTime = tick() - startTime
         end
         
         return true
     end
     
-    -- Check if we're stuck on a player
+    -- Safe function to check if stuck
     local function CheckIfStuck()
+        if not HumanoidRootPart then return false end
+        
         if not persistentData.LastStuckPosition then
             persistentData.LastStuckPosition = HumanoidRootPart.Position
             persistentData.LastStuckTime = tick()
@@ -865,19 +931,17 @@ local function InitializeAI()
         end
         
         local currentTime = tick()
-        local timeDiff = currentTime - persistentData.LastStuckTime
+        local timeDiff = currentTime - (persistentData.LastStuckTime or 0)
         
         if timeDiff > CONFIG.STUCK_CHECK_TIME then
             local distance = (HumanoidRootPart.Position - persistentData.LastStuckPosition).Magnitude
             
             if distance < CONFIG.STUCK_CHECK_DISTANCE then
-                -- We haven't moved much in the check time
                 persistentData.IsStuck = true
                 if persistentData.StatusGUI then persistentData.StatusGUI.UpdateDebug("Stuck detected") end
                 return true
             end
             
-            -- Update position and time for next check
             persistentData.LastStuckPosition = HumanoidRootPart.Position
             persistentData.LastStuckTime = currentTime
         end
@@ -885,11 +949,12 @@ local function InitializeAI()
         return false
     end
     
-    -- Handle being stuck on a player
+    -- Safe function to handle being stuck
     local function HandleStuckOnPlayer()
+        if not HumanoidRootPart or not Humanoid then return false end
+        
         if persistentData.StatusGUI then persistentData.StatusGUI.UpdateStatus("Unstucking from player") end
         
-        -- Find a safe direction to move
         local directions = {
             Vector3.new(1, 0, 0),
             Vector3.new(-1, 0, 0),
@@ -905,7 +970,7 @@ local function InitializeAI()
             local targetPosition = HumanoidRootPart.Position + direction * 5
             
             if IsSafePath(targetPosition) then
-                Humanoid:MoveTo(targetPosition)
+                pcall(function() Humanoid:MoveTo(targetPosition) end)
                 if persistentData.StatusGUI then persistentData.StatusGUI.UpdateDebug("Moving to unstuck") end
                 return true
             end
@@ -915,23 +980,24 @@ local function InitializeAI()
         return false
     end
     
-    -- Handle fleeing from players with ForceField
+    -- Safe function to handle fleeing from ForceField players
     local function HandleFleeFromForceField()
-        -- FIXED: Don't flee from ForceField players
-        if CONFIG.FORCEFIELD_FLEE_DISTANCE <= 0 then
+        if CONFIG.FORCEFIELD_FLEE_DISTANCE <= 0 or not HumanoidRootPart or not Humanoid then
             return false
         end
         
         local nearestFFPlayer = nil
         local nearestDistance = math.huge
         
-        for _, ffPlayer in pairs(persistentData.PlayersWithForceField) do
-            if ffPlayer and ffPlayer.Character and ffPlayer.Character:FindFirstChild("HumanoidRootPart") then
-                local distance = (ffPlayer.Character.HumanoidRootPart.Position - HumanoidRootPart.Position).Magnitude
-                
-                if distance < nearestDistance then
-                    nearestFFPlayer = ffPlayer
-                    nearestDistance = distance
+        if persistentData.PlayersWithForceField then
+            for _, ffPlayer in pairs(persistentData.PlayersWithForceField) do
+                if ffPlayer and ffPlayer.Character and ffPlayer.Character:FindFirstChild("HumanoidRootPart") then
+                    local distance = (ffPlayer.Character.HumanoidRootPart.Position - HumanoidRootPart.Position).Magnitude
+                    
+                    if distance < nearestDistance then
+                        nearestFFPlayer = ffPlayer
+                        nearestDistance = distance
+                    end
                 end
             end
         end
@@ -942,18 +1008,15 @@ local function InitializeAI()
                 persistentData.StatusGUI.UpdateDebug("ForceField detected at " .. string.format("%.1f", nearestDistance) .. " studs")
             end
             
-            -- Calculate flee direction (away from ForceField player)
             local fleeDirection = (HumanoidRootPart.Position - nearestFFPlayer.Character.HumanoidRootPart.Position).Unit
             local fleeTarget = HumanoidRootPart.Position + fleeDirection * CONFIG.FORCEFIELD_FLEE_DISTANCE
             
-            -- Check if flee path is safe
             if IsSafePath(fleeTarget) then
-                Humanoid:MoveTo(fleeTarget)
+                pcall(function() Humanoid:MoveTo(fleeTarget) end)
                 return true
             else
                 if persistentData.StatusGUI then persistentData.StatusGUI.UpdateDebug("Warning: No safe path to flee") end
                 
-                -- Try alternative directions
                 local alternativeDirections = {
                     (fleeDirection + Vector3.new(0.3, 0, 0.3)).Unit,
                     (fleeDirection + Vector3.new(-0.3, 0, 0.3)).Unit,
@@ -964,7 +1027,7 @@ local function InitializeAI()
                 for _, altDir in ipairs(alternativeDirections) do
                     local altTarget = HumanoidRootPart.Position + altDir * CONFIG.FORCEFIELD_FLEE_DISTANCE
                     if IsSafePath(altTarget) then
-                        Humanoid:MoveTo(altTarget)
+                        pcall(function() Humanoid:MoveTo(altTarget) end)
                         return true
                     end
                 end
@@ -976,12 +1039,12 @@ local function InitializeAI()
         return false
     end
     
-    -- Smooth movement function with improved bridge and narrow passage handling
+    -- Safe movement function
     local function MoveTo(targetPosition, bridgePath, alternativePath)
-        -- Performance tracking
+        if not HumanoidRootPart or not Humanoid then return false end
+        
         local startTime = tick()
         
-        -- If we have a bridge path, use that instead
         if bridgePath then
             targetPosition = bridgePath
             if persistentData.StatusGUI then
@@ -989,7 +1052,6 @@ local function InitializeAI()
             end
         end
         
-        -- If we have an alternative path, use it instead
         if alternativePath then
             targetPosition = alternativePath
             if persistentData.StatusGUI then
@@ -997,46 +1059,36 @@ local function InitializeAI()
             end
         end
         
-        -- Calculate direction to target
         local currentDirection = (targetPosition - HumanoidRootPart.Position).Unit
         local currentTime = tick()
         
-        -- Apply path smoothing if we have previous movement data
         local smoothedDirection = currentDirection
         if persistentData.LastMovementDirection and 
-           currentTime - persistentData.LastMovementTime < CONFIG.MOVEMENT_MEMORY_TIME then
-            -- Blend previous and current directions
+           currentTime - (persistentData.LastMovementTime or 0) < CONFIG.MOVEMENT_MEMORY_TIME then
             smoothedDirection = (persistentData.LastMovementDirection * CONFIG.PATH_SMOOTHING_FACTOR + 
                                currentDirection * (1 - CONFIG.PATH_SMOOTHING_FACTOR)).Unit
         end
         
-        -- Calculate smoothed target position
         local smoothedTarget = HumanoidRootPart.Position + smoothedDirection * 
                               math.min(5, (targetPosition - HumanoidRootPart.Position).Magnitude)
         
-        -- Check if we're in a narrow passage
         local isNarrow = IsNarrowPassage(HumanoidRootPart.Position, smoothedDirection)
         
-        -- If in narrow passage, use more careful movement
         if isNarrow then
             if persistentData.StatusGUI then
                 persistentData.StatusGUI.UpdateDebug("Navigating narrow passage")
             end
             
-            -- Use the exact direction in narrow passages (no smoothing)
             smoothedDirection = currentDirection
             smoothedTarget = HumanoidRootPart.Position + smoothedDirection * 
                            math.min(2, (targetPosition - HumanoidRootPart.Position).Magnitude)
         end
         
-        -- Check if the smoothed path is safe
         if IsSafeGap(HumanoidRootPart.Position, smoothedTarget) then
-            -- Update movement history
             persistentData.LastMovementDirection = smoothedDirection
             persistentData.LastMovementTime = currentTime
             
-            -- Execute movement
-            Humanoid:MoveTo(smoothedTarget)
+            pcall(function() Humanoid:MoveTo(smoothedTarget) end)
             
             if persistentData.StatusGUI then
                 persistentData.StatusGUI.UpdateDebug("Moving: " .. 
@@ -1044,7 +1096,6 @@ local function InitializeAI()
                     smoothedDirection.X, smoothedDirection.Y, smoothedDirection.Z))
             end
             
-            -- Track performance
             if CONFIG.PERFORMANCE_MODE then
                 persistentData.PerformanceStats.MovementTime = tick() - startTime
             end
@@ -1058,7 +1109,7 @@ local function InitializeAI()
         end
     end
     
-    -- Execute attack with improved combat behaviors
+    -- Safe attack execution
     local function ExecuteAttack()
         if not persistentData.LinkedSword then
             forcePrint("LinkedSwordAI: Cannot attack - No sword equipped")
@@ -1072,11 +1123,9 @@ local function InitializeAI()
         persistentData.AttackSequenceActive = true
         persistentData.LastAttackTime = tick()
         
-        -- Select combat behavior if needed
         if not persistentData.CurrentCombatBehavior or 
-           tick() - persistentData.LastBehaviorChangeTime > CONFIG.COMBAT_BEHAVIOR_CHANGE_TIME then
+           tick() - (persistentData.LastBehaviorChangeTime or 0) > CONFIG.COMBAT_BEHAVIOR_CHANGE_TIME then
             
-            -- Randomly select a combat behavior
             local rand = math.random()
             if rand < CONFIG.COMBAT_DEFENSIVE_CHANCE then
                 persistentData.CurrentCombatBehavior = "defensive"
@@ -1093,176 +1142,160 @@ local function InitializeAI()
             end
         end
         
-        -- Face target more accurately before attacking
         if persistentData.CurrentTarget and 
            persistentData.CurrentTarget.Character and 
-           persistentData.CurrentTarget.Character:FindFirstChild("HumanoidRootPart") then
+           persistentData.CurrentTarget.Character:FindFirstChild("HumanoidRootPart") and
+           HumanoidRootPart then
             
             local targetPos = persistentData.CurrentTarget.Character.HumanoidRootPart.Position
-            local lookVector = (targetPos - HumanoidRootPart.Position).Unit
-            
-            -- Set character to face target
-            HumanoidRootPart.CFrame = CFrame.new(
-                HumanoidRootPart.Position,
-                Vector3.new(targetPos.X, HumanoidRootPart.Position.Y, targetPos.Z)
-            )
+            pcall(function()
+                HumanoidRootPart.CFrame = CFrame.new(
+                    HumanoidRootPart.Position,
+                    Vector3.new(targetPos.X, HumanoidRootPart.Position.Y, targetPos.Z)
+                )
+            end)
         end
         
         if persistentData.StatusGUI then
-            persistentData.StatusGUI.UpdateDebug("Executing " .. persistentData.CurrentCombatBehavior .. " attack")
+            persistentData.StatusGUI.UpdateDebug("Executing " .. (persistentData.CurrentCombatBehavior or "unknown") .. " attack")
         end
         
-        -- Execute attack based on selected behavior
         spawn(function()
             if persistentData.CurrentCombatBehavior == "defensive" then
-                -- Defensive behavior - wait for player to approach, attack from distance
                 forcePrint("LinkedSwordAI: Defensive attack")
                 
-                -- First activation
                 pcall(function() persistentData.LinkedSword:Activate() end)
                 wait(CONFIG.LUNGE_DELAY * 1.2)
                 
-                -- Second activation
                 pcall(function() persistentData.LinkedSword:Activate() end)
                 wait(CONFIG.LUNGE_DELAY * 1.5)
                 
-                -- Third activation with slight backstep
                 if persistentData.CurrentTarget and 
                    persistentData.CurrentTarget.Character and 
-                   persistentData.CurrentTarget.Character:FindFirstChild("HumanoidRootPart") then
+                   persistentData.CurrentTarget.Character:FindFirstChild("HumanoidRootPart") and
+                   HumanoidRootPart then
                     
                     local targetPos = persistentData.CurrentTarget.Character.HumanoidRootPart.Position
                     local moveDir = (HumanoidRootPart.Position - targetPos).Unit
                     local backPos = HumanoidRootPart.Position + moveDir * 2
                     
-                    -- Move slightly back while attacking
                     MoveTo(backPos)
                 end
                 
                 pcall(function() persistentData.LinkedSword:Activate() end)
                 
             elseif persistentData.CurrentCombatBehavior == "offensive" then
-                -- Offensive behavior - aggressive approach and quick attacks
                 forcePrint("LinkedSwordAI: Offensive attack")
                 
-                -- Quick first activation
                 pcall(function() persistentData.LinkedSword:Activate() end)
                 wait(CONFIG.LUNGE_DELAY * 0.6)
                 
-                -- Move toward target while attacking
                 if persistentData.CurrentTarget and 
                    persistentData.CurrentTarget.Character and 
-                   persistentData.CurrentTarget.Character:FindFirstChild("HumanoidRootPart") then
+                   persistentData.CurrentTarget.Character:FindFirstChild("HumanoidRootPart") and
+                   HumanoidRootPart then
                     
                     local targetPos = persistentData.CurrentTarget.Character.HumanoidRootPart.Position
                     local moveDir = (targetPos - HumanoidRootPart.Position).Unit
                     local forwardPos = HumanoidRootPart.Position + moveDir * 3
                     
-                    -- Move toward target
                     MoveTo(forwardPos)
                 end
                 
-                -- Quick second activation
                 pcall(function() persistentData.LinkedSword:Activate() end)
                 wait(CONFIG.LUNGE_DELAY * 0.7)
                 
-                -- Third activation with follow-through
                 pcall(function() persistentData.LinkedSword:Activate() end)
                 
-            else -- offensive-defensive
-                -- Offensive-defensive behavior - strafe and attack
+            else
                 forcePrint("LinkedSwordAI: Offensive-defensive attack")
                 
-                -- First activation
                 pcall(function() persistentData.LinkedSword:Activate() end)
                 
-                -- Strafe to the side
                 if persistentData.CurrentTarget and 
                    persistentData.CurrentTarget.Character and 
-                   persistentData.CurrentTarget.Character:FindFirstChild("HumanoidRootPart") then
+                   persistentData.CurrentTarget.Character:FindFirstChild("HumanoidRootPart") and
+                   HumanoidRootPart then
                     
                     local targetPos = persistentData.CurrentTarget.Character.HumanoidRootPart.Position
                     local moveDir = (targetPos - HumanoidRootPart.Position).Unit
                     local strafeDir = moveDir:Cross(Vector3.new(0, 1, 0)).Unit
                     
-                    -- Randomly choose left or right strafe
                     if math.random() > 0.5 then
                         strafeDir = -strafeDir
                     end
                     
                     local strafePos = HumanoidRootPart.Position + strafeDir * CONFIG.STRAFE_DISTANCE
-                    
-                    -- Strafe while attacking
                     MoveTo(strafePos)
                 end
                 
                 wait(CONFIG.LUNGE_DELAY)
                 
-                -- Second activation
                 pcall(function() persistentData.LinkedSword:Activate() end)
                 wait(CONFIG.LUNGE_DELAY)
                 
-                -- Third activation with approach
                 if persistentData.CurrentTarget and 
                    persistentData.CurrentTarget.Character and 
-                   persistentData.CurrentTarget.Character:FindFirstChild("HumanoidRootPart") then
+                   persistentData.CurrentTarget.Character:FindFirstChild("HumanoidRootPart") and
+                   HumanoidRootPart then
                     
                     local targetPos = persistentData.CurrentTarget.Character.HumanoidRootPart.Position
                     local moveDir = (targetPos - HumanoidRootPart.Position).Unit
                     local approachPos = HumanoidRootPart.Position + moveDir * 2
                     
-                    -- Approach target for final attack
                     MoveTo(approachPos)
                 end
                 
                 pcall(function() persistentData.LinkedSword:Activate() end)
             end
             
-            -- Shorter cooldown before allowing next attack sequence
             wait(0.2)
             persistentData.AttackSequenceActive = false
         end)
     end
     
-    -- GC: Enhanced main update function with garbage collection
+    -- Enhanced main update function with comprehensive error handling
     local function Update()
-        -- Update memory usage tracking
-        persistentData.PerformanceStats.MemoryUsage = GetMemoryUsage()
+        -- Update memory usage safely
+        pcall(function()
+            persistentData.PerformanceStats.MemoryUsage = GetMemoryUsage()
+        end)
         
-        -- Run light cleanup every few updates
-        RunLightCleanup()
+        -- Run light cleanup
+        pcall(RunLightCleanup)
         
-        -- Run full garbage collection periodically
+        -- Run garbage collection periodically
         local currentTime = tick()
-        if currentTime - persistentData.GarbageCollector.LastCollectionTime > GC_CONFIG.COLLECTION_INTERVAL then
-            local aggressive = persistentData.PerformanceStats.MemoryUsage > GC_CONFIG.AGGRESSIVE_THRESHOLD
-            RunGarbageCollection(aggressive)
+        if currentTime - (persistentData.GarbageCollector.LastCollectionTime or 0) > GC_CONFIG.COLLECTION_INTERVAL then
+            local aggressive = (persistentData.PerformanceStats.MemoryUsage or 0) > GC_CONFIG.AGGRESSIVE_THRESHOLD
+            pcall(RunGarbageCollection, aggressive)
         end
         
-        -- Performance optimization: Periodically clean up memory (original code)
-        if CONFIG.PERFORMANCE_MODE and currentTime - persistentData.PerformanceStats.LastOptimizationTime > 30 then
-            -- Clean up path cache
-            local oldestTime = math.huge
-            local oldestKey = nil
-            local cacheCount = 0
-            
-            for k, v in pairs(persistentData.PathCache) do
-                cacheCount = cacheCount + 1
-                if v.time < oldestTime then
-                    oldestTime = v.time
-                    oldestKey = k
+        -- Original performance optimization
+        if CONFIG.PERFORMANCE_MODE and currentTime - (persistentData.PerformanceStats.LastOptimizationTime or 0) > 30 then
+            if persistentData.PathCache then
+                local oldestTime = math.huge
+                local oldestKey = nil
+                local cacheCount = 0
+                
+                for k, v in pairs(persistentData.PathCache) do
+                    cacheCount = cacheCount + 1
+                    if (v.time or 0) < oldestTime then
+                        oldestTime = v.time or 0
+                        oldestKey = k
+                    end
+                end
+                
+                if cacheCount > 20 and oldestKey then
+                    persistentData.PathCache[oldestKey] = nil
                 end
             end
             
-            -- If cache is too large, remove oldest entries
-            if cacheCount > 20 then
-                persistentData.PathCache[oldestKey] = nil
-            end
-            
-            -- Clean up failed paths older than 20 seconds
-            for i = #persistentData.FailedPaths, 1, -1 do
-                if currentTime - persistentData.FailedPaths[i].time > 20 then
-                    table.remove(persistentData.FailedPaths, i)
+            if persistentData.FailedPaths then
+                for i = #persistentData.FailedPaths, 1, -1 do
+                    if currentTime - (persistentData.FailedPaths[i].time or 0) > 20 then
+                        table.remove(persistentData.FailedPaths, i)
+                    end
                 end
             end
             
@@ -1270,31 +1303,33 @@ local function InitializeAI()
             debugPrint("PERF", "Memory optimization complete")
         end
         
-        -- Check for sword periodically
-        CheckForSword()
+        -- Check for sword
+        pcall(CheckForSword)
         
-        -- Check if we need to find a new target or check for closer targets
+        -- Check if character components still exist
+        if not Character or not Character.Parent or not Humanoid or not HumanoidRootPart then
+            if persistentData.StatusGUI then 
+                persistentData.StatusGUI.UpdateStatus("Character missing")
+            end
+            return
+        end
+        
         local needNewTarget = not persistentData.CurrentTarget or 
                              not persistentData.CurrentTarget.Character or 
+                             not persistentData.CurrentTarget.Character.Parent or
                              not persistentData.CurrentTarget.Character:FindFirstChild("HumanoidRootPart")
         
-        local checkForCloserTarget = currentTime - persistentData.LastRetargetTime > CONFIG.RETARGET_CHECK_TIME
+        local checkForCloserTarget = currentTime - (persistentData.LastRetargetTime or 0) > CONFIG.RETARGET_CHECK_TIME
         
         if needNewTarget or checkForCloserTarget then
-            local playersInRange = FindPlayersInRange()
-            
-            -- FIXED: Don't flee from ForceField players, but still track them
-            -- We'll keep the tracking code but disable the fleeing behavior
+            local playersInRange = pcall(FindPlayersInRange) and FindPlayersInRange() or {}
             
             if #playersInRange > 0 then
-                -- Target any player regardless of ForceField status
                 local validTargets = playersInRange
                 
                 if #validTargets > 0 then
-                    -- Select the closest target
                     local newTarget = validTargets[1].player
                     
-                    -- Update target if it's different
                     if newTarget ~= persistentData.CurrentTarget then
                         persistentData.CurrentTarget = newTarget
                         if persistentData.StatusGUI then 
@@ -1321,8 +1356,8 @@ local function InitializeAI()
             persistentData.LastRetargetTime = currentTime
         end
         
-        -- If we have a target, execute AI behavior
         if persistentData.CurrentTarget and persistentData.CurrentTarget.Character and 
+           persistentData.CurrentTarget.Character.Parent and
            persistentData.CurrentTarget.Character:FindFirstChild("HumanoidRootPart") then
             
             local targetHRP = persistentData.CurrentTarget.Character.HumanoidRootPart
@@ -1332,61 +1367,60 @@ local function InitializeAI()
                 persistentData.StatusGUI.UpdateDistance(distance)
             end
             
-            -- Check if we're stuck on a player
-            if CheckIfStuck() then
-                HandleStuckOnPlayer()
+            if pcall(CheckIfStuck) and CheckIfStuck() then
+                pcall(HandleStuckOnPlayer)
                 return
             else
                 persistentData.IsStuck = false
             end
             
-            -- Check if the path to the target is safe
-            local isSafe, bridgePath, alternativePath = IsSafePath(targetHRP.Position)
+            local isSafe, bridgePath, alternativePath = pcall(IsSafePath, targetHRP.Position)
+            isSafe = isSafe and (bridgePath or alternativePath or true)
             
-            -- Track performance
             if CONFIG.PERFORMANCE_MODE then
                 persistentData.PerformanceStats.PathfindingTime = tick() - currentTime
             end
             
             if isSafe then
-                -- Move toward target using smooth movement with bridge path if available
-                MoveTo(targetHRP.Position, bridgePath)
+                pcall(MoveTo, targetHRP.Position, bridgePath)
                 
-                -- Face the target
-                HumanoidRootPart.CFrame = CFrame.lookAt(
-                    HumanoidRootPart.Position, 
-                    Vector3.new(targetHRP.Position.X, HumanoidRootPart.Position.Y, targetHRP.Position.Z)
-                )
+                if HumanoidRootPart then
+                    pcall(function()
+                        HumanoidRootPart.CFrame = CFrame.lookAt(
+                            HumanoidRootPart.Position, 
+                            Vector3.new(targetHRP.Position.X, HumanoidRootPart.Position.Y, targetHRP.Position.Z)
+                        )
+                    end)
+                end
                 
-                -- Attack if in range and cooldown is ready
                 if distance <= CONFIG.ATTACK_RANGE and 
                    persistentData.LinkedSword and 
-                   currentTime - persistentData.LastAttackTime > CONFIG.ATTACK_COOLDOWN then
-                    ExecuteAttack()
-                -- IMPROVED: Continue attacking even when very close to target
+                   currentTime - (persistentData.LastAttackTime or 0) > CONFIG.ATTACK_COOLDOWN then
+                    pcall(ExecuteAttack)
                 elseif distance <= CONFIG.MIN_ATTACK_DISTANCE and 
                        persistentData.LinkedSword and 
-                       currentTime - persistentData.LastAttackTime > CONFIG.ATTACK_COOLDOWN then
+                       currentTime - (persistentData.LastAttackTime or 0) > CONFIG.ATTACK_COOLDOWN then
                     debugPrint("COMBAT", "Close range attack")
-                    persistentData.CurrentCombatBehavior = "offensive"  -- Force offensive behavior at close range
-                    ExecuteAttack()
+                    persistentData.CurrentCombatBehavior = "offensive"
+                    pcall(ExecuteAttack)
                 end
             elseif alternativePath then
-                -- Use alternative path if direct path is unsafe
                 debugPrint("PATH", "Using alternative path")
-                MoveTo(alternativePath)
+                pcall(MoveTo, alternativePath)
                 
-                -- Face the target
-                HumanoidRootPart.CFrame = CFrame.lookAt(
-                    HumanoidRootPart.Position, 
-                    Vector3.new(targetHRP.Position.X, HumanoidRootPart.Position.Y, targetHRP.Position.Z)
-                )
+                if HumanoidRootPart then
+                    pcall(function()
+                        HumanoidRootPart.CFrame = CFrame.lookAt(
+                            HumanoidRootPart.Position, 
+                            Vector3.new(targetHRP.Position.X, HumanoidRootPart.Position.Y, targetHRP.Position.Z)
+                        )
+                    end)
+                end
                 
-                -- Attack if in range and cooldown is ready
                 if distance <= CONFIG.ATTACK_RANGE and 
                    persistentData.LinkedSword and 
-                   currentTime - persistentData.LastAttackTime > CONFIG.ATTACK_COOLDOWN then
-                    ExecuteAttack()
+                   currentTime - (persistentData.LastAttackTime or 0) > CONFIG.ATTACK_COOLDOWN then
+                    pcall(ExecuteAttack)
                 end
             else
                 if persistentData.StatusGUI then 
@@ -1394,17 +1428,15 @@ local function InitializeAI()
                     persistentData.StatusGUI.UpdateDebug("Checking bridge paths")
                 end
                 
-                -- First try to find a bridge path
-                local bridgePath = FindBridgePath(HumanoidRootPart.Position, targetHRP.Position)
+                local bridgePath = pcall(FindBridgePath, HumanoidRootPart.Position, targetHRP.Position)
                 if bridgePath then
                     if persistentData.StatusGUI then 
                         persistentData.StatusGUI.UpdateDebug("Using bridge path")
                     end
-                    MoveTo(bridgePath)
+                    pcall(MoveTo, bridgePath)
                     return
                 end
                 
-                -- Try to find an alternative path
                 local alternativeDirections = {
                     Vector3.new(1, 0, 0),
                     Vector3.new(-1, 0, 0),
@@ -1419,13 +1451,13 @@ local function InitializeAI()
                 local foundSafePath = false
                 for _, dir in ipairs(alternativeDirections) do
                     local alternativeTarget = HumanoidRootPart.Position + dir * 10
-                    local altSafe, altBridgePath = IsSafePath(alternativeTarget)
+                    local altSafe, altBridgePath = pcall(IsSafePath, alternativeTarget)
                     
                     if altSafe then
                         if persistentData.StatusGUI then 
                             persistentData.StatusGUI.UpdateDebug("Found alternative path")
                         end
-                        MoveTo(alternativeTarget, altBridgePath)
+                        pcall(MoveTo, alternativeTarget, altBridgePath)
                         foundSafePath = true
                         break
                     end
@@ -1436,40 +1468,37 @@ local function InitializeAI()
                 end
             end
         else
-            -- No target, just idle
             if persistentData.StatusGUI then 
                 persistentData.StatusGUI.UpdateStatus("Idle")
             end
         end
     end
     
-    -- Handle proper sword equipping on respawn
+    -- Handle sword equipping on respawn
     spawn(function()
-        -- Wait for character to fully load
         wait(CONFIG.RESPAWN_EQUIP_DELAY)
         
-        persistentData.LinkedSword = FindLinkedSword()
+        if not Character or not Character.Parent then return end
+        
+        persistentData.LinkedSword = pcall(FindLinkedSword) and FindLinkedSword() or nil
         if persistentData.LinkedSword then
             if persistentData.StatusGUI then
                 persistentData.StatusGUI.UpdateStatus("Sword found: " .. persistentData.LinkedSword.Name)
             end
             
-            -- Equip the sword
             if persistentData.LinkedSword.Parent ~= Character then
-                persistentData.LinkedSword.Parent = Character
+                pcall(function() persistentData.LinkedSword.Parent = Character end)
                 wait(0.5)
                 
-                -- Verify equipment was successful
                 if persistentData.LinkedSword.Parent == Character then
                     persistentData.EquipmentReady = true
                     if persistentData.StatusGUI then
                         persistentData.StatusGUI.UpdateStatus("Sword equipped successfully")
                     end
                 else
-                    -- Retry equipping
                     wait(0.5)
                     if persistentData.LinkedSword then
-                        persistentData.LinkedSword.Parent = Character
+                        pcall(function() persistentData.LinkedSword.Parent = Character end)
                         wait(0.5)
                         persistentData.EquipmentReady = true
                         if persistentData.StatusGUI then
@@ -1491,36 +1520,76 @@ local function InitializeAI()
     end)
     
     -- Initialize
-    persistentData.LinkedSword = FindLinkedSword()
+    persistentData.LinkedSword = pcall(FindLinkedSword) and FindLinkedSword() or nil
     persistentData.LastSwordCheckTime = tick()
     
-    -- Connect update function
+    -- Connect update function with comprehensive error handling
     local updateConnection
     updateConnection = RunService.Heartbeat:Connect(function()
         local success, error = pcall(Update)
         if not success then
             forcePrint("LinkedSwordAI: Error in update - " .. tostring(error))
-            if persistentData.StatusGUI then persistentData.StatusGUI.UpdateStatus("Error: " .. tostring(error)) end
+            if persistentData.StatusGUI then 
+                persistentData.StatusGUI.UpdateStatus("Error: " .. tostring(error)) 
+            end
         end
     end)
     
     -- Handle character respawn
     LocalPlayer.CharacterAdded:Connect(function(newCharacter)
         forcePrint("LinkedSwordAI: Character respawned, reinitializing...")
-        wait(1) -- Wait for character to fully load
-        InitializeAI()
+        
+        -- Clean up connections
+        if updateConnection then
+            updateConnection:Disconnect()
+        end
+        
+        -- Clean up GUI
+        if persistentData.StatusGUI then
+            pcall(persistentData.StatusGUI.Destroy)
+            persistentData.StatusGUI = nil
+        end
+        
+        wait(2) -- Wait for character to fully load
+        pcall(InitializeAI)
     end)
     
-    if persistentData.StatusGUI then persistentData.StatusGUI.UpdateStatus("AI Running") end
+    if persistentData.StatusGUI then 
+        persistentData.StatusGUI.UpdateStatus("AI Running") 
+    end
     forcePrint("LinkedSwordAI: Script initialized successfully")
     
     return true
 end
 
--- Start the AI
-local success, errorMsg = pcall(InitializeAI)
-
-if not success then
-    forcePrint("LinkedSwordAI: Critical error - " .. tostring(errorMsg))
+-- Enhanced startup with comprehensive error handling
+local function SafeStartup()
+    forcePrint("LinkedSwordAI: Starting with enhanced error handling...")
+    
+    -- Initialize memory tracking
+    pcall(function()
+        persistentData.PerformanceStats.MemoryUsage = GetMemoryUsage()
+        persistentData.GarbageCollector.LastCollectionTime = tick()
+    end)
+    
+    -- Start the AI with maximum error protection
+    local success, errorMsg = pcall(InitializeAI)
+    
+    if not success then
+        forcePrint("LinkedSwordAI: Critical error - " .. tostring(errorMsg))
+        
+        -- Attempt cleanup on error
+        pcall(RunGarbageCollection, true)
+        
+        -- Try to recover after a delay
+        forcePrint("LinkedSwordAI: Attempting recovery in 5 seconds...")
+        wait(5)
+        pcall(SafeStartup)
+    end
+    
+    return success
 end
+
+-- Start the AI safely
+SafeStartup()
 [file content end]
