@@ -37,9 +37,8 @@ local function Debug(message)
     debugPrint("DEBUG", message)
 end
 
--- Main execution in protected call
-return (function()
-    Debug("Starting LinkedSwordAI execution")
+-- Main execution
+Debug("Starting LinkedSwordAI execution")
 
 -- Global persistent data to maintain state across respawns
 if not _G.LinkedSwordAIPersistentData then
@@ -1591,6 +1590,20 @@ local function Initialize()
         CleanupCaches = CleanupCaches,
         PerformGarbageCollection = PerformGarbageCollection
     }
-end)()
+end
+
+-- Execute the script
+local success, result = pcall(function()
+    -- Call Initialize function to start the AI
+    Initialize()
+    
+    Debug("LinkedSwordAI initialized successfully")
+    return true
+end)
+
+if not success then
+    Debug("Error during initialization: " .. tostring(result))
+    forcePrint("ERROR: " .. tostring(result))
+end
 
 -- End of LinkedSwordAI script
