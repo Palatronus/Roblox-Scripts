@@ -555,7 +555,7 @@ local function InitializeAI()
         for _, dir in ipairs(directions) do
             local targetPosition = HumanoidRootPart.Position + dir * 6
             if IsSafePath(targetPosition) then
-                Humanoid:SafeMoveTo(targetPosition)
+                Humanoid:MoveTo(targetPosition)
                 if persistentData.StatusGUI then persistentData.StatusGUI.UpdateDebug("Moving to unstuck") end
                 return true
             end
@@ -594,7 +594,7 @@ local function InitializeAI()
 
             -- If not safe, try perpendicular evasive maneuvers
             if IsSafePath(fleeTarget) then
-                SafeMoveTo(fleeTarget)
+                MoveTo(fleeTarget)
                 return true
             else
                 local altDirs = {
@@ -606,7 +606,7 @@ local function InitializeAI()
                 for _, ad in ipairs(altDirs) do
                     local altT = HumanoidRootPart.Position + ad * CONFIG.FORCEFIELD_FLEE_DISTANCE
                     if IsSafePath(altT) then
-                        SafeMoveTo(altT)
+                        MoveTo(altT)
                         return true
                     end
                 end
@@ -617,7 +617,7 @@ local function InitializeAI()
     end
 
     -- Movement with smoothing and continuous operation (improved)
-    local function SafeMoveTo(targetPosition, bridgePath, alternativePath)
+    local function MoveTo(targetPosition, bridgePath, alternativePath)
         -- Always try to maintain continuous movement; if path unsafe pick alternative and keep moving
         local startTime = tick()
 
@@ -660,7 +660,7 @@ local function InitializeAI()
             persistentData.LastMovementTime = currentTime
             persistentData.CurrentNavigationTarget = targetPosition
             persistentData.NavigationTransitionStart = currentTime
-            Humanoid:SafeMoveTo(smoothedTarget)
+            Humanoid:MoveTo(smoothedTarget)
             if persistentData.StatusGUI then persistentData.StatusGUI.UpdateDebug("Moving to smoothed target") end
             if CONFIG.PERFORMANCE_MODE then persistentData.PerformanceStats.MovementTime = tick() - startTime end
             return true
@@ -686,7 +686,7 @@ local function InitializeAI()
             if bestAlt then
                 persistentData.LastMovementDirection = (bestAlt - HumanoidRootPart.Position).Unit
                 persistentData.LastMovementTime = currentTime
-                Humanoid:SafeMoveTo(bestAlt)
+                Humanoid:MoveTo(bestAlt)
                 if persistentData.StatusGUI then persistentData.StatusGUI.UpdateDebug("Moving to alternative") end
                 return true
             else
@@ -697,7 +697,7 @@ local function InitializeAI()
                     pcall(function()
                         Humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
                     end)
-                    Humanoid:SafeMoveTo(jumpVec)
+                    Humanoid:MoveTo(jumpVec)
                     if persistentData.StatusGUI then persistentData.StatusGUI.UpdateDebug("Attempting jump") end
                     return true
                 end
@@ -714,13 +714,13 @@ local function InitializeAI()
         if distance < 3 then
             -- close - simple jump
             pcall(function() Humanoid:ChangeState(Enum.HumanoidStateType.Jumping) end)
-            Humanoid:SafeMoveTo(targetPos)
+            Humanoid:MoveTo(targetPos)
             return true
         end
         -- For longer jumps, ensure landing spot safe
         if IsSafePath(targetPos) then
             pcall(function() Humanoid:ChangeState(Enum.HumanoidStateType.Jumping) end)
-            Humanoid:SafeMoveTo(targetPos)
+            Humanoid:MoveTo(targetPos)
             return true
         end
         return false
@@ -776,12 +776,12 @@ local function InitializeAI()
                     if targetHRP then
                         local dir = (targetHRP.Position - HumanoidRootPart.Position).Unit
                         local baitPos = HumanoidRootPart.Position + dir * 1.6
-                        SafeMoveTo(baitPos)
+                        MoveTo(baitPos)
                         wait(0.12)
                         pcall(function() persistentData.LinkedSword:Activate() end)
                         -- back off
                         local backPos = HumanoidRootPart.Position - dir * 2
-                        SafeMoveTo(backPos)
+                        MoveTo(backPos)
                     end
                 else
                     pcall(function() persistentData.LinkedSword:Activate() end)
@@ -797,7 +797,7 @@ local function InitializeAI()
                     local dir = (targetHRP.Position - HumanoidRootPart.Position).Unit
                     -- Quick lunge forward with increased speed: move closer
                     local forwardPos = HumanoidRootPart.Position + dir * (2.5 * CONFIG.LUNGE_SPEED_MULTIPLIER)
-                    SafeMoveTo(forwardPos)
+                    MoveTo(forwardPos)
                 end
                 wait(CONFIG.LUNGE_DELAY * 0.6)
                 pcall(function() persistentData.LinkedSword:Activate() end)
@@ -813,7 +813,7 @@ local function InitializeAI()
                     local strafeDir = dir:Cross(Vector3.new(0,1,0)).Unit
                     if math.random() > 0.5 then strafeDir = -strafeDir end
                     local strafePos = HumanoidRootPart.Position + strafeDir * CONFIG.STRAFE_DISTANCE
-                    SafeMoveTo(strafePos)
+                    MoveTo(strafePos)
                     wait(0.06)
                 end
 
@@ -823,7 +823,7 @@ local function InitializeAI()
                 if targetHRP then
                     local dir = (targetHRP.Position - HumanoidRootPart.Position).Unit
                     local approachPos = HumanoidRootPart.Position + dir * 1.8
-                    SafeMoveTo(approachPos)
+                    MoveTo(approachPos)
                 end
                 pcall(function() persistentData.LinkedSword:Activate() end)
             end
@@ -958,9 +958,9 @@ local function InitializeAI()
 
             -- Continuous movement: prefer safe path; if not safe use alternative / bridge / find other routes without stopping
             if isSafe then
-                SafeMoveTo(targetHRP.Position, bridgePath, alternativePath)
+                MoveTo(targetHRP.Position, bridgePath, alternativePath)
                 -- always face target horizontally
-                HumanoidRootPart.CFrame = CFrame.new(position, lookAtPosition)(HumanoidRootPart.Position, Vector3.new(targetHRP.Position.X, HumanoidRootPart.Position.Y, targetHRP.Position.Z))
+                HumanoidRootPart.CFrame = CFrame.lookAt(HumanoidRootPart.Position, Vector3.new(targetHRP.Position.X, HumanoidRootPart.Position.Y, targetHRP.Position.Z))
 
                 -- Attack triggers
                 if distance <= CONFIG.IMMEDIATE_ATTACK_RADIUS and persistentData.LinkedSword and currentTime - persistentData.LastAttackTime > CONFIG.ATTACK_COOLDOWN then
@@ -987,7 +987,7 @@ local function InitializeAI()
             elseif alternativePath then
                 -- use computed alternative path
                 debugPrint("PATH", "Using precomputed alternative")
-                SafeMoveTo(alternativePath)
+                MoveTo(alternativePath)
                 HumanoidRootPart.CFrame = CFrame.new(
     HumanoidRootPart.Position,
     Vector3.new(targetHRP.Position.X, HumanoidRootPart.Position.Y, targetHRP.Position.Z)
@@ -1004,7 +1004,7 @@ local function InitializeAI()
 
                 local bridge = FindBridgePath(HumanoidRootPart.Position, targetHRP.Position)
                 if bridge then
-                    SafeMoveTo(bridge)
+                    MoveTo(bridge)
                     return
                 end
 
@@ -1016,7 +1016,7 @@ local function InitializeAI()
                     local altTarget = HumanoidRootPart.Position + dir * 10
                     local altSafe, altBridge = IsSafePath(altTarget)
                     if altSafe then
-                        SafeMoveTo(altTarget, altBridge)
+                        MoveTo(altTarget, altBridge)
                         found = true
                         break
                     end
@@ -1033,7 +1033,7 @@ local function InitializeAI()
                 if distance < CONFIG.ATTACK_RANGE then
                     local dir = (HumanoidRootPart.Position - targetHRP.Position).Unit
                     local backPos = HumanoidRootPart.Position + dir * 1.6
-                    SafeMoveTo(backPos)
+                    MoveTo(backPos)
                     persistentData.CurrentCombatBehavior = "defensive"
                 end
             end
@@ -1046,7 +1046,7 @@ local function InitializeAI()
                 local randDir = Vector3.new(math.random()-0.5, 0, math.random()-0.5).Unit
                 local wanderTarget = HumanoidRootPart.Position + randDir * 4
                 if IsSafePath(wanderTarget) then
-                    SafeMoveTo(wanderTarget)
+                    MoveTo(wanderTarget)
                 end
             end
         end
