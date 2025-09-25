@@ -960,7 +960,7 @@ local function InitializeAI()
             if isSafe then
                 MoveTo(targetHRP.Position, bridgePath, alternativePath)
                 -- always face target horizontally
-                HumanoidRootPart.CFrame = CFrame.lookAt(HumanoidRootPart.Position, Vector3.new(targetHRP.Position.X, HumanoidRootPart.Position.Y, targetHRP.Position.Z))
+                HumanoidRootPart.CFrame = CFrame.new(position, lookAtPosition)(HumanoidRootPart.Position, Vector3.new(targetHRP.Position.X, HumanoidRootPart.Position.Y, targetHRP.Position.Z))
 
                 -- Attack triggers
                 if distance <= CONFIG.IMMEDIATE_ATTACK_RADIUS and persistentData.LinkedSword and currentTime - persistentData.LastAttackTime > CONFIG.ATTACK_COOLDOWN then
