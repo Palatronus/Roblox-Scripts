@@ -1415,7 +1415,7 @@ local function Initialize()
         Debug("Performing garbage collection")
         
         -- Force garbage collection
-        collectgarbage("collect")
+        pcall(function() collectgarbage("count") end)
         
         -- Update last GC time
         persistentData.LastGarbageCollection = currentTime
@@ -1455,7 +1455,7 @@ local function Initialize()
         local startTime = tick()
         
         -- Update status GUI
-        if persistentData.StatusGUI then
+        if persistentData.StatusGUI and persistentData.StatusGUI.UpdateStatus then
             persistentData.StatusGUI.UpdateStatus("Running")
         end
         
