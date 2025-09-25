@@ -6,6 +6,17 @@
     performance optimizations, and advanced combat techniques.
 ]]
 
+-- Services
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
+
+-- Get player and character
+local LocalPlayer = Players.LocalPlayer
+local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+local Humanoid = Character:FindFirstChild("Humanoid")
+local HumanoidRootPart = Character:FindFirstChild("HumanoidRootPart")
+
 -- Force print to output console immediately
 local function forcePrint(...)
     local message = table.concat({...}, " ")
@@ -21,8 +32,14 @@ local function debugPrint(category, ...)
     forcePrint(timestamp .. " - " .. message)
 end
 
-forcePrint("LinkedSwordAI: Script starting...")
-debugPrint("INIT", "Debug logging enabled")
+-- Simple debug function for internal use
+local function Debug(message)
+    debugPrint("DEBUG", message)
+end
+
+-- Main execution in protected call
+return (function()
+    Debug("Starting LinkedSwordAI execution")
 
 -- Global persistent data to maintain state across respawns
 if not _G.LinkedSwordAIPersistentData then
@@ -48,12 +65,20 @@ if not _G.LinkedSwordAIPersistentData then
         KnownVoidAreas = {},
         PathCache = {},           -- Cache for pathfinding results
         LastPathfindingTime = 0,  -- Track last pathfinding operation
-        PerformanceStats = {      -- Track performance metrics
+        LastCacheCleanup = 0,     -- Track last cache cleanup time
+        LastGarbageCollection = 0, -- Track last garbage collection time
+        UpdateConnection = nil,   -- Store RunService connection
+        PerformanceMetrics = {    -- Track performance metrics
+            LastExecutionTime = 0,
+            MinExecutionTime = 0,
+            MaxExecutionTime = 0,
+            AvgExecutionTime = 0,
+            TotalExecutions = 0,
+            TotalExecutionTime = 0,
             PathfindingTime = 0,
             CombatTime = 0,
             MovementTime = 0,
-            LastOptimizationTime = 0,
-            LastGarbageCollection = 0
+            LastOptimizationTime = 0
         },
         AlternativePaths = {},    -- Store alternative paths
         TransparentPlatforms = {}, -- Track transparent/vanishing platforms
