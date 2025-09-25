@@ -851,8 +851,8 @@ local function InitializeAI()
         local currentTime = tick()
         local perf = persistentData.PerformanceStats
         -- adapt GC interval based on recent pathfinding time (long pathfinding -> shorter GC interval)
-        local recentPath = perf.PathfindingTime or 0
-        local newInterval = math.clamp(CONFIG.GC_MIN_INTERVAL, CONFIG.GC_MAX_INTERVAL, 30 - math.min(20, recentPath))
+        local targetVal = 30 - math.min(20, recentPath)
+        local newInterval = math.clamp(targetVal, CONFIG.GC_MIN_INTERVAL, CONFIG.GC_MAX_INTERVAL)
         persistentData.GCInterval = newInterval
 
         if currentTime - (persistentData.LastGCTime or 0) > persistentData.GCInterval then
