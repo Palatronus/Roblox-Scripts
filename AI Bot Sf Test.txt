@@ -278,7 +278,7 @@ local function CreateStatusGUI()
 end
 
 -- Main execution in protected call
-local function InitializeAI()
+local function Initialize()
     -- Services
     local Players = game:GetService("Players")
     local RunService = game:GetService("RunService")
