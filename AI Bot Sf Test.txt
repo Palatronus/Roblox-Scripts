@@ -1456,7 +1456,7 @@ local function Initialize()
         
         -- Update status GUI
         if persistentData.StatusGUI then
-            persistentData.StatusGUI.Frame.Status.Text = "Status: Running"
+            persistentData.StatusGUI.UpdateStatus("Running")
         end
         
         -- Perform periodic maintenance
