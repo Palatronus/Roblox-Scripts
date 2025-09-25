@@ -850,7 +850,11 @@ local function InitializeAI()
         -- adaptive periodic garbage collection
         local currentTime = tick()
         local perf = persistentData.PerformanceStats
-        -- adapt GC interval based on recent pathfinding time (long pathfinding -> shorter GC interval)
+
+        -- use recorded pathfinding time (default to 0 if nil)
+        local recentPath = perf.PathfindingTime or 0
+
+        -- adapt GC interval based on recent pathfinding time
         local targetVal = 30 - math.min(20, recentPath)
         local newInterval = math.clamp(targetVal, CONFIG.GC_MIN_INTERVAL, CONFIG.GC_MAX_INTERVAL)
         persistentData.GCInterval = newInterval
