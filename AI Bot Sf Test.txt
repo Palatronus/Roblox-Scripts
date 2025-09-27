@@ -84,6 +84,7 @@ if not _G.LinkedSwordAIPersistentData then
         NavigationTransitionStart = 0,
         LastGCTime = 0,
         GCInterval = 30, -- default, adaptive below
+        LastUpdateTime = 0,
         LastInRangeTime = 0,
         Connections = { UpdateConn = nil, CharacterAddedConn = nil },
         -- Roaming state
@@ -159,7 +160,15 @@ local CONFIG = {
     -- Roaming behavior
     ROAM_RECOMPUTE_INTERVAL = 8,
     ROAM_MIN_DISTANCE = 40,
-    ROAM_MAX_DISTANCE = 160
+    ROAM_MAX_DISTANCE = 160,
+    -- Performance and behavior gating
+    UPDATE_TICK_RATE_HZ = 15,             -- throttle Update() to ~15 Hz for low CPU
+    NODE_GRAPH_REBUILD_INTERVAL = 45,     -- seconds between autoscan rebuilds
+    ENGAGE_MAX_DISTANCE = 70,             -- only engage/react to targets within this distance
+    ATTACK_ELEVATION_TOLERANCE = 3.5,     -- only attack if Y delta within this range
+    MIN_JUMP_TRIGGER_HEIGHT = 0.5,        -- auto-jump for low 0.5+ stud obstacles
+    NARROW_EDGE_CHECK = 2.0,              -- lateral edge probe for narrow walkways
+    NARROW_STEP_DISTANCE = 1.5            -- smaller step when on narrow passages
 }
 
 -- Create status GUI (same logic, minor label improvements)
@@ -426,12 +435,25 @@ local function InitializeAI()
     end
 
     local function IsNarrowPassage(position, direction)
-        local cross = direction:Cross(Vector3.new(0,1,0)).Unit
+        local cross = direction:Cross(Vector3.new(0,1,0))
+        if cross.Magnitude == 0 then cross = Vector3.new(1,0,0) end
+        cross = cross.Unit
+        -- Rail/wall-based narrow detection
         local leftRay = Ray.new(position, cross * CONFIG.NARROW_PASSAGE_WIDTH)
         local rightRay = Ray.new(position, -cross * CONFIG.NARROW_PASSAGE_WIDTH)
         local leftHit, _ = Workspace:FindPartOnRay(leftRay, Character)
         local rightHit, _ = Workspace:FindPartOnRay(rightRay, Character)
-        return leftHit and rightHit
+        local railNarrow = leftHit and rightHit
+        -- Edge/void-based narrow detection (bridges without rails)
+        local params = RaycastParams.new()
+        params.FilterDescendantsInstances = {Character}
+        params.FilterType = Enum.RaycastFilterType.Blacklist
+        local leftDown = Workspace:Raycast(position + cross * CONFIG.NARROW_EDGE_CHECK, Vector3.new(0, -CONFIG.LEDGE_DETECT_DOWN_DISTANCE, 0), params)
+        local rightDown = Workspace:Raycast(position - cross * CONFIG.NARROW_EDGE_CHECK, Vector3.new(0, -CONFIG.LEDGE_DETECT_DOWN_DISTANCE, 0), params)
+        local leftUnsafe = (not leftDown) or (not leftDown.Instance) or isPartUnsafe(leftDown.Instance)
+        local rightUnsafe = (not rightDown) or (not rightDown.Instance) or isPartUnsafe(rightDown.Instance)
+        local edgeNarrow = leftUnsafe or rightUnsafe
+        return railNarrow or edgeNarrow
     end
 
     local function FindBridgePath(startPos, endPos)
@@ -856,8 +878,13 @@ local function InitializeAI()
 
     local function ComputeNodePath(startPos, goalPos)
         if (not persistentData.NodeGraph) or (not persistentData.NodeGraph.nodes) or #persistentData.NodeGraph.nodes == 0 then
-            local ok = BuildNodeGraph()
-            if not ok then return nil end
+            local lastBuilt = persistentData.NodeGraphBuiltTime or 0
+            if tick() - lastBuilt >= CONFIG.NODE_GRAPH_REBUILD_INTERVAL then
+                local ok = BuildNodeGraph()
+                if not ok then return nil end
+            else
+                return nil
+            end
         end
         local startId = FindNearestNode(startPos)
         local goalId = FindNearestNode(goalPos)
@@ -947,7 +974,7 @@ local function InitializeAI()
             local topCheck = Workspace:Raycast(hitPos + Vector3.new(0, CONFIG.MAX_JUMP_HEIGHT + 1, 0), Vector3.new(0, -(CONFIG.MAX_JUMP_HEIGHT + 2), 0), params)
             local topY = topCheck and topCheck.Position.Y or hitPos.Y
             local heightDiff = topY - HumanoidRootPart.Position.Y
-            if heightDiff >= 1 and heightDiff <= CONFIG.MAX_JUMP_HEIGHT then
+            if heightDiff >= CONFIG.MIN_JUMP_TRIGGER_HEIGHT and heightDiff <= CONFIG.MAX_JUMP_HEIGHT then
                 return "jumpable", hitPos
             elseif heightDiff > CONFIG.MAX_JUMP_HEIGHT then
                 return "wall", hitPos
@@ -992,7 +1019,7 @@ local function InitializeAI()
         -- Narrow passage handling (less smoothing)
         if IsNarrowPassage(HumanoidRootPart.Position, smoothedDirection) then
             smoothedDirection = dirVec
-            smoothedTarget = HumanoidRootPart.Position + smoothedDirection * math.min(2, (targetPosition - HumanoidRootPart.Position).Magnitude)
+            smoothedTarget = HumanoidRootPart.Position + smoothedDirection * math.min(CONFIG.NARROW_STEP_DISTANCE, (targetPosition - HumanoidRootPart.Position).Magnitude)
         end
 
         -- Obstacle detection ahead: jump over low obstacles or switch to node navigation on walls
@@ -1358,26 +1385,22 @@ local function InitializeAI()
                      HumanoidRootPart.CFrame = CFrame.lookAt(HumanoidRootPart.Position, Vector3.new(targetHRP.Position.X, HumanoidRootPart.Position.Y, targetHRP.Position.Z))
                  end
 
-                -- Attack triggers
-                if distance <= CONFIG.IMMEDIATE_ATTACK_RADIUS and persistentData.LinkedSword and currentTime - persistentData.LastAttackTime > CONFIG.ATTACK_COOLDOWN then
-                    -- Immediate close-range attack
-                    ExecuteAttack()
-                elseif distance <= CONFIG.ATTACK_RANGE and persistentData.LinkedSword and currentTime - persistentData.LastAttackTime > CONFIG.ATTACK_COOLDOWN then
-                    -- normal attack window
-                    ExecuteAttack()
-                elseif distance <= CONFIG.MIN_ATTACK_DISTANCE and persistentData.LinkedSword and currentTime - persistentData.LastAttackTime > CONFIG.ATTACK_COOLDOWN then
-                    -- forced offensive at extremely close range
-                    persistentData.CurrentCombatBehavior = "offensive"
-                    ExecuteAttack()
-                else
-                    -- If target remained out of range for a while -> switch to aggressive behavior and attempt to lunge/close
-                    if tick() - (persistentData.LastInRangeTime or 0) > CONFIG.OUT_OF_RANGE_AGGRESSION_TIME then
+                -- Attack triggers with distance/elevation gating
+                local dy = targetHRP.Position.Y - HumanoidRootPart.Position.Y
+                local withinElevation = math.abs(dy) <= CONFIG.ATTACK_ELEVATION_TOLERANCE
+                local withinEngage = distance <= CONFIG.ENGAGE_MAX_DISTANCE
+                if withinEngage and withinElevation and persistentData.LinkedSword and currentTime - persistentData.LastAttackTime > CONFIG.ATTACK_COOLDOWN then
+                    if distance <= CONFIG.IMMEDIATE_ATTACK_RADIUS then
+                        ExecuteAttack()
+                    elseif distance <= CONFIG.MIN_ATTACK_DISTANCE then
                         persistentData.CurrentCombatBehavior = "offensive"
-                        -- attempt a longer lunge/closing maneuver
-                        if not persistentData.AttackSequenceActive then
-                            ExecuteAttack()
-                        end
+                        ExecuteAttack()
+                    elseif distance <= CONFIG.ATTACK_RANGE then
+                        ExecuteAttack()
                     end
+                else
+                    -- out-of-range or elevation mismatch: do not attack, keep approaching
+                    persistentData.CurrentCombatBehavior = "neutral"
                 end
 
             elseif alternativePath then
@@ -1390,7 +1413,8 @@ local function InitializeAI()
                         Vector3.new(targetHRP.Position.X, HumanoidRootPart.Position.Y, targetHRP.Position.Z)
                     )
                 end
-                if distance <= CONFIG.ATTACK_RANGE and persistentData.LinkedSword and currentTime - persistentData.LastAttackTime > CONFIG.ATTACK_COOLDOWN then
+                local dy2 = targetHRP.Position.Y - HumanoidRootPart.Position.Y
+                if (distance <= CONFIG.ENGAGE_MAX_DISTANCE) and (math.abs(dy2) <= CONFIG.ATTACK_ELEVATION_TOLERANCE) and persistentData.LinkedSword and (currentTime - persistentData.LastAttackTime > CONFIG.ATTACK_COOLDOWN) then
                     ExecuteAttack()
                 end
             else
@@ -1441,7 +1465,12 @@ local function InitializeAI()
             if persistentData.StatusGUI then persistentData.StatusGUI.UpdateStatus("Idle - Roaming") end
             local hasGraph = (persistentData.NodeGraph and persistentData.NodeGraph.nodes and #persistentData.NodeGraph.nodes > 0) or false
             if not hasGraph then
-                hasGraph = BuildNodeGraph()
+                local lastBuilt = persistentData.NodeGraphBuiltTime or 0
+                if tick() - lastBuilt >= CONFIG.NODE_GRAPH_REBUILD_INTERVAL then
+                    hasGraph = BuildNodeGraph()
+                else
+                    hasGraph = false
+                end
             end
             if hasGraph and HumanoidRootPart then
                 local now = tick()
@@ -1541,6 +1570,10 @@ local function InitializeAI()
 
     -- Heartbeat update connection
     persistentData.Connections.UpdateConn = game:GetService("RunService").Heartbeat:Connect(function()
+        -- Throttle update frequency for performance
+        local now = tick()
+        if (now - (persistentData.LastUpdateTime or 0)) < (1 / CONFIG.UPDATE_TICK_RATE_HZ) then return end
+        persistentData.LastUpdateTime = now
         -- Early guards and recovery for lost references
         if (not Character) or (not Humanoid) or (not HumanoidRootPart) then
             local lp = game:GetService("Players").LocalPlayer
