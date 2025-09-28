@@ -494,11 +494,6 @@ local function InitializeAI()
     persistentData.Character = Character
 
     local Humanoid = Character:FindFirstChild("Humanoid")
-    local function SafeMoveTo(pos)
-        if Humanoid and pos then
-            Humanoid:MoveTo(pos)
-        end
-    end
     local HumanoidRootPart = Character:FindFirstChild("HumanoidRootPart")
     if not Humanoid or not HumanoidRootPart then
         forcePrint("LinkedSwordAI: Humanoid or HumanoidRootPart not found")
@@ -794,7 +789,7 @@ local function InitializeAI()
             local obsType, hitPos = DetectObstacleAhead(HumanoidRootPart, smoothedDirection, CONFIG.WALL_DETECT_DISTANCE)
             if obsType == "jumpable" then
                 SafeHumanoidChangeState(Humanoid, Enum.HumanoidStateType.Jumping)
-                SafeHumanoidMoveTo(Humanoid, smoothedTarget)
+                Humanoid:MoveTo(smoothedTarget)
                 if persistentData.StatusGUI then persistentData.StatusGUI.UpdateDebug("Jumping over obstacle") end
                 return true
             elseif obsType == "wall" then
@@ -816,7 +811,7 @@ local function InitializeAI()
             persistentData.LastMovementTime = currentTime
             persistentData.CurrentNavigationTarget = targetPosition
             persistentData.NavigationTransitionStart = currentTime
-            SafeHumanoidMoveTo(Humanoid, smoothedTarget)
+            Humanoid:MoveTo(smoothedTarget)
             if persistentData.StatusGUI then persistentData.StatusGUI.UpdateDebug("Moving to smoothed target") end
             if CONFIG.PERFORMANCE_MODE then persistentData.PerformanceStats.MovementTime = tick() - startTime end
             return true
