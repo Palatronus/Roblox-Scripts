@@ -2128,12 +2128,10 @@ return Nav
     if persistentData.StatusGUI then persistentData.StatusGUI.UpdateStatus("AI Running") end
     forcePrint("LinkedSwordAI: Enhanced script initialized successfully")
     return true
-end
-
--- Launch
+end)
 
 if not success then
-    forcePrint("LinkedSwordAI: Initialization failed - " .. tostring(err))
+    forcePrint("LinkedSwordAI: Script execution failed - " .. tostring(err))
 end
 
 local success, err = pcall(InitializeAI)
@@ -2141,21 +2139,8 @@ if not success then
     forcePrint("LinkedSwordAI: Initialization failed - " .. tostring(err))
 end
 
--- Test case for SetSequentialWaypoints
-local testWaypoints = {
-    Vector3.new(0, 10, 0),
-    Vector3.new(50, 10, 0),
-    Vector3.new(50, 10, 50),
-    Vector3.new(0, 10, 50),
-    Vector3.new(0, 10, 0) -- Loop back to start
-}
+-- Launch
 
-local ok, err = pcall(function()
-    SetSequentialWaypoints(testWaypoints, true)
-end)
-
-if ok then
-    forcePrint("LinkedSwordAI: SetSequentialWaypoints test successful!")
-else
-    forcePrint("LinkedSwordAI: SetSequentialWaypoints test failed: " .. tostring(err))
+if not success then
+    forcePrint("LinkedSwordAI: Initialization failed - " .. tostring(err))
 end
