@@ -42,6 +42,8 @@ end
 forcePrint("LinkedSwordAI: Enhanced script starting...")
 debugPrint("INIT", "Enhanced debug logging enabled")
 
+local success, err = pcall(function()
+
 -- Persistent global across respawns
 if not _G.LinkedSwordAIPersistentData then
     _G.LinkedSwordAIPersistentData = {
@@ -2127,20 +2129,16 @@ return Nav
 
     if persistentData.StatusGUI then persistentData.StatusGUI.UpdateStatus("AI Running") end
     forcePrint("LinkedSwordAI: Enhanced script initialized successfully")
-    return true
+
+    local success_init, err_init = pcall(InitializeAI)
+    if not success_init then
+        forcePrint("LinkedSwordAI: Initialization failed - " .. tostring(err_init))
+    end
+
 end)
 
 if not success then
     forcePrint("LinkedSwordAI: Script execution failed - " .. tostring(err))
 end
-
-local success, err = pcall(InitializeAI)
-if not success then
-    forcePrint("LinkedSwordAI: Initialization failed - " .. tostring(err))
-end
-
--- Launch
-
-if not success then
-    forcePrint("LinkedSwordAI: Initialization failed - " .. tostring(err))
+    return true
 end
