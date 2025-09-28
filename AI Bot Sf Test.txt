@@ -120,7 +120,7 @@ local CONFIG = {
     SAFE_GAP_DISTANCE = 10,
     PATH_SMOOTHING_FACTOR = 0.7,
     MOVEMENT_RETRY_DELAY = 1.0,
-    NARROW_PASSAGE_WIDTH = 2,
+    NARROW_PASSAGE_WIDTH = 3.5,
     PATHFINDING_STEPS = 10,
     COMBAT_BEHAVIOR_CHANGE_TIME = 4.0,
     COMBAT_DEFENSIVE_CHANCE = 0.2,
@@ -2039,4 +2039,3 @@ if ok then
 else
     forcePrint("LinkedSwordAI: SetSequentialWaypoints test failed: " .. tostring(err))
 end
-
