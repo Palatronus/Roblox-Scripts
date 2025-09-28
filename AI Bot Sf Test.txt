@@ -150,19 +150,18 @@ local CONFIG = {
     MOVE_COMMAND_COOLDOWN = 0.1,
     STUCK_COOLDOWN = 1.0,
     STUCK_RESET_DISTANCE = 3.0,
-    NARROW_EDGE_CHECK = 2.5, -- lateral edge probe for narrow walkways
+    NARROW_EDGE_CHECK = 0.9,
     NARROW_STEP_DISTANCE = 2.2,
     ENGAGE_MAX_DISTANCE = 35,
     NODE_GRAPH_REBUILD_INTERVAL = 8,
     NODE_MAX_LINK_DISTANCE = 120,
     NODE_PATH_RECOMPUTE_INTERVAL = 3.0,
-    PATH_SEGMENT_LENGTH = 20, -- Length of path segments for segmented pathfinding
     NODE_SWITCH_VOID_DISTANCE = 12,
     MAX_JUMP_HEIGHT = 6,
     WALL_DETECT_DISTANCE = 6,
     LEDGE_SAFE_DROP_HEIGHT = 12,
     LEDGE_DETECT_FORWARD_DISTANCE = 5,
-    LEDGE_DETECT_DOWN_DISTANCE = 15,
+    LEDGE_DETECT_DOWN_DISTANCE = 30,
     -- Advanced autoscan pathfinding config
     USE_AUTOSCAN_NODES = true,
     NAV_SCAN_STEP = 8,
@@ -186,7 +185,7 @@ local CONFIG = {
     ENGAGE_MAX_DISTANCE = 70,             -- only engage/react to targets within this distance
     ATTACK_ELEVATION_TOLERANCE = 6,     -- only attack if Y delta within this range
     MIN_JUMP_TRIGGER_HEIGHT = 0.5,        -- auto-jump for low 0.5+ stud obstacles
-
+    NARROW_EDGE_CHECK = 2.0,              -- lateral edge probe for narrow walkways
     NARROW_STEP_DISTANCE = 1.5            -- smaller step when on narrow passages
 }
 
@@ -839,10 +838,6 @@ local function InitializeAI()
         end
     end
 
-    function Nav:h(id, goalPos)
-        return (self.nodes[id].position - goalPos).Magnitude
-    end
-
     function Nav:AStar(startPos, goalPos)
         local startId = self:NearestNode(startPos)
         local goalId = self:NearestNode(goalPos)
@@ -850,7 +845,8 @@ local function InitializeAI()
         local open = {[startId] = true}
         local came = {}
         local g = {[startId] = 0}
-        local f = {[startId] = self:h(startId, goalPos)}
+        local function h(id) return (self.nodes[id].position - goalPos).Magnitude end
+        local f = {[startId] = h(startId)}
         local function lowestOpen()
             local bid, bf = nil, math.huge
             for id in pairs(open) do
@@ -887,12 +883,7 @@ local function InitializeAI()
 
     function Nav:ComputePath(startPos, goalPos)
         self:RebuildIfNeeded()
-        local fullPath = self:AStar(startPos, goalPos)
-        local path = {}
-        local segmentLength = math.min(#fullPath, CONFIG.PATH_SEGMENT_LENGTH)
-        for i = 1, segmentLength do
-            table.insert(path, fullPath[i])
-        end
+        local path = self:AStar(startPos, goalPos)
         self.path = path
         self.lastTarget = goalPos
         self.lastPathCompute = tick()
