@@ -92,7 +92,8 @@ if not _G.LinkedSwordAIPersistentData then
         Connections = { UpdateConn = nil, CharacterAddedConn = nil },
         -- Roaming state
         RoamNodeId = nil,
-        LastRoamRecomputeTime = 0
+        LastRoamRecomputeTime = 0,
+        PrioritizePathfinding = false
     }
 end
 
@@ -120,7 +121,7 @@ local CONFIG = {
     SAFE_GAP_DISTANCE = 10,
     PATH_SMOOTHING_FACTOR = 0.7,
     MOVEMENT_RETRY_DELAY = 1.0,
-    NARROW_PASSAGE_WIDTH = 2.5,
+    NARROW_PASSAGE_WIDTH = 3.5,
     PATHFINDING_STEPS = 10,
     COMBAT_BEHAVIOR_CHANGE_TIME = 4.0,
     COMBAT_DEFENSIVE_CHANCE = 0.2,
@@ -149,19 +150,19 @@ local CONFIG = {
     MOVE_COMMAND_COOLDOWN = 0.1,
     STUCK_COOLDOWN = 1.0,
     STUCK_RESET_DISTANCE = 3.0,
-    NARROW_EDGE_CHECK = 0.9,
+    NARROW_EDGE_CHECK = 2.5, -- lateral edge probe for narrow walkways
     NARROW_STEP_DISTANCE = 2.2,
     ENGAGE_MAX_DISTANCE = 35,
-    ATTACK_ELEVATION_TOLERANCE = 6,
     NODE_GRAPH_REBUILD_INTERVAL = 8,
     NODE_MAX_LINK_DISTANCE = 120,
     NODE_PATH_RECOMPUTE_INTERVAL = 3.0,
+    PATH_SEGMENT_LENGTH = 20, -- Length of path segments for segmented pathfinding
     NODE_SWITCH_VOID_DISTANCE = 12,
     MAX_JUMP_HEIGHT = 6,
     WALL_DETECT_DISTANCE = 6,
     LEDGE_SAFE_DROP_HEIGHT = 12,
     LEDGE_DETECT_FORWARD_DISTANCE = 5,
-    LEDGE_DETECT_DOWN_DISTANCE = 30,
+    LEDGE_DETECT_DOWN_DISTANCE = 15,
     -- Advanced autoscan pathfinding config
     USE_AUTOSCAN_NODES = true,
     NAV_SCAN_STEP = 8,
@@ -174,6 +175,7 @@ local CONFIG = {
     NAV_MAX_DROP_HEIGHT = 18,
     NAV_MIN_NODE_THRESHOLD = 24,
     NODE_FOLDER_NAMES = {"Nodes", "Waypoints", "NavNodes"},
+    MAX_SLOPE_ANGLE = 30, -- Degrees
     -- Roaming behavior
     ROAM_RECOMPUTE_INTERVAL = 8,
     ROAM_MIN_DISTANCE = 40,
@@ -182,11 +184,26 @@ local CONFIG = {
     UPDATE_TICK_RATE_HZ = 15,             -- throttle Update() to ~15 Hz for low CPU
     NODE_GRAPH_REBUILD_INTERVAL = 45,     -- seconds between autoscan rebuilds
     ENGAGE_MAX_DISTANCE = 70,             -- only engage/react to targets within this distance
-    ATTACK_ELEVATION_TOLERANCE = 3.5,     -- only attack if Y delta within this range
+    ATTACK_ELEVATION_TOLERANCE = 6,     -- only attack if Y delta within this range
     MIN_JUMP_TRIGGER_HEIGHT = 0.5,        -- auto-jump for low 0.5+ stud obstacles
-    NARROW_EDGE_CHECK = 2.0,              -- lateral edge probe for narrow walkways
+
     NARROW_STEP_DISTANCE = 1.5            -- smaller step when on narrow passages
 }
+
+local function SafeHumanoidChangeState(state)
+    if not Humanoid or not state then return false end
+    -- Cooldown jump requests to prevent double-jump spam
+    if state == Enum.HumanoidStateType.Jumping then
+        if tick() - (persistentData.LastJumpTime or 0) < CONFIG.JUMP_COOLDOWN then
+            return false
+        end
+        persistentData.LastJumpTime = tick()
+    end
+    local ok = pcall(function()
+        Humanoid:ChangeState(state)
+    end)
+    return ok
+end
 
 -- Create status GUI (same logic, minor label improvements)
 local function CreateStatusGUI()
@@ -289,6 +306,20 @@ local function InitializeAI()
 
     if not persistentData.StatusGUI then
         persistentData.StatusGUI = CreateStatusGUI()
+    end
+
+    -- Add robust checks for Nav table and its critical functions
+    if not Nav then
+        forcePrint("LinkedSwordAI: Nav table is nil after initialization. Critical error.")
+        return false
+    end
+    if not Nav.AStar then
+        forcePrint("LinkedSwordAI: Nav.AStar is nil. Critical pathfinding function missing.")
+        return false
+    end
+    if not Nav.ComputePath then
+        forcePrint("LinkedSwordAI: Nav.ComputePath is nil. Critical path computation function missing.")
+        return false
     end
 
     -- Robust sword finder (tries backpack and character)
@@ -659,6 +690,31 @@ local function InitializeAI()
         return false
     end
 
+    local function ShouldPrioritizePathfinding()
+        if not HumanoidRootPart or not persistentData.CurrentTarget or not persistentData.CurrentTarget.Character then return false end
+        local targetHRP = persistentData.CurrentTarget.Character:FindFirstChild("HumanoidRootPart")
+        if not targetHRP then return false end
+
+        -- Check if stuck
+        if CheckIfStuck() then return true end
+
+        -- Check if on significantly lower ground
+        local selfY = HumanoidRootPart.Position.Y
+        local targetY = targetHRP.Position.Y
+        if targetY - selfY > CONFIG.ATTACK_ELEVATION_TOLERANCE then
+            return true
+        end
+
+        -- Check for wall in front (stuck against wall scenario)
+        local directionToTarget = (targetHRP.Position - HumanoidRootPart.Position).Unit
+        local obsType, _ = DetectObstacleAhead(directionToTarget, CONFIG.NARROW_STEP_DISTANCE)
+        if obsType == "wall" then
+            return true
+        end
+
+        return false
+    end
+
     -- Terrain-aware NavManager and safe movement wrappers (clean-slate reimplementation)
     local Nav = {
         nodes = {},
@@ -666,8 +722,30 @@ local function InitializeAI()
         path = {},
         lastBuild = 0,
         lastTarget = nil,
-        lastPathCompute = 0
+        lastPathCompute = 0,
+        ComputeWorldBounds = nil,
+        RaycastSafe = nil,
+        InsertNode = nil,
+        ScanNodes = nil,
+        ConnectNodes = nil,
+        NearestNode = nil,
+        RebuildIfNeeded = nil,
+        h = nil,
+        AStar = nil,
+        ComputePath = nil,
+        NextStep = nil,
+        FollowTo = nil
     }
+
+    -- Robust nil checks for Nav table and its core functions
+    if not Nav then error("Nav table is nil at initialization!") end
+    if not Nav.AStar then error("Nav.AStar is nil at initialization!") end
+    if not Nav.ComputePath then error("Nav.ComputePath is nil at initialization!") end
+    if not Nav.FollowTo then error("Nav.FollowTo is nil at initialization!") end
+    if not Nav.NextStep then error("Nav.NextStep is nil at initialization!") end
+    if not Nav.ComputeWorldBounds then error("Nav.ComputeWorldBounds is nil at initialization!") end
+    if not Nav.ScanNodes then error("Nav.ScanNodes is nil at initialization!") end
+    if not Nav.RebuildIfNeeded then error("Nav.RebuildIfNeeded is nil at initialization!") end
 
     function Nav:ComputeWorldBounds()
         local minX, minY, minZ = math.huge, math.huge, math.huge
@@ -797,6 +875,10 @@ local function InitializeAI()
         end
     end
 
+    function Nav:h(id, goalPos)
+        return (self.nodes[id].position - goalPos).Magnitude
+    end
+
     function Nav:AStar(startPos, goalPos)
         local startId = self:NearestNode(startPos)
         local goalId = self:NearestNode(goalPos)
@@ -804,8 +886,7 @@ local function InitializeAI()
         local open = {[startId] = true}
         local came = {}
         local g = {[startId] = 0}
-        local function h(id) return (self.nodes[id].position - goalPos).Magnitude end
-        local f = {[startId] = h(startId)}
+        local f = {[startId] = self:h(startId, goalPos)}
         local function lowestOpen()
             local bid, bf = nil, math.huge
             for id in pairs(open) do
@@ -842,7 +923,18 @@ local function InitializeAI()
 
     function Nav:ComputePath(startPos, goalPos)
         self:RebuildIfNeeded()
-        local path = self:AStar(startPos, goalPos)
+        local fullPath
+        if Nav and Nav.AStar then
+            fullPath = self:AStar(startPos, goalPos)
+        else
+            forcePrint("LinkedSwordAI: Nav or Nav.AStar is nil when attempting to compute path.")
+            return {}
+        end
+        local path = {}
+        local segmentLength = math.min(#fullPath, CONFIG.PATH_SEGMENT_LENGTH)
+        for i = 1, segmentLength do
+            table.insert(path, fullPath[i])
+        end
         self.path = path
         self.lastTarget = goalPos
         self.lastPathCompute = tick()
@@ -870,7 +962,13 @@ local function InitializeAI()
     function Nav:FollowTo(goalPos)
         if not Humanoid or not HumanoidRootPart or not goalPos then return false end
         local currentPos = HumanoidRootPart.Position
-        local stepPos = self:NextStep(currentPos, goalPos)
+                local stepPos
+        if Nav and Nav.NextStep then
+            stepPos = self:NextStep(currentPos, goalPos)
+        else
+            forcePrint("LinkedSwordAI: Nav or Nav.NextStep is nil when attempting to get next step.")
+            return false
+        end
         if not stepPos then return false end
         local dy = stepPos.Y - currentPos.Y
         if dy > CONFIG.MIN_JUMP_TRIGGER_HEIGHT and dy <= CONFIG.MAX_JUMP_HEIGHT then
@@ -888,7 +986,7 @@ local function InitializeAI()
         end)
         if not ok then
             forcePrint("LinkedSwordAI: Nav MoveTo failed - " .. tostring(err))
-            return false
+    end        return false
         end
         return true
     end
@@ -896,22 +994,21 @@ local function InitializeAI()
     -- Safe wrappers now delegate to Nav
     local function SafeHumanoidMoveTo(targetPosition)
         if not Character or not Humanoid or not HumanoidRootPart or not targetPosition then return false end
+            if Nav and Nav.FollowTo then
         return Nav:FollowTo(targetPosition)
+    else
+        forcePrint("LinkedSwordAI: Nav or Nav.FollowTo is nil when attempting to follow target.")
+        return false
+    end
     end
 
-    local function SafeHumanoidChangeState(state)
-        if not Humanoid or not state then return false end
-        -- Cooldown jump requests to prevent double-jump spam
-        if state == Enum.HumanoidStateType.Jumping then
-            if tick() - (persistentData.LastJumpTime or 0) < CONFIG.JUMP_COOLDOWN then
-                return false
-            end
-            persistentData.LastJumpTime = tick()
-        end
+
         local ok = pcall(function()
             Humanoid:ChangeState(state)
         end)
         return ok and true or false
+
+return Nav
     end
 
     -- Unstucking: expanded directions (16)
@@ -995,7 +1092,12 @@ local function InitializeAI()
         -- Prefer provided bridge/alternative hints, otherwise go via NavManager
         local dest = targetPosition
         if bridgePath then dest = bridgePath elseif alternativePath then dest = alternativePath end
+            if Nav and Nav.FollowTo then
         return Nav:FollowTo(dest)
+    else
+        forcePrint("LinkedSwordAI: Nav or Nav.FollowTo is nil when attempting to follow destination.")
+        return false
+    end
     end
 
     local function TryJumpTo(position)
@@ -1348,6 +1450,16 @@ local function InitializeAI()
             local topCheck = Workspace:Raycast(hitPos + Vector3.new(0, CONFIG.MAX_JUMP_HEIGHT + 1, 0), Vector3.new(0, -(CONFIG.MAX_JUMP_HEIGHT + 2), 0), params)
             local topY = topCheck and topCheck.Position.Y or hitPos.Y
             local heightDiff = topY - HumanoidRootPart.Position.Y
+
+            -- Slope detection
+            local downRay = Workspace:Raycast(hitPos + Vector3.new(0, 0.1, 0), Vector3.new(0, -0.5, 0), params)
+            if downRay and downRay.Normal then
+                local slopeAngle = math.deg(math.acos(downRay.Normal:Dot(Vector3.new(0, 1, 0))))
+                if slopeAngle > CONFIG.MAX_SLOPE_ANGLE then
+                    return "slope", hitPos
+                end
+            end
+
             if heightDiff >= CONFIG.MIN_JUMP_TRIGGER_HEIGHT and heightDiff <= CONFIG.MAX_JUMP_HEIGHT then
                 return "jumpable", hitPos
             elseif heightDiff > CONFIG.MAX_JUMP_HEIGHT then
@@ -1404,10 +1516,10 @@ local function InitializeAI()
         -- Obstacle detection ahead: jump over low obstacles or switch to node navigation on walls
         do
             local obsType, hitPos = DetectObstacleAhead(smoothedDirection, CONFIG.WALL_DETECT_DISTANCE)
-            if obsType == "jumpable" then
+            if obsType == "jumpable" or obsType == "slope" then
                 if SafeHumanoidChangeState(Enum.HumanoidStateType.Jumping) then
                     SafeHumanoidMoveTo(smoothedTarget)
-                    if persistentData.StatusGUI then persistentData.StatusGUI.UpdateDebug("Jumping over obstacle") end
+                    if persistentData.StatusGUI then persistentData.StatusGUI.UpdateDebug("Jumping over obstacle/slope") end
                     return true
                 end
             elseif obsType == "wall" then
@@ -1640,6 +1752,9 @@ local function InitializeAI()
             if persistentData.StatusGUI then persistentData.StatusGUI.UpdateStatus("Waiting for character...") end
             return
         end
+
+        persistentData.PrioritizePathfinding = ShouldPrioritizePathfinding()
+
         -- adaptive periodic garbage collection
         local currentTime = tick()
         local perf = persistentData.PerformanceStats
@@ -1786,7 +1901,7 @@ local function InitializeAI()
 
             -- Attack gating by distance and elevation
             local deltaY = math.abs(targetHRP.Position.Y - HumanoidRootPart.Position.Y)
-            if distance <= CONFIG.ENGAGE_MAX_DISTANCE and deltaY <= CONFIG.ATTACK_ELEVATION_TOLERANCE then
+            if not persistentData.PrioritizePathfinding and distance <= CONFIG.ENGAGE_MAX_DISTANCE and deltaY <= CONFIG.ATTACK_ELEVATION_TOLERANCE then
                 if distance <= CONFIG.IMMEDIATE_ATTACK_RADIUS and (currentTime - (persistentData.LastAttackTime or 0)) >= CONFIG.ATTACK_COOLDOWN then
                     ExecuteAttack()
                 elseif distance <= CONFIG.ATTACK_RANGE and (currentTime - (persistentData.LastAttackTime or 0)) >= CONFIG.ATTACK_COOLDOWN then
@@ -2016,6 +2131,11 @@ local function InitializeAI()
 end
 
 -- Launch
+
+if not success then
+    forcePrint("LinkedSwordAI: Initialization failed - " .. tostring(err))
+end
+
 local success, err = pcall(InitializeAI)
 if not success then
     forcePrint("LinkedSwordAI: Initialization failed - " .. tostring(err))
