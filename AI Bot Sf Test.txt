@@ -1098,6 +1098,12 @@ local function InitializeAI()
         return false
     end
 
+local function SafeMoveTo(pos)
+    if Humanoid and pos then
+        Humanoid:MoveTo(pos)
+    end
+end
+
     -- Update loop logic
     local function Update()
         -- early guards: refresh references if lost
@@ -1520,3 +1526,4 @@ local success, err = pcall(InitializeAI)
 if not success then
     forcePrint("LinkedSwordAI: Initialization failed - " .. tostring(err))
 end
+
