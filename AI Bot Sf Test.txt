@@ -1,17 +1,19 @@
+[file name]: AI Bot Working ver.txt
+[file content begin]
 --[[ 
-    Linked Sword AI Combat Script (Enhanced Version - Node Segmented)
-    Base file: AI Bot Working ver.txt (uploaded by user) :contentReference[oaicite:1]{index=1}
-
-    Changes implemented:
-    - Segmented node-based pathfinding with fixed nodes for major key points
-    - Explicit adjacency for sequences you described (Center->Bottom->Hill->Upper->Lower)
-    - Node fallback to nearest node + original pathfinding preserved
-    - Max slope detection (auto-jump for heights >= 1 stud up to MAX_JUMP_HEIGHT)
-    - Adjusted sword swing distance (SWING_RANGE) to avoid swinging from unreasonable distances
-    - FE-compatible Humanoid usage and guarded calls
+    Linked Sword AI Combat Script (Enhanced Version)
+    Implemented improvements per user request:
+    - Adaptive periodic garbage collection
+    - Expanded safe pathfinding (16 alternatives)
+    - Continuous movement & smooth path transitions
+    - ForceField proximity detection + fleeing/evasion
+    - Offensive-defensive sword combat with strafing and deceptive lunges
+    - Transparent platform avoidance + intelligent jumping
+    - Faster, robust respawn/equip logic
+    Based on original prototype file: AI Bot Sf Prototypes :contentReference[oaicite:1]{index=1}
 --]]
 
--- Force immediate printing with rate-limit to avoid flooding
+-- Force immediate printing
 local _lastErrorMsg, _lastErrorTime, _errorCount = nil, 0, 0
 local function shouldLog(msg)
     local now = tick()
@@ -39,10 +41,10 @@ local function debugPrint(category, ...)
     forcePrint(timestamp .. " - " .. message)
 end
 
-forcePrint("LinkedSwordAI: Enhanced script (Node Segmented) starting...")
+forcePrint("LinkedSwordAI: Enhanced script starting...")
 debugPrint("INIT", "Enhanced debug logging enabled")
 
--- Persistent global across respawns (preserve state)
+-- Persistent global across respawns
 if not _G.LinkedSwordAIPersistentData then
     _G.LinkedSwordAIPersistentData = {
         LinkedSword = nil,
@@ -137,272 +139,14 @@ local CONFIG = {
     NODE_MAX_LINK_DISTANCE = 120,
     NODE_PATH_RECOMPUTE_INTERVAL = 3.0,
     NODE_SWITCH_VOID_DISTANCE = 12,
-    MAX_JUMP_HEIGHT = 6,              -- maximum auto-jump height (studs)
+    MAX_JUMP_HEIGHT = 6,
     WALL_DETECT_DISTANCE = 6,
     LEDGE_SAFE_DROP_HEIGHT = 12,
     LEDGE_DETECT_FORWARD_DISTANCE = 5,
-    LEDGE_DETECT_DOWN_DISTANCE = 30,
-    -- Swing tuning
-    SWING_RANGE = 11,                 -- reasonable swing activation distance (studs)
-    SWING_STRICT_RANGE = 8            -- closer-range more aggressive swings
+    LEDGE_DETECT_DOWN_DISTANCE = 30
 }
 
--- Fixed named coordinates (pairs given by user)
--- Each entry stores two Vector3s defining an area rectangle (or pair); we compute a center point and a bounding box
-local FIXED_AREAS = {
-    Center = { Vector3.new(-30.36, 249.67, -30.42), Vector3.new(30.52, 249.67, 30.36) },
-    LowerBridge1 = { Vector3.new(-47.61, 260.26, -0.57), Vector3.new(-89.31, 260.18, 0.56) },
-    LowerBridge2 = { Vector3.new(-117.58, 260.07, -9.98), Vector3.new(-116.46, 260.10, -37.44) },
-    RegenArea = { Vector3.new(-106.42, 258.89, -8.31), Vector3.new(-125.50, 258.91, 17.55) },
-    BottomArea = { Vector3.new(-19.45, 234.09, -43.63), Vector3.new(21.48, 234.09, -32.43) },
-    HillBottom1 = { Vector3.new(35.40, 249.30, -97.38), Vector3.new(27.53, 249.29, -147.68) },
-    HillBottom2 = { Vector3.new(26.37, 249.28, -147.67), Vector3.new(-17.55, 249.28, -141.43) },
-    HillBottom3 = { Vector3.new(-17.57, 249.30, -140.63), Vector3.new(-16.47, 249.30, -97.36) },
-    HillStair1 = { Vector3.new(26.40, 249.30, -97.51), Vector3.new(-14.48, 263.70, -106.51) },
-    HillStair2 = { Vector3.new(-14.49, 266.10, -107.44), Vector3.new(24.41, 275.70, -116.45) },
-    HillStair3 = { Vector3.new(25.62, 275.70, -117.49), Vector3.new(16.51, 285.27, -140.43) },
-    Hill = { Vector3.new(15.42, 286.26, -137.49), Vector3.new(-27.53, 286.48, -125.29) },
-    UpperBridge1 = { Vector3.new(-28.55, 287.70, -130.53), Vector3.new(-56.47, 288.87, -131.73) },
-    UpperBridge2 = { Vector3.new(-56.51, 288.87, -129.54), Vector3.new(-55.52, 288.88, 67.58) },
-    UpperBridge3 = { Vector3.new(-56.51, 290.10, 87.53), Vector3.new(46.47, 290.07, 88.55) },
-    UpperBase = { Vector3.new(-57.46, 288.89, 61.56), Vector3.new(-90.67, 288.90, 92.48) },
-    GrayBridge = { Vector3.new(2.46, 250.47, 208.97), Vector3.new(-1.48, 250.47, 311.91) },
-    ArmorArea = { Vector3.new(17.40, 249.30, 313.59), Vector3.new(-14.58, 249.30, 342.48) },
-    Base = { Vector3.new(7.56, 249.30, 207.46), Vector3.new(-7.55, 249.30, 187.56) }
-}
-
--- Utility: compute bounding box center & check if point inside area
-local function AreaCenter(area)
-    local a, b = area[1], area[2]
-    return Vector3.new((a.X + b.X) / 2, (a.Y + b.Y) / 2, (a.Z + b.Z) / 2)
-end
-
-local function IsPointInArea(position, area)
-    local a, b = area[1], area[2]
-    local minX, maxX = math.min(a.X, b.X), math.max(a.X, b.X)
-    local minY, maxY = math.min(a.Y, b.Y), math.max(a.Y, b.Y)
-    local minZ, maxZ = math.min(a.Z, b.Z), math.max(a.Z, b.Z)
-    return position.X >= minX and position.X <= maxX
-       and position.Y >= minY and position.Y <= maxY
-       and position.Z >= minZ and position.Z <= maxZ
-end
-
--- Precompute named node points (centers)
-local NAMED_NODES = {}
-for name, area in pairs(FIXED_AREAS) do
-    NAMED_NODES[name] = AreaCenter(area)
-end
-
--- Build a specialized adjacency graph connecting nodes along requested sequences.
--- We'll create a fixed node graph (nodes = named nodes) and adjacency following the user-specified paths.
-local function BuildFixedNodeGraph()
-    local nodes = {}
-    local idx = 0
-    local nameToId = {}
-    -- create nodes for every named node
-    for name, pos in pairs(NAMED_NODES) do
-        idx = idx + 1
-        nodes[idx] = { id = idx, name = name, position = pos }
-        nameToId[name] = idx
-    end
-
-    -- helper to add adjacency
-    local adjacency = {}
-    for i = 1, idx do adjacency[i] = {} end
-    local function link(aName, bName)
-        local a = nameToId[aName]; local b = nameToId[bName]
-        if a and b then
-            table.insert(adjacency[a], b)
-            table.insert(adjacency[b], a)
-        end
-    end
-
-    -- Create links according to sequences described
-
-    -- Center <-> LowerBridge1 (approach to lower bridges from center)
-    link("Center", "LowerBridge1")
-
-    -- LowerBridge1 <-> LowerBridge2 (bridge chain)
-    link("LowerBridge1", "LowerBridge2")
-
-    -- LowerBridge2 <-> RegenArea
-    link("LowerBridge2", "RegenArea")
-    link("LowerBridge1", "RegenArea")
-
-    -- Center <-> BottomArea (if bot fell)
-    link("Center", "BottomArea")
-
-    -- Bottom -> Hill Bottom sequence
-    link("BottomArea", "HillBottom1")
-    link("HillBottom1", "HillStair1") -- start staircase
-    link("HillStair1", "HillStair2")
-    link("HillStair2", "HillStair3")
-    link("HillStair3", "Hill")
-    link("Hill", "UpperBridge1")
-    link("UpperBridge1", "UpperBridge2")
-    -- note: UpperBridge2 connects downward to LowerBridge1 per request (drop)
-    link("UpperBridge2", "LowerBridge1")
-
-    -- Hill bottom path variants
-    link("HillBottom1", "HillBottom2")
-    link("HillBottom2", "HillBottom3")
-    link("HillBottom3", "Hill") -- connect back to hill
-
-    -- UpperBase and UpperBridge3 connectivity
-    link("UpperBridge2", "UpperBase")
-    link("UpperBase", "UpperBridge3")
-    link("UpperBridge3", "UpperBridge2") -- bidirectional (already linked by link)
-
-    -- Gray Bridge and Armor/Base flow
-    link("Base", "GrayBridge")
-    link("GrayBridge", "ArmorArea")
-    link("Base", "ArmorArea")
-
-    -- UpperBridge2 <-> UpperBridge3 (already via UpperBase, but ensure direct possibility)
-    link("UpperBridge2", "UpperBridge3")
-
-    -- Ensure all nodes are connected by at least nearest edges if missing
-    -- Also attempt to link spatially near nodes if distance short
-    for i = 1, idx do
-        for j = i+1, idx do
-            local a = nodes[i].position; local b = nodes[j].position
-            if (a - b).Magnitude <= CONFIG.NODE_MAX_LINK_DISTANCE then
-                -- add link if not present
-                local found = false
-                for _, v in ipairs(adjacency[i]) do if v == j then found = true break end end
-                if not found then
-                    table.insert(adjacency[i], j)
-                    table.insert(adjacency[j], i)
-                end
-            end
-        end
-    end
-
-    -- store graph
-    persistentData.NodeGraph = { nodes = nodes, adjacency = adjacency, nameToId = nameToId }
-    persistentData.NodeGraphBuiltTime = tick()
-    return true
-end
-
--- Build fixed node graph at initialization
-BuildFixedNodeGraph()
-
--- Node helpers (modified to work with fixed graph)
-local function FindNearestNamedNode(position)
-    local graph = persistentData.NodeGraph
-    if not graph or not graph.nodes or #graph.nodes == 0 then return nil end
-    local bestId, bestDist = nil, math.huge
-    for id, node in ipairs(graph.nodes) do
-        local d = (node.position - position).Magnitude
-        if d < bestDist then
-            bestDist = d
-            bestId = id
-        end
-    end
-    return bestId
-end
-
-local function ComputeNodePathBetweenPositions(startPos, goalPos)
-    -- Use the fixed NodeGraph; compute BFS between nearest nodes
-    if not persistentData.NodeGraph or not persistentData.NodeGraph.nodes or #persistentData.NodeGraph.nodes == 0 then
-        BuildFixedNodeGraph()
-    end
-    local nodes = persistentData.NodeGraph.nodes
-    local adj = persistentData.NodeGraph.adjacency
-    local startId = FindNearestNamedNode(startPos)
-    local goalId = FindNearestNamedNode(goalPos)
-    if not startId or not goalId then return nil end
-    if startId == goalId then
-        persistentData.NodePath = { nodes[startId].position }
-        persistentData.CurrentNodeIndex = 1
-        persistentData.LastNodePathComputedTime = tick()
-        return persistentData.NodePath
-    end
-    -- BFS
-    local queue = {startId}; local visited = {}; visited[startId] = true; local prev = {}
-    local found = false
-    while #queue > 0 do
-        local u = table.remove(queue, 1)
-        if u == goalId then found = true; break end
-        for _, v in ipairs(adj[u] or {}) do
-            if not visited[v] then
-                visited[v] = true
-                prev[v] = u
-                table.insert(queue, v)
-            end
-        end
-    end
-    if not found then return nil end
-    local pathIds = {}
-    local cur = goalId
-    while cur do
-        table.insert(pathIds, 1, cur)
-        cur = prev[cur]
-    end
-    local positions = {}
-    for _, id in ipairs(pathIds) do
-        table.insert(positions, nodes[id].position)
-    end
-    persistentData.NodePath = positions
-    persistentData.CurrentNodeIndex = 1
-    persistentData.LastNodePathComputedTime = tick()
-    return positions
-end
-
-local function FollowNodePath()
-    local path = persistentData.NodePath
-    if not path or #path == 0 then return false end
-    if not persistentData.Character or not persistentData.Character:FindFirstChild("HumanoidRootPart") then return false end
-    local HumanoidRootPart = persistentData.Character:FindFirstChild("HumanoidRootPart")
-    local idx = persistentData.CurrentNodeIndex or 1
-    if idx > #path then return false end
-    local waypoint = path[idx]
-    local dist = (waypoint - HumanoidRootPart.Position).Magnitude
-    if dist < 4 then
-        persistentData.CurrentNodeIndex = idx + 1
-        return true
-    end
-    -- if waypoint is higher and within jumpable range, attempt jump
-    local deltaY = waypoint.Y - HumanoidRootPart.Position.Y
-    if deltaY >= 1 and deltaY <= CONFIG.MAX_JUMP_HEIGHT then
-        -- attempt jump then move
-        pcall(function() if HumanoidRootPart and persistentData.Character then local h = persistentData.Character:FindFirstChild("Humanoid") if h then h:ChangeState(Enum.HumanoidStateType.Jumping) end end end)
-        pcall(function() local h = persistentData.Character and persistentData.Character:FindFirstChild("Humanoid") if h then h:MoveTo(waypoint) end end)
-        if persistentData.StatusGUI then persistentData.StatusGUI.UpdateDebug("NodeNav jump-> waypoint #" .. tostring(idx)) end
-        return true
-    else
-        pcall(function() local h = persistentData.Character and persistentData.Character:FindFirstChild("Humanoid") if h then h:MoveTo(waypoint) end end)
-        if persistentData.StatusGUI then persistentData.StatusGUI.UpdateDebug("NodeNav -> waypoint #" .. tostring(idx)) end
-        return true
-    end
-end
-
--- Max slope / jump detection helper
-local function IsStepJumpNeeded(fromPos, toPos)
-    -- If Y difference >= 1 stud (and <= MAX_JUMP_HEIGHT), consider jumping
-    local dy = toPos.Y - fromPos.Y
-    if dy >= 1 and dy <= CONFIG.MAX_JUMP_HEIGHT then
-        return true
-    end
-    return false
-end
-
--- Convert named area check to high-level location detection
-local function GetAreaNameForPosition(position)
-    for name, area in pairs(FIXED_AREAS) do
-        if IsPointInArea(position, area) then
-            return name
-        end
-    end
-    return nil
-end
-
--- ==============
--- The rest of your previously-existing functions (IsVoidArea, IsSafeGap, etc.) remain as in your working file.
--- I will re-include them here (with small guards) so the script is self-contained.
--- ==============
-
--- CreateStatusGUI (copied/kept from user's file)
+-- Create status GUI (same logic, minor label improvements)
 local function CreateStatusGUI()
     local gui = {}
     local Players = game:GetService("Players")
@@ -468,7 +212,7 @@ local function CreateStatusGUI()
     return gui
 end
 
--- Begin InitializeAI (kept largely from working file; key points updated to use node nav)
+-- Initialize AI (protected)
 local function InitializeAI()
     local Players = game:GetService("Players")
     local RunService = game:GetService("RunService")
@@ -484,6 +228,7 @@ local function InitializeAI()
 
     local Character = LocalPlayer.Character
     if not Character then
+        -- wait briefly for character to spawn
         pcall(function() Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait() end)
     end
     if not Character then
@@ -491,13 +236,20 @@ local function InitializeAI()
         return false
     end
 
-    persistentData.Character = Character
-
-    local Humanoid = Character:FindFirstChild("Humanoid")
-    local HumanoidRootPart = Character:FindFirstChild("HumanoidRootPart")
+    local Humanoid = Character:FindFirstChild("Humanoid") or (pcall(function() return Character:WaitForChild("Humanoid", 2) end) and Character:FindFirstChild("Humanoid") or nil)
+    local HumanoidRootPart = Character:FindFirstChild("HumanoidRootPart") or (pcall(function() return Character:WaitForChild("HumanoidRootPart", 2) end) and Character:FindFirstChild("HumanoidRootPart") or nil)
     if not Humanoid or not HumanoidRootPart then
         forcePrint("LinkedSwordAI: Humanoid or HumanoidRootPart not found")
         return false
+    end
+
+    forcePrint("LinkedSwordAI: Character components found")
+
+    -- SafeMoveTo helper function
+    local function SafeMoveTo(pos)
+        if Humanoid and pos then
+            Humanoid:MoveTo(pos)
+        end
     end
 
     if not persistentData.StatusGUI then
@@ -575,12 +327,7 @@ local function InitializeAI()
         return players
     end
 
-    -- The rest of the previously provided helper functions (isPartUnsafe, IsVoidArea, IsSafeGap, IsNarrowPassage, FindBridgePath)
-    -- are used as-is from your working file. We'll reference them, and ensure they exist.
-    -- (For brevity, I'm referencing the original implementations from your upload - they remain unchanged
-    --  except for extra guards to avoid nil errors - see the earlier uploaded file for exact logic.)
-    -- We'll reimplement the core ones we need here:
-
+    -- Treat transparent or non-collidable parts as void (vanishing platforms)
     local function isPartUnsafe(part)
         if not part then return true end
         if part.Transparency and part.Transparency >= CONFIG.TRANSPARENT_THRESHOLD then return true end
@@ -588,8 +335,8 @@ local function InitializeAI()
         return false
     end
 
+    -- Check if a position is in a void (improved)
     local function IsVoidArea(position)
-        if not position then return true end
         -- Known void areas quick check
         for i, vp in ipairs(persistentData.KnownVoidAreas) do
             if (position - vp).Magnitude < 5 then
@@ -607,6 +354,8 @@ local function InitializeAI()
             return true
         end
 
+        -- Raycast downwards and inspect hit
+        if not Character then return true end
         local params = RaycastParams.new()
         params.FilterDescendantsInstances = {Character}
         params.FilterType = Enum.RaycastFilterType.Blacklist
@@ -623,6 +372,7 @@ local function InitializeAI()
         else
             local hitPart = rayRes.Instance
             if isPartUnsafe(hitPart) then
+                -- treat this as void-like because platform vanishes or non-collidable
                 if #persistentData.KnownVoidAreas < CONFIG.MAX_KNOWN_VOID_AREAS then
                     table.insert(persistentData.KnownVoidAreas, position)
                 else
@@ -636,13 +386,14 @@ local function InitializeAI()
         return false
     end
 
+    -- IsSafeGap (unchanged fundamentals but uses IsVoidArea improvements)
     local function IsSafeGap(startPos, endPos)
-        if not startPos or not endPos then return false end
         local distance = (endPos - startPos).Magnitude
         if distance < 3 then
             return not IsVoidArea(endPos)
         end
         if distance < CONFIG.SAFE_GAP_DISTANCE then
+            if not Character then return false end
             local params = RaycastParams.new()
             params.FilterDescendantsInstances = {Character}
             params.FilterType = Enum.RaycastFilterType.Blacklist
@@ -652,6 +403,7 @@ local function InitializeAI()
         local direction = (endPos - startPos).Unit
         local checkCount = math.ceil(distance / 2)
         for i = 1, checkCount do
+            if not Character then return false end
             local checkPoint = startPos + direction * (i * 2)
             local params = RaycastParams.new()
             params.FilterDescendantsInstances = {Character}
@@ -665,9 +417,7 @@ local function InitializeAI()
     end
 
     local function IsNarrowPassage(position, direction)
-        if not position or not direction then return false end
-        local ok, cross = pcall(function() return direction:Cross(Vector3.new(0,1,0)).Unit end)
-        if not ok or not cross then return false end
+        local cross = direction:Cross(Vector3.new(0,1,0)).Unit
         local leftRay = Ray.new(position, cross * CONFIG.NARROW_PASSAGE_WIDTH)
         local rightRay = Ray.new(position, -cross * CONFIG.NARROW_PASSAGE_WIDTH)
         local leftHit, _ = Workspace:FindPartOnRay(leftRay, Character)
@@ -676,10 +426,7 @@ local function InitializeAI()
     end
 
     local function FindBridgePath(startPos, endPos)
-        if not startPos or not endPos then return nil end
-        local direction = (endPos - startPos)
-        if direction.Magnitude == 0 then return nil end
-        direction = direction.Unit
+        local direction = (endPos - startPos).Unit
         local distance = (endPos - startPos).Magnitude
         for dist = 5, math.min(CONFIG.BRIDGE_CHECK_DISTANCE, distance), 5 do
             local checkPoint = startPos + direction * dist
@@ -700,30 +447,389 @@ local function InitializeAI()
         return nil
     end
 
-    -- Safe wrappers to guard Humanoid operations (FE-compatible)
-    local function SafeHumanoidMoveTo(humanoid, targetPosition)
-        if not humanoid or not targetPosition then return false end
-        local ok, err = pcall(function()
-            humanoid:MoveTo(targetPosition)
-        end)
-        if not ok then
-            forcePrint("LinkedSwordAI: MoveTo failed - " .. tostring(err))
+    -- Duplicate node graph helpers removed (hoisted earlier)
+
+    -- Duplicate node graph helpers removed (ComputeNodePath, ShouldSwitchToNodeNavigation, FollowNodePath, DetectObstacleAhead)
+    -- See primary implementations earlier in the file.
+
+
+    -- IsSafePath (expanded alternatives and caching)
+    local function IsSafePath(targetPosition)
+        if CONFIG.PERFORMANCE_MODE then
+            local currentTime = tick()
+            local hashKey = math.floor(targetPosition.X) .. "," .. math.floor(targetPosition.Y) .. "," .. math.floor(targetPosition.Z)
+            local cached = persistentData.PathCache[hashKey]
+            if cached and currentTime - cached.time < CONFIG.PATH_CACHE_TIME then
+                debugPrint("PATH", "Using cached result")
+                return cached.safe, cached.bridgePath, cached.alternativePath
+            end
+        end
+
+        local startTime = tick()
+
+        local failedCount = #persistentData.FailedPaths
+        if failedCount > 0 then
+            for i = failedCount, math.max(1, failedCount - 4), -1 do
+                local fp = persistentData.FailedPaths[i]
+                if fp and (targetPosition - fp.position).Magnitude < 5 and tick() - fp.time < 10 then
+                    return false
+                end
+            end
+        end
+
+        local startPos = (Character and Character:FindFirstChild("HumanoidRootPart") and Character.HumanoidRootPart.Position) or persistentData.LastStuckPosition or Vector3.new(0,0,0)
+        local direction = (targetPosition - startPos)
+        if direction.Magnitude == 0 then
+            return not IsVoidArea(targetPosition)
+        end
+        direction = direction.Unit
+        local distance = (targetPosition - startPos).Magnitude
+
+        local isNarrow = IsNarrowPassage(startPos, direction)
+        if isNarrow then
+            local narrowIncrement = math.min(2, distance / 8)
+            for i = narrowIncrement, distance, narrowIncrement do
+                local checkPos = startPos + direction * i
+                if IsVoidArea(checkPos) then
+                    if #persistentData.FailedPaths >= 12 then table.remove(persistentData.FailedPaths, 1) end
+                    table.insert(persistentData.FailedPaths, {position = targetPosition, time = tick()})
+                    if CONFIG.PERFORMANCE_MODE then
+                        local hashKey = math.floor(targetPosition.X) .. "," .. math.floor(targetPosition.Y) .. "," .. math.floor(targetPosition.Z)
+                        persistentData.PathCache[hashKey] = {safe = false, time = tick(), bridgePath = nil}
+                    end
+                    return false
+                end
+            end
+        else
+            local increment = math.min(5, math.max(2, distance / 5))
+            for i = increment, distance, increment do
+                local checkPos = startPos + direction * i
+                if IsVoidArea(checkPos) then
+                    local bridgePath = FindBridgePath(startPos, targetPosition)
+                    if bridgePath then
+                        if CONFIG.PERFORMANCE_MODE then
+                            local hashKey = math.floor(targetPosition.X) .. "," .. math.floor(targetPosition.Y) .. "," .. math.floor(targetPosition.Z)
+                            persistentData.PathCache[hashKey] = {safe = true, time = tick(), bridgePath = bridgePath}
+                            persistentData.PerformanceStats.PathfindingTime = tick() - startTime
+                        end
+                        return true, bridgePath
+                    end
+
+                    -- Try expanded alternative directions (16 angles)
+                    local halfDistance = distance * 0.5
+                    local piDivided = (2 * math.pi) / CONFIG.ALTERNATIVE_PATH_COUNT
+                    local upVector = Vector3.new(0,1,0)
+                    for altIndex = 0, CONFIG.ALTERNATIVE_PATH_COUNT - 1 do
+                        local angle = altIndex * piDivided
+                        local rotation = CFrame.fromAxisAngle(upVector, angle)
+                        local altDir = (rotation * CFrame.new(direction)).lookVector
+                        local altTargetPos = startPos + altDir * halfDistance
+                        local altSafe = true
+                        for j = increment, math.max(2, halfDistance), increment do
+                            local altCheckPos = startPos + altDir * j
+                            if IsVoidArea(altCheckPos) then
+                                altSafe = false
+                                break
+                            end
+                        end
+                        if altSafe then
+                            persistentData.AlternativePaths[targetPosition] = altTargetPos
+                            if CONFIG.PERFORMANCE_MODE then
+                                local hashKey = math.floor(targetPosition.X) .. "," .. math.floor(targetPosition.Y) .. "," .. math.floor(targetPosition.Z)
+                                persistentData.PathCache[hashKey] = {safe = false, time = tick(), bridgePath = nil, alternativePath = altTargetPos}
+                                persistentData.PerformanceStats.PathfindingTime = tick() - startTime
+                            end
+                            return false, nil, altTargetPos
+                        end
+                    end
+
+                    if #persistentData.FailedPaths >= 12 then table.remove(persistentData.FailedPaths, 1) end
+                    table.insert(persistentData.FailedPaths, {position = targetPosition, time = tick()})
+                    if CONFIG.PERFORMANCE_MODE then
+                        local hashKey = math.floor(targetPosition.X) .. "," .. math.floor(targetPosition.Y) .. "," .. math.floor(targetPosition.Z)
+                        persistentData.PathCache[hashKey] = {safe = false, time = tick(), bridgePath = nil}
+                        persistentData.PerformanceStats.PathfindingTime = tick() - startTime
+                    end
+                    return false
+                end
+            end
+        end
+
+        if IsVoidArea(targetPosition) then
+            if #persistentData.FailedPaths >= 12 then table.remove(persistentData.FailedPaths, 1) end
+            table.insert(persistentData.FailedPaths, {position = targetPosition, time = tick()})
+            if CONFIG.PERFORMANCE_MODE then
+                local hashKey = math.floor(targetPosition.X) .. "," .. math.floor(targetPosition.Y) .. "," .. math.floor(targetPosition.Z)
+                persistentData.PathCache[hashKey] = {safe = false, time = tick(), bridgePath = nil}
+                persistentData.PerformanceStats.PathfindingTime = tick() - startTime
+            end
             return false
         end
+
+        if CONFIG.PERFORMANCE_MODE then
+            local hashKey = math.floor(targetPosition.X) .. "," .. math.floor(targetPosition.Y) .. "," .. math.floor(targetPosition.Z)
+            persistentData.PathCache[hashKey] = {safe = true, time = tick(), bridgePath = nil}
+            persistentData.PerformanceStats.PathfindingTime = tick() - startTime
+        end
+
         return true
     end
 
-    local function SafeHumanoidChangeState(humanoid, state)
-        if not humanoid or not state then return false end
+    -- Stuck detection
+    local function CheckIfStuck()
+        if not HumanoidRootPart then return false end
+        if not persistentData.LastStuckPosition then
+            persistentData.LastStuckPosition = HumanoidRootPart.Position
+            persistentData.LastStuckTime = tick()
+            return false
+        end
+
+        local currentTime = tick()
+        if currentTime - persistentData.LastStuckTime > CONFIG.STUCK_CHECK_TIME then
+            local dist = (HumanoidRootPart.Position - persistentData.LastStuckPosition).Magnitude
+            if dist < CONFIG.STUCK_CHECK_DISTANCE then
+                persistentData.IsStuck = true
+                if persistentData.StatusGUI then persistentData.StatusGUI.UpdateDebug("Stuck detected") end
+                return true
+            end
+            persistentData.LastStuckPosition = HumanoidRootPart.Position
+            persistentData.LastStuckTime = currentTime
+        end
+        return false
+    end
+
+    -- Unstucking: expanded directions (16)
+    local function HandleStuckOnPlayer()
+        if not HumanoidRootPart then return false end
+        if persistentData.StatusGUI then persistentData.StatusGUI.UpdateStatus("Unstucking") end
+        local directions = {}
+        for i = 0, 15 do
+            local angle = (i / 16) * 2 * math.pi
+            table.insert(directions, Vector3.new(math.cos(angle), 0, math.sin(angle)).Unit)
+        end
+        for _, dir in ipairs(directions) do
+            local targetPosition = HumanoidRootPart.Position + dir * 6
+            if IsSafePath(targetPosition) then
+                SafeMoveTo(targetPosition)
+                if persistentData.StatusGUI then persistentData.StatusGUI.UpdateDebug("Moving to unstuck") end
+                return true
+            end
+        end
+        if persistentData.StatusGUI then persistentData.StatusGUI.UpdateDebug("No safe unstuck path") end
+        return false
+    end
+
+    -- Flee from ForceField players (repaired & functional)
+    local function HandleFleeFromForceField()
+        if CONFIG.FORCEFIELD_FLEE_DISTANCE <= 0 then return false end
+        if not HumanoidRootPart then return false end
+        local nearestFF, nearestDist = nil, math.huge
+        for _, ffPlayer in pairs(persistentData.PlayersWithForceField) do
+            if ffPlayer and ffPlayer.Character and ffPlayer.Character:FindFirstChild("HumanoidRootPart") then
+                local dist = (ffPlayer.Character.HumanoidRootPart.Position - HumanoidRootPart.Position).Magnitude
+                if dist < nearestDist then
+                    nearestFF = ffPlayer
+                    nearestDist = dist
+                end
+            end
+        end
+        if nearestFF and nearestDist < CONFIG.FORCEFIELD_FLEE_DISTANCE then
+            if persistentData.StatusGUI then
+                persistentData.StatusGUI.UpdateStatus("Fleeing FF: " .. nearestFF.Name)
+                persistentData.StatusGUI.UpdateDebug("FF distance: " .. string.format("%.1f", nearestDist))
+            end
+            -- Primary flee direction: away from FF
+            local fleeDir = (HumanoidRootPart.Position - nearestFF.Character.HumanoidRootPart.Position)
+            if fleeDir.Magnitude == 0 then
+                fleeDir = Vector3.new(math.random()-0.5, 0, math.random()-0.5).Unit
+            else
+                fleeDir = fleeDir.Unit
+            end
+            -- Preferred flee target at configured distance
+            local fleeTarget = HumanoidRootPart.Position + fleeDir * CONFIG.FORCEFIELD_FLEE_DISTANCE
+
+            -- If not safe, try perpendicular evasive maneuvers
+            if IsSafePath(fleeTarget) then
+                SafeMoveTo(fleeTarget)
+                return true
+            else
+                local altDirs = {
+                    (fleeDir + Vector3.new(0.4, 0, 0.2)).Unit,
+                    (fleeDir + Vector3.new(-0.4, 0, 0.2)).Unit,
+                    (fleeDir + Vector3.new(0.2, 0, -0.4)).Unit,
+                    (fleeDir + Vector3.new(-0.2, 0, -0.4)).Unit
+                }
+                for _, ad in ipairs(altDirs) do
+                    local altT = HumanoidRootPart.Position + ad * CONFIG.FORCEFIELD_FLEE_DISTANCE
+                    if IsSafePath(altT) then
+                        SafeMoveTo(altT)
+                        return true
+                    end
+                end
+            end
+            if persistentData.StatusGUI then persistentData.StatusGUI.UpdateDebug("FF: No safe flee path") end
+        end
+        return false
+    end
+
+    -- Safe wrappers to guard Humanoid operations
+    local function SafeHumanoidChangeState(state)
+        if not Humanoid or not state then return false end
         local ok = pcall(function()
-            humanoid:ChangeState(state)
+            Humanoid:ChangeState(state)
         end)
         return ok and true or false
     end
 
-    -- Obstacle detection ahead (used earlier)
-    local function DetectObstacleAhead(HumanoidRootPart, direction, checkDistance)
-        if not HumanoidRootPart or not direction then return "clear", nil end
+    -- Node navigation helpers (hoisted to avoid nil-call forward references)
+    -- Implementations moved earlier to ensure availability
+    local MoveTo; local TryJumpTo; local ExecuteAttack
+
+    -- Build the node graph from Workspace folders and named parts
+    local function BuildNodeGraph()
+        local folders = {}
+        for _, name in ipairs(CONFIG.NODE_FOLDER_NAMES) do
+            local f = Workspace:FindFirstChild(name)
+            if f then table.insert(folders, f) end
+        end
+        local nodes = {}
+        local idx = 0
+        for _, folder in ipairs(folders) do
+            for _, inst in ipairs(folder:GetChildren()) do
+                if inst:IsA("BasePart") then
+                    idx = idx + 1
+                    nodes[idx] = { id = idx, position = inst.Position, instance = inst }
+                end
+            end
+        end
+        if idx == 0 then
+            -- Fallback: search for parts named like Node<number>
+            for _, inst in ipairs(Workspace:GetDescendants()) do
+                if inst:IsA("BasePart") and tostring(inst.Name):lower():match("^node%d+") then
+                    idx = idx + 1
+                    nodes[idx] = { id = idx, position = inst.Position, instance = inst }
+                end
+            end
+        end
+        local adjacency = {}
+        for i = 1, idx do adjacency[i] = {} end
+        for i = 1, idx do
+            for j = i + 1, idx do
+                local a = nodes[i].position
+                local b = nodes[j].position
+                local dist = (b - a).Magnitude
+                if dist <= CONFIG.NODE_MAX_LINK_DISTANCE then
+                    if IsSafeGap(a, b) then
+                        table.insert(adjacency[i], j)
+                        table.insert(adjacency[j], i)
+                    end
+                end
+            end
+        end
+        persistentData.NodeGraph = { nodes = nodes, adjacency = adjacency }
+        persistentData.NodeGraphBuiltTime = tick()
+        return idx > 0
+    end
+
+    -- Find nearest node by position
+    local function FindNearestNode(position)
+        local graph = persistentData.NodeGraph
+        if not graph or not graph.nodes or #graph.nodes == 0 then return nil end
+        local bestId, bestDist = nil, math.huge
+        for id, node in pairs(graph.nodes) do
+            local d = (node.position - position).Magnitude
+            if d < bestDist then
+                bestDist = d
+                bestId = id
+            end
+        end
+        return bestId
+    end
+
+    local function ComputeNodePath(startPos, goalPos)
+        if (not persistentData.NodeGraph) or (not persistentData.NodeGraph.nodes) or #persistentData.NodeGraph.nodes == 0 then
+            local ok = BuildNodeGraph()
+            if not ok then return nil end
+        end
+        local startId = FindNearestNode(startPos)
+        local goalId = FindNearestNode(goalPos)
+        if not startId or not goalId then return nil end
+        if startId == goalId then
+            persistentData.NodePath = { persistentData.NodeGraph.nodes[startId].position }
+            persistentData.CurrentNodeIndex = 1
+            persistentData.LastNodePathComputedTime = tick()
+            return persistentData.NodePath
+        end
+        local adj = persistentData.NodeGraph.adjacency
+        local visited, prev = {}, {}
+        local queue = { startId }
+        visited[startId] = true
+        local found = false
+        while #queue > 0 do
+            local u = table.remove(queue, 1)
+            if u == goalId then found = true break end
+            for _, v in ipairs(adj[u] or {}) do
+                if not visited[v] then
+                    visited[v] = true
+                    prev[v] = u
+                    table.insert(queue, v)
+                end
+            end
+        end
+        if not found then return nil end
+        local pathIdxs = {}
+        local cur = goalId
+        while cur do
+            table.insert(pathIdxs, 1, cur)
+            cur = prev[cur]
+        end
+        local positions = {}
+        for _, id in ipairs(pathIdxs) do
+            table.insert(positions, persistentData.NodeGraph.nodes[id].position)
+        end
+        persistentData.NodePath = positions
+        persistentData.CurrentNodeIndex = 1
+        persistentData.LastNodePathComputedTime = tick()
+        return positions
+    end
+
+    local function ShouldSwitchToNodeNavigation(currentPos, targetPos, isGroundSafe)
+        if not isGroundSafe then return true end
+        local dir = (targetPos - currentPos)
+        if dir.Magnitude == 0 then return false end
+        dir = dir.Unit
+        for dist = 4, CONFIG.NODE_SWITCH_VOID_DISTANCE, 4 do
+            local p = currentPos + dir * dist
+            if IsVoidArea(p) then return true end
+        end
+        return false
+    end
+
+    local function FollowNodePath()
+        local path = persistentData.NodePath
+        if not Character or not HumanoidRootPart then return false end
+        if not path or #path == 0 then return false end
+        local idx = persistentData.CurrentNodeIndex or 1
+        if idx > #path then return false end
+        local waypoint = path[idx]
+        local dist = (waypoint - HumanoidRootPart.Position).Magnitude
+        if dist < 4 then
+            persistentData.CurrentNodeIndex = idx + 1
+            return true
+        end
+        local deltaY = waypoint.Y - HumanoidRootPart.Position.Y
+        if deltaY < -1 and math.abs(deltaY) <= CONFIG.LEDGE_SAFE_DROP_HEIGHT then
+            SafeHumanoidChangeState(Enum.HumanoidStateType.Jumping)
+            SafeMoveTo(waypoint)
+        else
+            MoveTo(waypoint)
+        end
+        if persistentData.StatusGUI then persistentData.StatusGUI.UpdateDebug("NodeNav -> waypoint #" .. tostring(idx)) end
+        return true
+    end
+
+    local function DetectObstacleAhead(direction, checkDistance)
+        if not Character or not HumanoidRootPart then return "clear", nil end
         local params = RaycastParams.new()
         params.FilterDescendantsInstances = {Character}
         params.FilterType = Enum.RaycastFilterType.Blacklist
@@ -742,12 +848,9 @@ local function InitializeAI()
         return "clear", nil
     end
 
-    -- Forward declarations (these functions are implemented below)
-    local MoveTo, TryJumpTo, ExecuteAttack, CheckIfStuck, HandleStuckOnPlayer, HandleFleeFromForceField
-
     -- Movement with smoothing and continuous operation (improved)
     MoveTo = function(targetPosition, bridgePath, alternativePath)
-        if not Character or not Humanoid or not HumanoidRootPart or not targetPosition then return false end
+        if not Character or not HumanoidRootPart or not Humanoid or not targetPosition then return false end
         -- Always try to maintain continuous movement; if path unsafe pick alternative and keep moving
         local startTime = tick()
 
@@ -786,17 +889,17 @@ local function InitializeAI()
 
         -- Obstacle detection ahead: jump over low obstacles or switch to node navigation on walls
         do
-            local obsType, hitPos = DetectObstacleAhead(HumanoidRootPart, smoothedDirection, CONFIG.WALL_DETECT_DISTANCE)
+            local obsType, hitPos = DetectObstacleAhead(smoothedDirection, CONFIG.WALL_DETECT_DISTANCE)
             if obsType == "jumpable" then
-                SafeHumanoidChangeState(Humanoid, Enum.HumanoidStateType.Jumping)
-                SafeHumanoidMoveTo(Humanoid, smoothedTarget)
+                SafeHumanoidChangeState(Enum.HumanoidStateType.Jumping)
+                SafeMoveTo(smoothedTarget)
                 if persistentData.StatusGUI then persistentData.StatusGUI.UpdateDebug("Jumping over obstacle") end
                 return true
             elseif obsType == "wall" then
                 local useNode = ShouldSwitchToNodeNavigation(HumanoidRootPart.Position, targetPosition, false)
                 if useNode then
                     if (not persistentData.NodePath) or (#(persistentData.NodePath or {}) == 0) or (tick() - (persistentData.LastNodePathComputedTime or 0) > CONFIG.NODE_PATH_RECOMPUTE_INTERVAL) then
-                        ComputeNodePathBetweenPositions(HumanoidRootPart.Position, targetPosition)
+                        ComputeNodePath(HumanoidRootPart.Position, targetPosition)
                     end
                     if FollowNodePath() then
                         return true
@@ -811,7 +914,7 @@ local function InitializeAI()
             persistentData.LastMovementTime = currentTime
             persistentData.CurrentNavigationTarget = targetPosition
             persistentData.NavigationTransitionStart = currentTime
-            SafeHumanoidMoveTo(Humanoid, smoothedTarget)
+            SafeMoveTo(smoothedTarget)
             if persistentData.StatusGUI then persistentData.StatusGUI.UpdateDebug("Moving to smoothed target") end
             if CONFIG.PERFORMANCE_MODE then persistentData.PerformanceStats.MovementTime = tick() - startTime end
             return true
@@ -837,7 +940,7 @@ local function InitializeAI()
             if bestAlt then
                 persistentData.LastMovementDirection = (bestAlt - HumanoidRootPart.Position).Unit
                 persistentData.LastMovementTime = currentTime
-                SafeHumanoidMoveTo(Humanoid, bestAlt)
+                SafeMoveTo(bestAlt)
                 if persistentData.StatusGUI then persistentData.StatusGUI.UpdateDebug("Moving to alternative") end
                 return true
             else
@@ -845,8 +948,8 @@ local function InitializeAI()
                 local jumpVec = HumanoidRootPart.Position + dirVec * (moveDistance + CONFIG.JUMP_SAFE_MARGIN)
                 if IsSafePath(jumpVec) then
                     -- attempt jump: trigger Humanoid jump and move to landing
-                    SafeHumanoidChangeState(Humanoid, Enum.HumanoidStateType.Jumping)
-                    SafeHumanoidMoveTo(Humanoid, jumpVec)
+                    SafeHumanoidChangeState(Enum.HumanoidStateType.Jumping)
+                    SafeMoveTo(jumpVec)
                     if persistentData.StatusGUI then persistentData.StatusGUI.UpdateDebug("Attempting jump") end
                     return true
                 end
@@ -863,22 +966,22 @@ local function InitializeAI()
         local distance = (targetPos - HumanoidRootPart.Position).Magnitude
         if distance < 3 then
             -- close - simple jump
-            SafeHumanoidChangeState(Humanoid, Enum.HumanoidStateType.Jumping)
-            SafeHumanoidMoveTo(Humanoid, targetPos)
+            SafeHumanoidChangeState(Enum.HumanoidStateType.Jumping)
+            SafeMoveTo(targetPos)
             return true
         end
         -- For longer jumps, ensure landing spot safe
         if IsSafePath(targetPos) then
-            SafeHumanoidChangeState(Humanoid, Enum.HumanoidStateType.Jumping)
-            SafeHumanoidMoveTo(Humanoid, targetPos)
+            SafeHumanoidChangeState(Enum.HumanoidStateType.Jumping)
+            SafeMoveTo(targetPos)
             return true
         end
         return false
     end
 
-    -- Attack execution with enhanced tactics (swing tuning included)
+    -- Attack execution with enhanced tactics
     ExecuteAttack = function()
-        if not persistentData.LinkedSword or not Character or not Humanoid or not Character:FindFirstChild("HumanoidRootPart") then
+        if not persistentData.LinkedSword or not Character or not Humanoid or not HumanoidRootPart then
             debugPrint("COMBAT", "Cannot attack - core refs missing or no sword")
             return
         end
@@ -900,13 +1003,10 @@ local function InitializeAI()
             if persistentData.StatusGUI then persistentData.StatusGUI.UpdateStatus("Combat: " .. persistentData.CurrentCombatBehavior) end
         end
 
-        -- Face target safely
-        local targetHRP = persistentData.CurrentTarget and persistentData.CurrentTarget.Character and persistentData.CurrentTarget.Character:FindFirstChild("HumanoidRootPart")
-        local HRP = Character:FindFirstChild("HumanoidRootPart")
-        if targetHRP and HRP then
-            pcall(function()
-                HRP.CFrame = CFrame.new(HRP.Position, Vector3.new(targetHRP.Position.X, HRP.Position.Y, targetHRP.Position.Z))
-            end)
+        -- Face target
+        if persistentData.CurrentTarget and persistentData.CurrentTarget.Character and persistentData.CurrentTarget.Character:FindFirstChild("HumanoidRootPart") and HumanoidRootPart then
+            local targetPos = persistentData.CurrentTarget.Character.HumanoidRootPart.Position
+            HumanoidRootPart.CFrame = CFrame.new(HumanoidRootPart.Position, Vector3.new(targetPos.X, HumanoidRootPart.Position.Y, targetPos.Z))
         end
 
         if persistentData.StatusGUI then persistentData.StatusGUI.UpdateDebug("Attacking: " .. (persistentData.CurrentCombatBehavior or "unknown")) end
@@ -915,14 +1015,7 @@ local function InitializeAI()
         spawn(function()
             local behavior = persistentData.CurrentCombatBehavior or "offensive-defensive"
             local targetHRP = persistentData.CurrentTarget and persistentData.CurrentTarget.Character and persistentData.CurrentTarget.Character:FindFirstChild("HumanoidRootPart")
-            local HRP = Character:FindFirstChild("HumanoidRootPart")
-            local distance = (targetHRP and HRP) and (targetHRP.Position - HRP.Position).Magnitude or math.huge
-
-            -- Only attempt swings if within SWING_RANGE
-            if distance > CONFIG.SWING_RANGE then
-                persistentData.AttackSequenceActive = false
-                return
-            end
+            local distance = (targetHRP and HumanoidRootPart) and (targetHRP.Position - HumanoidRootPart.Position).Magnitude or math.huge
 
             -- Determine if we should perform deceptive partial lunge (bait)
             local doDeceptive = (distance > CONFIG.MIN_ATTACK_DISTANCE and distance <= CONFIG.ATTACK_RANGE + 4) and math.random() < 0.5
@@ -933,14 +1026,14 @@ local function InitializeAI()
                 wait(CONFIG.LUNGE_DELAY * 1.3)
                 if doDeceptive then
                     -- small forward lunge to bait
-                    if targetHRP and HRP then
-                        local dir = (targetHRP.Position - HRP.Position).Unit
-                        local baitPos = HRP.Position + dir * 1.6
+                    if targetHRP and HumanoidRootPart then
+                        local dir = (targetHRP.Position - HumanoidRootPart.Position).Unit
+                        local baitPos = HumanoidRootPart.Position + dir * 1.6
                         MoveTo(baitPos)
                         wait(0.12)
                         pcall(function() persistentData.LinkedSword:Activate() end)
                         -- back off
-                        local backPos = HRP.Position - dir * 2
+                        local backPos = HumanoidRootPart.Position - dir * 2
                         MoveTo(backPos)
                     end
                 else
@@ -953,10 +1046,10 @@ local function InitializeAI()
                 -- Aggressive approach, faster lunges and follow-up
                 pcall(function() persistentData.LinkedSword:Activate() end)
                 wait(CONFIG.LUNGE_DELAY * 0.5)
-                if targetHRP and HRP then
-                    local dir = (targetHRP.Position - HRP.Position).Unit
+                if targetHRP and HumanoidRootPart then
+                    local dir = (targetHRP.Position - HumanoidRootPart.Position).Unit
                     -- Quick lunge forward with increased speed: move closer
-                    local forwardPos = HRP.Position + dir * (2.5 * CONFIG.LUNGE_SPEED_MULTIPLIER)
+                    local forwardPos = HumanoidRootPart.Position + dir * (2.5 * CONFIG.LUNGE_SPEED_MULTIPLIER)
                     MoveTo(forwardPos)
                 end
                 wait(CONFIG.LUNGE_DELAY * 0.6)
@@ -968,11 +1061,11 @@ local function InitializeAI()
                 -- offensive-defensive with strafing
                 pcall(function() persistentData.LinkedSword:Activate() end)
 
-                if targetHRP and HRP then
-                    local dir = (targetHRP.Position - HRP.Position).Unit
+                if targetHRP and HumanoidRootPart then
+                    local dir = (targetHRP.Position - HumanoidRootPart.Position).Unit
                     local strafeDir = dir:Cross(Vector3.new(0,1,0)).Unit
                     if math.random() > 0.5 then strafeDir = -strafeDir end
-                    local strafePos = HRP.Position + strafeDir * CONFIG.STRAFE_DISTANCE
+                    local strafePos = HumanoidRootPart.Position + strafeDir * CONFIG.STRAFE_DISTANCE
                     MoveTo(strafePos)
                     wait(0.06)
                 end
@@ -980,9 +1073,9 @@ local function InitializeAI()
                 wait(CONFIG.LUNGE_DELAY)
                 pcall(function() persistentData.LinkedSword:Activate() end)
                 wait(CONFIG.LUNGE_DELAY)
-                if targetHRP and HRP then
-                    local dir = (targetHRP.Position - HRP.Position).Unit
-                    local approachPos = HRP.Position + dir * 1.8
+                if targetHRP and HumanoidRootPart then
+                    local dir = (targetHRP.Position - HumanoidRootPart.Position).Unit
+                    local approachPos = HumanoidRootPart.Position + dir * 1.8
                     MoveTo(approachPos)
                 end
                 pcall(function() persistentData.LinkedSword:Activate() end)
@@ -1005,108 +1098,9 @@ local function InitializeAI()
         end)
     end
 
-    -- Stuck detection
-    CheckIfStuck = function()
-        if not HumanoidRootPart then return false end
-        if not persistentData.LastStuckPosition then
-            persistentData.LastStuckPosition = HumanoidRootPart.Position
-            persistentData.LastStuckTime = tick()
-            return false
-        end
-
-        local currentTime = tick()
-        if currentTime - persistentData.LastStuckTime > CONFIG.STUCK_CHECK_TIME then
-            local dist = (HumanoidRootPart.Position - persistentData.LastStuckPosition).Magnitude
-            if dist < CONFIG.STUCK_CHECK_DISTANCE then
-                persistentData.IsStuck = true
-                if persistentData.StatusGUI then persistentData.StatusGUI.UpdateDebug("Stuck detected") end
-                return true
-            end
-            persistentData.LastStuckPosition = HumanoidRootPart.Position
-            persistentData.LastStuckTime = currentTime
-        end
-        return false
-    end
-
-    -- Unstucking
-    HandleStuckOnPlayer = function()
-        if not HumanoidRootPart then return false end
-        if persistentData.StatusGUI then persistentData.StatusGUI.UpdateStatus("Unstucking") end
-        local directions = {}
-        for i = 0, 15 do
-            local angle = (i / 16) * 2 * math.pi
-            table.insert(directions, Vector3.new(math.cos(angle), 0, math.sin(angle)).Unit)
-        end
-        for _, dir in ipairs(directions) do
-            local targetPosition = HumanoidRootPart.Position + dir * 6
-            if IsSafePath(targetPosition) then
-                pcall(function() if Humanoid then Humanoid:MoveTo(targetPosition) end end)
-                if persistentData.StatusGUI then persistentData.StatusGUI.UpdateDebug("Moving to unstuck") end
-                return true
-            end
-        end
-        if persistentData.StatusGUI then persistentData.StatusGUI.UpdateDebug("No safe unstuck path") end
-        return false
-    end
-
-    -- Flee from forcefields
-    HandleFleeFromForceField = function()
-        if CONFIG.FORCEFIELD_FLEE_DISTANCE <= 0 then return false end
-        if not HumanoidRootPart then return false end
-        local nearestFF, nearestDist = nil, math.huge
-        for _, ffPlayer in pairs(persistentData.PlayersWithForceField) do
-            if ffPlayer and ffPlayer.Character and ffPlayer.Character:FindFirstChild("HumanoidRootPart") then
-                local dist = (ffPlayer.Character.HumanoidRootPart.Position - HumanoidRootPart.Position).Magnitude
-                if dist < nearestDist then
-                    nearestFF = ffPlayer
-                    nearestDist = dist
-                end
-            end
-        end
-        if nearestFF and nearestDist < CONFIG.FORCEFIELD_FLEE_DISTANCE then
-            if persistentData.StatusGUI then
-                persistentData.StatusGUI.UpdateStatus("Fleeing FF: " .. nearestFF.Name)
-                persistentData.StatusGUI.UpdateDebug("FF distance: " .. string.format("%.1f", nearestDist))
-            end
-            local fleeDir = (HumanoidRootPart.Position - nearestFF.Character.HumanoidRootPart.Position)
-            if fleeDir.Magnitude == 0 then
-                fleeDir = Vector3.new(math.random()-0.5, 0, math.random()-0.5).Unit
-            else
-                fleeDir = fleeDir.Unit
-            end
-            local fleeTarget = HumanoidRootPart.Position + fleeDir * CONFIG.FORCEFIELD_FLEE_DISTANCE
-            if IsSafePath(fleeTarget) then
-                pcall(function() if Humanoid then Humanoid:MoveTo(fleeTarget) end end)
-                return true
-            else
-                local altDirs = {
-                    (fleeDir + Vector3.new(0.4, 0, 0.2)).Unit,
-                    (fleeDir + Vector3.new(-0.4, 0, 0.2)).Unit,
-                    (fleeDir + Vector3.new(0.2, 0, -0.4)).Unit,
-                    (fleeDir + Vector3.new(-0.2, 0, -0.4)).Unit
-                }
-                for _, ad in ipairs(altDirs) do
-                    local altT = HumanoidRootPart.Position + ad * CONFIG.FORCEFIELD_FLEE_DISTANCE
-                    if IsSafePath(altT) then
-                        pcall(function() if Humanoid then Humanoid:MoveTo(altT) end end)
-                        return true
-                    end
-                end
-            end
-            if persistentData.StatusGUI then persistentData.StatusGUI.UpdateDebug("FF: No safe flee path") end
-        end
-        return false
-    end
-
-local function SafeMoveTo(pos)
-    if Humanoid and pos then
-        Humanoid:MoveTo(pos)
-    end
-end
-
     -- Update loop logic
     local function Update()
-        -- early guards: refresh references if lost
+        -- early guards
         if not Character or not Humanoid or not HumanoidRootPart then
             local lp = game:GetService("Players").LocalPlayer
             if lp then
@@ -1127,23 +1121,33 @@ end
             if persistentData.StatusGUI then persistentData.StatusGUI.UpdateStatus("Waiting for character...") end
             return
         end
-
-        -- adaptive periodic garbage collection (same as before)
+        -- adaptive periodic garbage collection
         local currentTime = tick()
         local perf = persistentData.PerformanceStats
+
+        -- use recorded pathfinding time (default to 0 if nil)
         local recentPath = perf.PathfindingTime or 0
+
+        -- adapt GC interval based on recent pathfinding time
         local targetVal = 30 - math.min(20, recentPath)
         local newInterval = math.clamp(targetVal, CONFIG.GC_MIN_INTERVAL, CONFIG.GC_MAX_INTERVAL)
         persistentData.GCInterval = newInterval
+
         if currentTime - (persistentData.LastGCTime or 0) > persistentData.GCInterval then
-            pcall(function() if collectgarbage then collectgarbage("collect") end end)
+            -- attempt collector (Roblox/Luau: collectgarbage available in many environments)
+            pcall(function()
+                if collectgarbage then
+                    collectgarbage("collect")
+                end
+            end)
             persistentData.LastGCTime = currentTime
             if persistentData.StatusGUI then persistentData.StatusGUI.UpdatePerf("GC at " .. string.format("%.1f", currentTime)) end
             debugPrint("PERF", "Garbage collected; next in", persistentData.GCInterval)
         end
 
-        -- Periodic maintenance / cleanup of caches (same as before)
+        -- Periodic maintenance / cleanup of caches
         if CONFIG.PERFORMANCE_MODE and currentTime - (perf.LastOptimizationTime or 0) > 25 then
+            -- Trim path cache oldest entries if too large
             local count = 0
             local oldestKey, oldestTime = nil, math.huge
             for k, v in pairs(persistentData.PathCache) do
@@ -1156,6 +1160,7 @@ end
             if count > CONFIG.PATH_CACHE_CAPACITY and oldestKey then
                 persistentData.PathCache[oldestKey] = nil
             end
+            -- Cleanup failed paths older than 25s
             for i = #persistentData.FailedPaths, 1, -1 do
                 if currentTime - persistentData.FailedPaths[i].time > 25 then
                     table.remove(persistentData.FailedPaths, i)
@@ -1171,6 +1176,7 @@ end
         -- Target selection & retargeting
         local needNewTarget = not persistentData.CurrentTarget or not persistentData.CurrentTarget.Character or not persistentData.CurrentTarget.Character:FindFirstChild("HumanoidRootPart")
         local shouldCheck = currentTime - persistentData.LastRetargetTime > CONFIG.RETARGET_CHECK_TIME
+
         if needNewTarget or shouldCheck then
             local playersInRange = FindPlayersInRange()
             if #playersInRange > 0 then
@@ -1193,10 +1199,10 @@ end
             persistentData.LastRetargetTime = currentTime
         end
 
-        -- If we have a target: movement + combat decisions (integrate node-based decisions)
+        -- If we have a target: movement + combat decisions
         if persistentData.CurrentTarget and persistentData.CurrentTarget.Character and persistentData.CurrentTarget.Character:FindFirstChild("HumanoidRootPart") and HumanoidRootPart then
             local targetHRP = persistentData.CurrentTarget.Character.HumanoidRootPart
-            local distance = (targetHRP.Position - HumanoidRootPart.Position).Magnitude
+            local distance = (targetHRP and HumanoidRootPart) and (targetHRP.Position - HumanoidRootPart.Position).Magnitude or math.huge
             if persistentData.StatusGUI then persistentData.StatusGUI.UpdateDistance(distance) end
 
             -- Track last time we were in attack range
@@ -1218,163 +1224,69 @@ end
                 return
             end
 
-            -- Path safety check (original pathfinding)
+            -- Path safety check
             local isSafe, bridgePath, alternativePath = IsSafePath(targetHRP.Position)
             if CONFIG.PERFORMANCE_MODE then
                 persistentData.PerformanceStats.PathfindingTime = tick() - currentTime
             end
-
-            -- Decide whether to use node-driven segmented navigation or original pathing:
-            -- Use node navigation when target or bot are within named areas or when void/obstacle conditions suggest it
-            local botArea = GetAreaNameForPosition(HumanoidRootPart.Position)
-            local targetArea = GetAreaNameForPosition(targetHRP.Position)
-
-            -- Custom sequence triggers:
-            -- If player in Center and bot in BottomArea -> follow the long hill ascent sequence
-            if targetArea == "Center" and botArea == "BottomArea" then
-                -- center->HillBottom1->HillStair1->HillStair2->HillStair3->Hill->UpperBridge1->UpperBridge2->LowerBridge1 (drop)
-                local seq = { "HillBottom1","HillStair1","HillStair2","HillStair3","Hill","UpperBridge1","UpperBridge2","LowerBridge1" }
-                local idx = 1
-                -- Create virtual path starting from nearest node to current pos, then append sequence
-                local path = {}
-                local startNode = FindNearestNamedNode(HumanoidRootPart.Position)
-                if startNode then
-                    table.insert(path, persistentData.NodeGraph.nodes[startNode].position)
-                end
-                for _, name in ipairs(seq) do
-                    local id = persistentData.NodeGraph.nameToId and persistentData.NodeGraph.nameToId[name]
-                    if id then table.insert(path, persistentData.NodeGraph.nodes[id].position) end
-                end
-                persistentData.NodePath = path
-                persistentData.CurrentNodeIndex = 1
-                persistentData.LastNodePathComputedTime = tick()
-                -- Follow node path this frame
-                if FollowNodePath() then
-                    -- face target heuristically
-                    pcall(function() HumanoidRootPart.CFrame = CFrame.new(HumanoidRootPart.Position, Vector3.new(targetHRP.Position.X, HumanoidRootPart.Position.Y, targetHRP.Position.Z)) end)
-                    return
-                end
-            end
-
-            -- If player is hiding behind the hill or moving behind it -> route via HillBottom1->HillBottom2->HillBottom3
-            if targetArea == "Hill" or targetArea == "HillBottom1" or targetArea == "HillBottom2" or targetArea == "HillBottom3" then
-                -- if bot is not on hill and target is behind hill, navigate via hill bottoms
-                local seq = { "HillBottom1", "HillBottom2", "HillBottom3", "Hill" }
-                local path = {}
-                local startNode = FindNearestNamedNode(HumanoidRootPart.Position)
-                if startNode then table.insert(path, persistentData.NodeGraph.nodes[startNode].position) end
-                for _, name in ipairs(seq) do
-                    local id = persistentData.NodeGraph.nameToId and persistentData.NodeGraph.nameToId[name]
-                    if id then table.insert(path, persistentData.NodeGraph.nodes[id].position) end
-                end
-                persistentData.NodePath = path
-                persistentData.CurrentNodeIndex = 1
-                persistentData.LastNodePathComputedTime = tick()
-                if FollowNodePath() then
-                    return
-                end
-            end
-
-            -- Player on UpperBase scenario: bring bot up to UpperBridge2 then to UpperBase
-            if targetArea == "UpperBase" then
-                local seq = { "UpperBridge1", "UpperBridge2", "UpperBase" }
-                local path = {}
-                local startNode = FindNearestNamedNode(HumanoidRootPart.Position)
-                if startNode then table.insert(path, persistentData.NodeGraph.nodes[startNode].position) end
-                for _, name in ipairs(seq) do
-                    local id = persistentData.NodeGraph.nameToId and persistentData.NodeGraph.nameToId[name]
-                    if id then table.insert(path, persistentData.NodeGraph.nodes[id].position) end
-                end
-                persistentData.NodePath = path
-                persistentData.CurrentNodeIndex = 1
-                persistentData.LastNodePathComputedTime = tick()
-                if FollowNodePath() then return end
-            end
-
-            -- Player on RegenArea: approach via LowerBridge1 -> RegenArea -> LowerBridge2 if moved there
-            if targetArea == "RegenArea" then
-                local seq = { "LowerBridge1", "RegenArea" }
-                local path = {}
-                local startNode = FindNearestNamedNode(HumanoidRootPart.Position)
-                if startNode then table.insert(path, persistentData.NodeGraph.nodes[startNode].position) end
-                for _, name in ipairs(seq) do
-                    local id = persistentData.NodeGraph.nameToId and persistentData.NodeGraph.nameToId[name]
-                    if id then table.insert(path, persistentData.NodeGraph.nodes[id].position) end
-                end
-                persistentData.NodePath = path
-                persistentData.CurrentNodeIndex = 1
-                persistentData.LastNodePathComputedTime = tick()
-                if FollowNodePath() then return end
-            end
-
-            -- Player on ArmorArea -> Base -> GrayBridge -> ArmorArea
-            if targetArea == "ArmorArea" then
-                local seq = { "Base", "GrayBridge", "ArmorArea" }
-                local path = {}
-                local startNode = FindNearestNamedNode(HumanoidRootPart.Position)
-                if startNode then table.insert(path, persistentData.NodeGraph.nodes[startNode].position) end
-                for _, name in ipairs(seq) do
-                    local id = persistentData.NodeGraph.nameToId and persistentData.NodeGraph.nameToId[name]
-                    if id then table.insert(path, persistentData.NodeGraph.nodes[id].position) end
-                end
-                persistentData.NodePath = path
-                persistentData.CurrentNodeIndex = 1
-                persistentData.LastNodePathComputedTime = tick()
-                if FollowNodePath() then return end
-            end
-
-            -- Otherwise: decide whether to switch to NodeNavigation automatically if path unsafe/void ahead
-            local useNodeNav = false
-            if not isSafe then
-                -- If direct path unsafe, try node navigation
-                useNodeNav = true
-            else
-                -- Also check long distances where nodes help
-                if (HumanoidRootPart.Position - targetHRP.Position).Magnitude > 40 then
-                    useNodeNav = true
-                end
-            end
-
+            local useNodeNav = ShouldSwitchToNodeNavigation(HumanoidRootPart.Position, targetHRP.Position, isSafe)
             if useNodeNav then
-                local needRecompute = (not persistentData.NodePath) or (#persistentData.NodePath == 0) or (currentTime - (persistentData.LastNodePathComputedTime or 0) > CONFIG.NODE_PATH_RECOMPUTE_INTERVAL)
-                if needRecompute then
-                    ComputeNodePathBetweenPositions(HumanoidRootPart.Position, targetHRP.Position)
+                if (not persistentData.NodePath) or (#(persistentData.NodePath or {}) == 0) or (currentTime - (persistentData.LastNodePathComputedTime or 0) > CONFIG.NODE_PATH_RECOMPUTE_INTERVAL) then
+                    ComputeNodePath(HumanoidRootPart.Position, targetHRP.Position)
                 end
                 if FollowNodePath() then
-                    -- face the target while following nodes when possible
-                    pcall(function() HumanoidRootPart.CFrame = CFrame.new(HumanoidRootPart.Position, Vector3.new(targetHRP.Position.X, HumanoidRootPart.Position.Y, targetHRP.Position.Z)) end)
+                    if HumanoidRootPart and targetHRP then
+                        HumanoidRootPart.CFrame = CFrame.lookAt(HumanoidRootPart.Position, Vector3.new(targetHRP.Position.X, HumanoidRootPart.Position.Y, targetHRP.Position.Z))
+                    end
                     return
                 end
             end
+ 
+             -- Continuous movement: prefer safe path; if not safe use alternative / bridge / find other routes without stopping
+             if isSafe then
+                 MoveTo(targetHRP.Position, bridgePath, alternativePath)
+                 -- always face target horizontally
+                 if HumanoidRootPart and targetHRP then
+                     HumanoidRootPart.CFrame = CFrame.lookAt(HumanoidRootPart.Position, Vector3.new(targetHRP.Position.X, HumanoidRootPart.Position.Y, targetHRP.Position.Z))
+                 end
 
-            -- If not using node nav, fall back to original MoveTo/path approach
-            if isSafe then
-                MoveTo(targetHRP.Position, bridgePath, alternativePath)
-                -- always face target horizontally if safe to do so
-                pcall(function()
-                    HumanoidRootPart.CFrame = CFrame.new(HumanoidRootPart.Position, Vector3.new(targetHRP.Position.X, HumanoidRootPart.Position.Y, targetHRP.Position.Z))
-                end)
-                -- Attack triggers (use SWING_RANGE)
-                if distance <= CONFIG.SWING_STRICT_RANGE and persistentData.LinkedSword and currentTime - persistentData.LastAttackTime > CONFIG.ATTACK_COOLDOWN then
+                -- Attack triggers
+                if distance <= CONFIG.IMMEDIATE_ATTACK_RADIUS and persistentData.LinkedSword and currentTime - persistentData.LastAttackTime > CONFIG.ATTACK_COOLDOWN then
+                    -- Immediate close-range attack
                     ExecuteAttack()
-                elseif distance <= CONFIG.SWING_RANGE and persistentData.LinkedSword and currentTime - persistentData.LastAttackTime > CONFIG.ATTACK_COOLDOWN then
+                elseif distance <= CONFIG.ATTACK_RANGE and persistentData.LinkedSword and currentTime - persistentData.LastAttackTime > CONFIG.ATTACK_COOLDOWN then
+                    -- normal attack window
+                    ExecuteAttack()
+                elseif distance <= CONFIG.MIN_ATTACK_DISTANCE and persistentData.LinkedSword and currentTime - persistentData.LastAttackTime > CONFIG.ATTACK_COOLDOWN then
+                    -- forced offensive at extremely close range
+                    persistentData.CurrentCombatBehavior = "offensive"
                     ExecuteAttack()
                 else
+                    -- If target remained out of range for a while -> switch to aggressive behavior and attempt to lunge/close
                     if tick() - (persistentData.LastInRangeTime or 0) > CONFIG.OUT_OF_RANGE_AGGRESSION_TIME then
                         persistentData.CurrentCombatBehavior = "offensive"
-                        if not persistentData.AttackSequenceActive then ExecuteAttack() end
+                        -- attempt a longer lunge/closing maneuver
+                        if not persistentData.AttackSequenceActive then
+                            ExecuteAttack()
+                        end
                     end
                 end
+
             elseif alternativePath then
+                -- use computed alternative path
+                debugPrint("PATH", "Using precomputed alternative")
                 MoveTo(alternativePath)
-                pcall(function()
-                    HumanoidRootPart.CFrame = CFrame.new(HumanoidRootPart.Position, Vector3.new(targetHRP.Position.X, HumanoidRootPart.Position.Y, targetHRP.Position.Z))
-                end)
-                if distance <= CONFIG.SWING_RANGE and persistentData.LinkedSword and currentTime - persistentData.LastAttackTime > CONFIG.ATTACK_COOLDOWN then
+                if HumanoidRootPart and targetHRP then
+                    HumanoidRootPart.CFrame = CFrame.new(
+                        HumanoidRootPart.Position,
+                        Vector3.new(targetHRP.Position.X, HumanoidRootPart.Position.Y, targetHRP.Position.Z)
+                    )
+                end
+                if distance <= CONFIG.ATTACK_RANGE and persistentData.LinkedSword and currentTime - persistentData.LastAttackTime > CONFIG.ATTACK_COOLDOWN then
                     ExecuteAttack()
                 end
             else
-                -- No direct safe path: attempt bridge; otherwise radial alternatives
+                -- No direct safe path: attempt bridge; otherwise search many alternative dirs and keep moving
                 if persistentData.StatusGUI then
                     persistentData.StatusGUI.UpdateStatus("Finding safe path")
                     persistentData.StatusGUI.UpdateDebug("No safe direct path")
@@ -1386,7 +1298,7 @@ end
                     return
                 end
 
-                -- radial alternatives
+                -- try radial alternatives (16)
                 local found = false
                 for i = 0, 15 do
                     local angle = (i / 16) * 2 * math.pi
@@ -1399,13 +1311,15 @@ end
                         break
                     end
                 end
+
                 if not found and persistentData.StatusGUI then
                     persistentData.StatusGUI.UpdateDebug("No safe alternatives found this update")
                 end
             end
 
-            -- Defensive stance when stationary and opponent proximity (unchanged)
+            -- Defensive stance when stationary and opponent proximity
             if HumanoidRootPart.Velocity.Magnitude < 1.5 and distance <= (CONFIG.ATTACK_RANGE + 6) then
+                -- face opponent and take guarded posture (back off slightly)
                 if distance < CONFIG.ATTACK_RANGE and HumanoidRootPart then
                     local dir = (HumanoidRootPart.Position - targetHRP.Position).Unit
                     local backPos = HumanoidRootPart.Position + dir * 1.6
@@ -1417,6 +1331,7 @@ end
         else
             -- Idle fallback behavior: small patrol to avoid standing still
             if persistentData.StatusGUI then persistentData.StatusGUI.UpdateStatus("Idle") end
+            -- small wander: attempt a short safe move if present
             if not persistentData.CurrentNavigationTarget or (tick() - (persistentData.NavigationTransitionStart or 0)) > 3 then
                 local randDir = Vector3.new(math.random()-0.5, 0, math.random()-0.5).Unit
                 if HumanoidRootPart then
@@ -1438,6 +1353,7 @@ end
             persistentData.LinkedSword = FindLinkedSword()
             if persistentData.LinkedSword then
                 if persistentData.StatusGUI then persistentData.StatusGUI.UpdateStatus("Sword found: " .. persistentData.LinkedSword.Name) end
+                -- attempt equip by parenting to character
                 if persistentData.LinkedSword.Parent ~= Character then
                     persistentData.LinkedSword.Parent = Character
                     wait(0.25)
@@ -1446,6 +1362,7 @@ end
                         if persistentData.StatusGUI then persistentData.StatusGUI.UpdateStatus("Sword equipped") end
                         break
                     else
+                        -- retry quickly
                         wait(0.25)
                     end
                 else
@@ -1454,6 +1371,7 @@ end
                     break
                 end
             else
+                -- no sword found; keep trying until attempts exhausted
                 wait(0.25)
             end
         end
@@ -1462,11 +1380,11 @@ end
         end
     end)
 
-    -- initialize pointers & GUI
+    -- initialize pointers
     persistentData.LinkedSword = FindLinkedSword()
     persistentData.LastSwordCheckTime = tick()
 
-    -- Cleanup previous connections
+    -- Cleanup any previous connections before creating new ones
     if persistentData.Connections and persistentData.Connections.UpdateConn then
         pcall(function() persistentData.Connections.UpdateConn:Disconnect() end)
         persistentData.Connections.UpdateConn = nil
@@ -1476,8 +1394,25 @@ end
         persistentData.Connections.CharacterAddedConn = nil
     end
 
-    -- Connect update
-    persistentData.Connections.UpdateConn = RunService.Heartbeat:Connect(function()
+    -- Heartbeat update connection
+    persistentData.Connections.UpdateConn = game:GetService("RunService").Heartbeat:Connect(function()
+        -- Early guards and recovery for lost references
+        if (not Character) or (not Humanoid) or (not HumanoidRootPart) then
+            local lp = game:GetService("Players").LocalPlayer
+            if lp then
+                Character = Character or lp.Character
+                if not Character then
+                    local okWait, res = pcall(function() return lp.CharacterAdded:Wait() end)
+                    if okWait then Character = res end
+                end
+                if Character then
+                    pcall(function()
+                        Humanoid = Humanoid or Character:FindFirstChild("Humanoid") or Character:WaitForChild("Humanoid", 2)
+                        HumanoidRootPart = HumanoidRootPart or Character:FindFirstChild("HumanoidRootPart") or Character:WaitForChild("HumanoidRootPart", 2)
+                    end)
+                end
+            end
+        end
         local ok, err = pcall(Update)
         if not ok then
             forcePrint("LinkedSwordAI: Update error - " .. tostring(err))
@@ -1485,18 +1420,21 @@ end
         end
     end)
 
-    -- Character respawn handling
-    persistentData.Connections.CharacterAddedConn = LocalPlayer.CharacterAdded:Connect(function(newCharacter)
+    -- Character respawn handling: re-initialize cleanly on CharacterAdded
+    local Players = game:GetService("Players")
+    persistentData.Connections.CharacterAddedConn = Players.LocalPlayer.CharacterAdded:Connect(function(newCharacter)
         forcePrint("LinkedSwordAI: Character respawned - reinitializing")
+        -- minimal wait for character to be usable
         wait(0.6)
+        -- refresh references in-place instead of full re-run to avoid duplicates
         Character = newCharacter
-        persistentData.Character = Character
-        local okH, h = pcall(function() return Character:FindFirstChild("Humanoid") end)
+        local okH, h = pcall(function() return Character:WaitForChild("Humanoid") end)
         Humanoid = okH and h or Character:FindFirstChild("Humanoid")
-        local okR, r = pcall(function() return Character:FindFirstChild("HumanoidRootPart") end)
+        local okR, r = pcall(function() return Character:WaitForChild("HumanoidRootPart") end)
         HumanoidRootPart = okR and r or Character:FindFirstChild("HumanoidRootPart")
         persistentData.LinkedSword = FindLinkedSword()
         persistentData.EquipmentReady = false
+        -- try immediate equip attempts
         spawn(function()
             local tries = 0
             while tries < 8 do
@@ -1516,8 +1454,8 @@ end
         end)
     end)
 
-    if persistentData.StatusGUI then persistentData.StatusGUI.UpdateStatus("AI Running (Nodes Enabled)") end
-    forcePrint("LinkedSwordAI: Node-segmented script initialized successfully")
+    if persistentData.StatusGUI then persistentData.StatusGUI.UpdateStatus("AI Running") end
+    forcePrint("LinkedSwordAI: Enhanced script initialized successfully")
     return true
 end
 
@@ -1527,3 +1465,8 @@ if not success then
     forcePrint("LinkedSwordAI: Initialization failed - " .. tostring(err))
 end
 
+
+
+    -- Duplicate implementations of ComputeNodePath, ShouldSwitchToNodeNavigation, FollowNodePath, and DetectObstacleAhead removed.
+    -- Primary versions are defined earlier in the file and referenced via forward declarations.
+[file content end]
