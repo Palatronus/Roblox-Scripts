@@ -1,4 +1,3 @@
-[file name]: AI Bot Working ver.txt
 [file content begin]
 --[[ 
     Linked Sword AI Combat Script (Enhanced Version)
@@ -1470,3 +1469,4 @@ end
     -- Duplicate implementations of ComputeNodePath, ShouldSwitchToNodeNavigation, FollowNodePath, and DetectObstacleAhead removed.
     -- Primary versions are defined earlier in the file and referenced via forward declarations.
 [file content end]
+
