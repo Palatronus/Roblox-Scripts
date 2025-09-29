@@ -546,6 +546,16 @@ local function Heuristic(pos1, pos2)
     return (pos1 - pos2).Magnitude
 end
 
+local function reconstructPath(cameFrom, current)
+    local totalPath = {current.position}
+    local currentId = current.id
+    while cameFrom[currentId] do
+        currentId = cameFrom[currentId]
+        table.insert(totalPath, 1, persistentData.NodeGraph.nodes[currentId].position)
+    end
+    return totalPath
+end
+
 ComputeNodePathBetweenPositions = function(startPos, goalPos, character)
     local startNodeId = FindNearestNamedNode(startPos)
     local goalNodeId = FindNearestNamedNode(goalPos)
@@ -564,49 +574,48 @@ ComputeNodePathBetweenPositions = function(startPos, goalPos, character)
     end
 
     local openSet = PriorityQueue.new()
-    openSet:Push(startNode.id, 0) -- Push start node with fScore
+    openSet:Push(startNode, 0) -- Push start node with fScore
 
     local cameFrom = {}
     local gScore = {} -- Cost from start to current node
-    local fScore = {} -- gScore + Heuristic
-
-    for i = 1, #persistentData.NodeGraph.nodes do
-        gScore[i] = math.huge
-        fScore[i] = math.huge
-    end
+    local fScore = {} -- Estimated cost from start to goal
 
     gScore[startNode.id] = 0
-    fScore[startNode.id] = Heuristic(persistentData.NodeGraph.nodes[startNode.id].position, persistentData.NodeGraph.nodes[goalNode.id].position)
+    fScore[startNode.id] = Heuristic(startNode.position, goalNode.position)
+
+    for i = 1, #persistentData.NodeGraph.nodes do
+        if i ~= startNode.id then
+            gScore[i] = math.huge
+            fScore[i] = math.huge
+        end
+    end
+
+
 
     local closedSet = {}
 
     while not openSet:IsEmpty() do
-        local currentId = openSet:Pop()
+        local current = openSet:Pop()
 
-        if currentId == goalNode.id then
-            -- Reconstruct path
-            local path = {}
-            local tempId = currentId
-            while cameFrom[tempId] do
-                table.insert(path, 1, persistentData.NodeGraph.nodes[tempId].position)
-                tempId = cameFrom[tempId]
-            end
-            table.insert(path, 1, persistentData.NodeGraph.nodes[startNode.id].position)
-            return path
+        if current.id == goalNode.id then
+            return reconstructPath(cameFrom, current)
         end
 
-        closedSet[currentId] = true
+        closedSet[current.id] = true
 
-        for _, neighborId in ipairs(persistentData.NodeGraph.adjacency[currentId]) do
-            if closedSet[neighborId] then continue end
+        for _, neighborId in ipairs(persistentData.NodeGraph.adjacency[current.id]) do
+            local neighbor = persistentData.NodeGraph.nodes[neighborId]
+            if not neighbor then continue end
 
-            local tentative_gScore = gScore[currentId] + (persistentData.NodeGraph.nodes[currentId].position - persistentData.NodeGraph.nodes[neighborId].position).Magnitude
+            if closedSet[neighbor.id] then continue end
 
-            if tentative_gScore < gScore[neighborId] then
-                cameFrom[neighborId] = currentId
-                gScore[neighborId] = tentative_gScore
-                fScore[neighborId] = gScore[neighborId] + Heuristic(persistentData.NodeGraph.nodes[neighborId].position, persistentData.NodeGraph.nodes[goalNode.id].position)
-                openSet:Push(neighborId, fScore[neighborId])
+            local tentative_gScore = gScore[current.id] + (current.position - neighbor.position).Magnitude
+
+            if tentative_gScore < gScore[neighbor.id] then
+                cameFrom[neighbor.id] = current.id
+                gScore[neighbor.id] = tentative_gScore
+                fScore[neighbor.id] = tentative_gScore + Heuristic(neighbor.position, goalNode.position)
+                openSet:Push(neighbor, fScore[neighbor.id])
             end
         end
     end
