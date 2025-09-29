@@ -1,83 +1,4 @@
-pcall(function()
-    print("LinkedSwordAI protected load...")
-
--- START DEBUG SHIM: paste at very top of file (line 1)
-do
-    -- Prevent immediate 'attempt to call nil value' at file start
-    if not forcePrint then
-        function forcePrint(...)
-            local args = {...}
-            print(table.concat(args, " "))
-        end
-    end
-    if not debugPrint then
-        function debugPrint(...)
-            local args = {...}
-            print("[debug] " .. table.concat(args, " "))
-        end
-    end
-
-    -- Provide harmless placeholders for movement/combat functions commonly called early
-    if not SafeMoveTo then
-        function SafeMoveTo(...) end
-    end
-    if not SafeHumanoidMoveTo then
-        function SafeHumanoidMoveTo(...) end
-    end
-    if not MoveTo then
-        function MoveTo(...) end
-    end
-    if not IsSafePath then
-        function IsSafePath(...) return false end
-    end
-    if not ExecuteAttack then
-        function ExecuteAttack(...) end
-    end
-
-    -- Add a basic protection wrapper for the rest of the script if desired:
-    -- (Optional) wrap your init call like: xpcall(function() InitializeAI() end, function(e) print("INIT ERR:", e); print(debug.traceback()) end)
-
-end
--- END DEBUG SHIM
-
---[[ 
-    Linked Sword AI Combat Script (Node-Segmented, Fixed)
-    - Full file: corrected string concatenation, forward declarations, safe movement wrappers
-    - Node-based pathfinding integrated with original pathfinding
-    - FE-compatible (uses Humanoid:MoveTo / ChangeState wrapped safely)
-    - Author: automated assistant (applied fixes requested by user)
---]]
-
--- Utility printing with rate-limit
-local _lastErrorMsg, _lastErrorTime, _errorCount = nil, 0, 0
-local function shouldLog(msg)
-    local now = tick()
-    if msg == _lastErrorMsg and (now - _lastErrorTime) < 1.5 then
-        _errorCount = _errorCount + 1
-        if _errorCount % 5 ~= 0 then
-            return false
-        end
-    else
-        _lastErrorMsg, _lastErrorTime, _errorCount = msg, now, 0
-    end
-    return true
-end
-
-local function forcePrint(...)
-    local message = table.concat({...}, " ")
-    if shouldLog(message) then print(message) end
-    print("") -- attempt flush
-end
-
-local function debugPrint(category, ...)
-    local args = {...}
-    local message = "[" .. category .. "] " .. table.concat(args, " ")
-    local timestamp = os.date("%H:%M:%S")
-    forcePrint(timestamp .. " - " .. message)
-end
-
-forcePrint("LinkedSwordAI: Node-Segmented script starting (fixed)")
-debugPrint("INIT", "Debug logging enabled")
+print("LinkedSwordAI starting...")
 
 -- Persistent global across respawns
 if not _G.LinkedSwordAIPersistentData then
@@ -123,7 +44,7 @@ if not _G.LinkedSwordAIPersistentData then
         Connections = { UpdateConn = nil, CharacterAddedConn = nil },
         Character = nil
     }
-end
+
 
 local persistentData = _G.LinkedSwordAIPersistentData
 
@@ -206,7 +127,7 @@ local FIXED_AREAS = {
 local function AreaCenter(area)
     local a, b = area[1], area[2]
     return Vector3.new((a.X + b.X) / 2, (a.Y + b.Y) / 2, (a.Z + b.Z) / 2)
-end
+
 
 local function IsPointInArea(position, area)
     if not position or not area then return false end
@@ -1377,11 +1298,3 @@ local function InitializeAI()
 end
 
 -- Launch
-local ok, err = xpcall(function() InitializeAI() end, function(e)
-    warn("LinkedSwordAI INIT ERROR:", tostring(e))
-    warn(debug.traceback())
-end)
-if not success then
-    forcePrint("LinkedSwordAI: Initialization failed - " .. tostring(err))
-end)
-end
