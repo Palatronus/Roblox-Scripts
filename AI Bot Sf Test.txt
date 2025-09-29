@@ -1,4 +1,36 @@
+local print = print or function(...) end
 print("LinkedSwordAI starting...")
+
+-- Utility printing with rate-limit
+local _lastErrorMsg, _lastErrorTime, _errorCount = nil, 0, 0
+local function shouldLog(msg)
+    local now = tick()
+    if msg == _lastErrorMsg and (now - _lastErrorTime) < 1.5 then
+        _errorCount = _errorCount + 1
+        if _errorCount % 5 ~= 0 then
+            return false
+        end
+    else
+        _lastErrorMsg, _lastErrorTime, _errorCount = msg, now, 0
+    end
+    return true
+end
+
+local function forcePrint(...)
+    local message = table.concat({...}, " ")
+    if shouldLog(message) then print(message) end
+    print("") -- attempt flush
+end
+
+local function debugPrint(category, ...)
+    local args = {...}
+    local message = "[" .. category .. "] " .. table.concat(args, " ")
+    local timestamp = os.date("%H:%M:%S")
+    forcePrint(timestamp .. " - " .. message)
+end
+
+forcePrint("LinkedSwordAI: Node-Segmented script starting (fixed)")
+debugPrint("INIT", "Debug logging enabled")
 
 -- Persistent global across respawns
 if not _G.LinkedSwordAIPersistentData then
@@ -44,7 +76,7 @@ if not _G.LinkedSwordAIPersistentData then
         Connections = { UpdateConn = nil, CharacterAddedConn = nil },
         Character = nil
     }
-
+end
 
 local persistentData = _G.LinkedSwordAIPersistentData
 
@@ -127,7 +159,7 @@ local FIXED_AREAS = {
 local function AreaCenter(area)
     local a, b = area[1], area[2]
     return Vector3.new((a.X + b.X) / 2, (a.Y + b.Y) / 2, (a.Z + b.Z) / 2)
-
+end
 
 local function IsPointInArea(position, area)
     if not position or not area then return false end
@@ -1297,4 +1329,7 @@ local function InitializeAI()
     return true
 end
 
--- Launch
+-- Launchlocal success, err = pcall(InitializeAI)
+if not success then
+    forcePrint("LinkedSwordAI: Initialization failed - " .. tostring(err))
+end
