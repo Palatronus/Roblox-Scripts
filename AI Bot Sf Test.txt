@@ -1,3 +1,41 @@
+-- START DEBUG SHIM: paste at very top of file (line 1)
+do
+    -- Prevent immediate 'attempt to call nil value' at file start
+    if not forcePrint then
+        function forcePrint(...)
+            local args = {...}
+            print(table.concat(args, " "))
+        end
+    end
+    if not debugPrint then
+        function debugPrint(...)
+            local args = {...}
+            print("[debug] " .. table.concat(args, " "))
+        end
+    end
+
+    -- Provide harmless placeholders for movement/combat functions commonly called early
+    if not SafeMoveTo then
+        function SafeMoveTo(...) end
+    end
+    if not SafeHumanoidMoveTo then
+        function SafeHumanoidMoveTo(...) end
+    end
+    if not MoveTo then
+        function MoveTo(...) end
+    end
+    if not IsSafePath then
+        function IsSafePath(...) return false end
+    end
+    if not ExecuteAttack then
+        function ExecuteAttack(...) end
+    end
+
+    -- Add a basic protection wrapper for the rest of the script if desired:
+    -- (Optional) wrap your init call like: xpcall(function() InitializeAI() end, function(e) print("INIT ERR:", e); print(debug.traceback()) end)
+end
+-- END DEBUG SHIM
+
 --[[ 
     Linked Sword AI Combat Script (Node-Segmented, Fixed)
     - Full file: corrected string concatenation, forward declarations, safe movement wrappers
@@ -1335,7 +1373,10 @@ local function InitializeAI()
 end
 
 -- Launch
-local success, err = pcall(InitializeAI)
+local ok, err = xpcall(function() InitializeAI() end, function(e)
+    warn("LinkedSwordAI INIT ERROR:", tostring(e))
+    warn(debug.traceback())
+end)
 if not success then
     forcePrint("LinkedSwordAI: Initialization failed - " .. tostring(err))
 end
