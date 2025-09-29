@@ -1,3 +1,6 @@
+pcall(function()
+    print("LinkedSwordAI protected load...")
+
 -- START DEBUG SHIM: paste at very top of file (line 1)
 do
     -- Prevent immediate 'attempt to call nil value' at file start
@@ -33,6 +36,7 @@ do
 
     -- Add a basic protection wrapper for the rest of the script if desired:
     -- (Optional) wrap your init call like: xpcall(function() InitializeAI() end, function(e) print("INIT ERR:", e); print(debug.traceback()) end)
+
 end
 -- END DEBUG SHIM
 
@@ -1379,4 +1383,5 @@ local ok, err = xpcall(function() InitializeAI() end, function(e)
 end)
 if not success then
     forcePrint("LinkedSwordAI: Initialization failed - " .. tostring(err))
+end)
 end
