@@ -547,11 +547,19 @@ local function Heuristic(pos1, pos2)
 end
 
 ComputeNodePathBetweenPositions = function(startPos, goalPos, character)
-    local startNode = FindNearestNamedNode(startPos)
-    local goalNode = FindNearestNamedNode(goalPos)
+    local startNodeId = FindNearestNamedNode(startPos)
+    local goalNodeId = FindNearestNamedNode(goalPos)
+
+    if not startNodeId or not goalNodeId then
+        forcePrint("LinkedSwordAI: Could not find nearest nodes for pathfinding.")
+        return nil
+    end
+
+    local startNode = persistentData.NodeGraph.nodes[startNodeId]
+    local goalNode = persistentData.NodeGraph.nodes[goalNodeId]
 
     if not startNode or not goalNode then
-        forcePrint("LinkedSwordAI: Could not find nearest nodes for pathfinding.")
+        forcePrint("LinkedSwordAI: Could not retrieve node objects for pathfinding.")
         return nil
     end
 
