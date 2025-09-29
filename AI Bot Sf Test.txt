@@ -71,6 +71,7 @@ if not _G.LinkedSwordAIPersistentData then
         NodeGraph = { nodes = {}, adjacency = {}, nameToId = {} },
         NodePath = nil,
         CurrentNodeIndex = 1,
+        NodesTraversedInCurrentPath = 0,
         LastNodePathComputedTime = 0,
         NodeGraphBuiltTime = 0,
         CurrentNavigationTarget = nil,
@@ -130,6 +131,7 @@ local CONFIG = {
     NODE_PATH_RECOMPUTE_INTERVAL = 3.0,
     NODE_SWITCH_VOID_DISTANCE = 12,
     MAX_JUMP_HEIGHT = 6,
+    MIN_JUMP_HEIGHT = 1,
     WALL_DETECT_DISTANCE = 6,
     LEDGE_SAFE_DROP_HEIGHT = 12,
     LEDGE_DETECT_FORWARD_DISTANCE = 5,
@@ -221,7 +223,7 @@ DetectObstacleAhead = function(HumanoidRootPart, direction, checkDistance, Chara
         local topCheckOk, topCheck = pcall(function() return WorkspaceLocal:Raycast(hitPos + Vector3.new(0, CONFIG.MAX_JUMP_HEIGHT + 1, 0), Vector3.new(0, -(CONFIG.MAX_JUMP_HEIGHT + 2), 0), params) end)
         local topY = (topCheckOk and topCheck and topCheck.Position.Y) or hitPos.Y
         local heightDiff = topY - HumanoidRootPart.Position.Y
-        if heightDiff >= 1 and heightDiff <= CONFIG.MAX_JUMP_HEIGHT then
+        if heightDiff >= CONFIG.MIN_JUMP_HEIGHT and heightDiff <= CONFIG.MAX_JUMP_HEIGHT then
             return "jumpable", hitPos
         elseif heightDiff > CONFIG.MAX_JUMP_HEIGHT then
             return "wall", hitPos
@@ -373,27 +375,35 @@ BuildFixedNodeGraph = function()
 
     -- link according to user sequences
     link("Center", "LowerBridge1")
-    link("LowerBridge1", "LowerBridge2")
-    link("LowerBridge2", "RegenArea")
     link("LowerBridge1", "RegenArea")
-    link("Center", "BottomArea")
+    link("RegenArea", "LowerBridge2")
+    -- link("Center", "BottomArea") -- Removed direct link due to wall
     link("BottomArea", "HillBottom1")
+    link("HillBottom1", "HillBottom2")
+    link("HillBottom2", "HillBottom3")
     link("HillBottom1", "HillStair1")
     link("HillStair1", "HillStair2")
     link("HillStair2", "HillStair3")
     link("HillStair3", "Hill")
+    link("HillBottom3", "Hill")
     link("Hill", "UpperBridge1")
     link("UpperBridge1", "UpperBridge2")
-    link("UpperBridge2", "LowerBridge1")
-    link("HillBottom1", "HillBottom2")
-    link("HillBottom2", "HillBottom3")
-    link("HillBottom3", "Hill")
     link("UpperBridge2", "UpperBase")
+    link("UpperBridge2", "LowerBridge1") -- Can jump down
     link("UpperBase", "UpperBridge3")
     link("UpperBridge2", "UpperBridge3")
+    link("Center", "Base") -- Through blind spot
     link("Base", "GrayBridge")
     link("GrayBridge", "ArmorArea")
-    link("Base", "ArmorArea")
+
+    -- Add jump shortcuts
+    link("HillStair2", "HillBottom1")
+    link("HillStair2", "HillBottom2")
+    link("HillStair2", "HillBottom3")
+    link("HillStair3", "HillBottom1")
+    link("HillStair3", "HillBottom2")
+    link("HillStair3", "HillBottom3")
+    link("UpperBridge3", "Base") -- Jump to blind spot below
 
     -- add spatial links for nearby nodes
     for i = 1, idx do
@@ -463,6 +473,7 @@ ComputeNodePathBetweenPositions = function(startPos, goalPos)
     for _, id in ipairs(pathIds) do table.insert(positions, nodes[id].position) end
     persistentData.NodePath = positions
     persistentData.CurrentNodeIndex = 1
+    persistentData.NodesTraversedInCurrentPath = 0
     persistentData.LastNodePathComputedTime = tick()
     return positions
 end
@@ -479,6 +490,14 @@ FollowNodePath = function()
     local waypoint = path[idx]
     local dist = (waypoint - HumanoidRootPart.Position).Magnitude
 
+    -- If bot is already at the current waypoint, advance to the next one
+    if dist < CONFIG.NODE_REACH_THRESHOLD then
+        persistentData.CurrentNodeIndex = idx + 1
+        persistentData.LastNodeEntryTime = nil -- Reset entry time for next node
+        persistentData.NodesTraversedInCurrentPath = persistentData.NodesTraversedInCurrentPath + 1
+        return true
+    end
+
     -- Initialize or update node entry time
     if persistentData.LastNodeEntryTime == nil or persistentData.CurrentNodeIndex ~= idx then
         persistentData.LastNodeEntryTime = tick()
@@ -487,17 +506,16 @@ FollowNodePath = function()
 
     -- Check for continuous repositioning (stuck in node)
     if tick() - persistentData.LastNodeEntryTime > CONFIG.NODE_STUCK_TIMEOUT then
-        warn("LinkedSwordAI: Bot stuck in node " .. tostring(idx) .. ". Recomputing path.")
-        persistentData.NodePath = nil -- Invalidate current path
-        persistentData.CurrentNodeIndex = nil
-        return false
-    end
-
-    if dist < CONFIG.NODE_REACH_THRESHOLD then
-        -- Node reached, move to next
-        persistentData.CurrentNodeIndex = idx + 1
-        persistentData.LastNodeEntryTime = nil -- Reset entry time for next node
-        return true
+        if persistentData.NodesTraversedInCurrentPath < 2 then
+            warn("LinkedSwordAI: Bot stuck in node " .. tostring(idx) .. ", but has not traversed 2 nodes yet. Attempting to continue.")
+            -- Do not recompute path immediately, try to push through
+        else
+            warn("LinkedSwordAI: Bot stuck in node " .. tostring(idx) .. ". Recomputing path.")
+            persistentData.NodePath = nil -- Invalidate current path
+            persistentData.CurrentNodeIndex = nil
+            persistentData.NodesTraversedInCurrentPath = 0
+            return false
+        end
     end
 
     local deltaY = waypoint.Y - HumanoidRootPart.Position.Y
