@@ -191,7 +191,7 @@ end
 -- Forward declarations to prevent nil when used before defined
 local  MoveTo, TryJumpTo, ExecuteAttack, SafeHumanoidMoveTo, SafeHumanoidChangeState
 local  DetectObstacleAhead, ComputeNodePathBetweenPositions, FollowNodePath, BuildFixedNodeGraph, FindNearestNamedNode
-local  IsVoidArea, IsSafeGap, IsNarrowPassage, FindBridgePath, isPartUnsafe, GetAreaNameForPosition, IsSafePath
+local  IsVoidArea, IsSafeGap, IsNarrowPassage, FindBridgePath, isPartUnsafe, GetAreaNameForPosition, IsSafePath, HasLineOfSight, IsGrounded
 
 -- Safe Humanoid wrappers
 SafeHumanoidMoveTo = function(humanoid, targetPosition)
@@ -208,6 +208,43 @@ SafeHumanoidChangeState = function(humanoid, state)
     if not humanoid or not state then return false end
     local ok = pcall(function() humanoid:ChangeState(state) end)
     return ok and true or false
+end
+
+-- Helper: Check for direct line of sight between two points
+local function HasLineOfSight(startPos, endPos, character)
+    local WorkspaceLocal = game:GetService("Workspace")
+    local params = RaycastParams.new()
+    params.FilterDescendantsInstances = { character }
+    params.FilterType = Enum.RaycastFilterType.Blacklist
+    local direction = (endPos - startPos)
+    local distance = direction.Magnitude
+    local ray = Ray.new(startPos, direction)
+    local ok, rayRes = pcall(function() return WorkspaceLocal:Raycast(startPos, direction, params) end)
+    if ok and rayRes then
+        -- If the ray hits something, check if the hit position is beyond the target position
+        -- or if the hit instance is too close to the start (e.g., part of the character itself)
+        local hitDistance = (rayRes.Position - startPos).Magnitude
+        return hitDistance >= distance - 0.1 -- Allow for minor floating point inaccuracies
+    end
+    return true -- No hit, so clear line of sight
+end
+
+-- Helper: Check if the bot is grounded
+local function IsGrounded(character)
+    local HumanoidRootPart = character:FindFirstChild("HumanoidRootPart")
+    if not HumanoidRootPart then return false end
+
+    local WorkspaceLocal = game:GetService("Workspace")
+    local params = RaycastParams.new()
+    params.FilterDescendantsInstances = { character }
+    params.FilterType = Enum.RaycastFilterType.Blacklist
+
+    local rayOrigin = HumanoidRootPart.Position
+    local rayDirection = Vector3.new(0, - (HumanoidRootPart.Size.Y / 2 + 0.5), 0) -- Raycast slightly below the HumanoidRootPart
+
+    local ok, rayRes = pcall(function() return WorkspaceLocal:Raycast(rayOrigin, rayDirection, params) end)
+    
+    return ok and rayRes ~= nil and rayRes.Instance ~= nil
 end
 
 -- Helper: detect obstacle ahead (jumpable / wall / clear)
@@ -440,7 +477,12 @@ FindNearestNamedNode = function(position)
     return bestId
 end
 
-ComputeNodePathBetweenPositions = function(startPos, goalPos)
+ComputeNodePathBetweenPositions = function(startPos, goalPos, character)
+    -- First, check for a direct line of sight
+    if HasLineOfSight(startPos, goalPos, character) then
+        return {startPos, goalPos}
+    end
+
     if not persistentData.NodeGraph or not persistentData.NodeGraph.nodes then BuildFixedNodeGraph() end
     local nodes = persistentData.NodeGraph.nodes
     local adj = persistentData.NodeGraph.adjacency
@@ -485,32 +527,58 @@ FollowNodePath = function()
     local HumanoidRootPart = persistentData.Character:FindFirstChild("HumanoidRootPart")
     local Humanoid = persistentData.Character:FindFirstChild("Humanoid")
     if not HumanoidRootPart or not Humanoid then return false end
-    local idx = persistentData.CurrentNodeIndex or 1
-    if idx > #path then return false end
-    local waypoint = path[idx]
+    local originalIdx = persistentData.CurrentNodeIndex or 1 -- Store original index
+    local currentIdx = originalIdx
+
+    -- Logic to skip intermediate nodes if a direct line of sight is established to a subsequent node
+    local currentPosition = HumanoidRootPart.Position
+    for i = originalIdx + 1, #path do
+        local nextWaypoint = path[i]
+        if HasLineOfSight(currentPosition, nextWaypoint, persistentData.Character) then
+            currentIdx = i -- Update currentIdx to skip to this further node
+            if persistentData.StatusGUI then persistentData.StatusGUI.UpdateDebug("NodeNav skip to #" .. tostring(i)) end
+            break -- Exit the loop, now target the new waypoint
+        end
+    end
+    persistentData.CurrentNodeIndex = currentIdx -- Update the persistent data with the potentially skipped index
+
+    if currentIdx > #path then return false end -- Check if we skipped past the end of the path
+    local waypoint = path[currentIdx]
     local dist = (waypoint - HumanoidRootPart.Position).Magnitude
+
+    -- Check for direct line of sight to the current waypoint (this part is already there, but now it will be for the potentially skipped waypoint)
+    if HasLineOfSight(HumanoidRootPart.Position, waypoint, persistentData.Character) then
+        -- If direct line of sight, move directly to the waypoint
+        SafeHumanoidMoveTo(Humanoid, waypoint)
+        if persistentData.StatusGUI then persistentData.StatusGUI.UpdateDebug("NodeNav direct -> waypoint #" .. tostring(currentIdx)) end
+        if dist < CONFIG.NODE_REACH_THRESHOLD then
+            persistentData.CurrentNodeIndex = currentIdx + 1
+            persistentData.LastNodeEntryTime = nil
+            persistentData.NodesTraversedInCurrentPath = persistentData.NodesTraversedInCurrentPath + 1
+        end
+        return true
+    end
 
     -- If bot is already at the current waypoint, advance to the next one
     if dist < CONFIG.NODE_REACH_THRESHOLD then
-        persistentData.CurrentNodeIndex = idx + 1
+        persistentData.CurrentNodeIndex = currentIdx + 1
         persistentData.LastNodeEntryTime = nil -- Reset entry time for next node
         persistentData.NodesTraversedInCurrentPath = persistentData.NodesTraversedInCurrentPath + 1
         return true
     end
 
     -- Initialize or update node entry time
-    if persistentData.LastNodeEntryTime == nil or persistentData.CurrentNodeIndex ~= idx then
+    if persistentData.CurrentNodeIndex ~= originalIdx or persistentData.LastNodeEntryTime == nil then
         persistentData.LastNodeEntryTime = tick()
-        persistentData.CurrentNodeIndex = idx
     end
 
     -- Check for continuous repositioning (stuck in node)
     if tick() - persistentData.LastNodeEntryTime > CONFIG.NODE_STUCK_TIMEOUT then
         if persistentData.NodesTraversedInCurrentPath < 2 then
-            warn("LinkedSwordAI: Bot stuck in node " .. tostring(idx) .. ", but has not traversed 2 nodes yet. Attempting to continue.")
+            warn("LinkedSwordAI: Bot stuck in node " .. tostring(currentIdx) .. ", but has not traversed 2 nodes yet. Attempting to continue.")
             -- Do not recompute path immediately, try to push through
         else
-            warn("LinkedSwordAI: Bot stuck in node " .. tostring(idx) .. ". Recomputing path.")
+            warn("LinkedSwordAI: Bot stuck in node " .. tostring(currentIdx) .. ". Recomputing path.")
             persistentData.NodePath = nil -- Invalidate current path
             persistentData.CurrentNodeIndex = nil
             persistentData.NodesTraversedInCurrentPath = 0
@@ -519,14 +587,14 @@ FollowNodePath = function()
     end
 
     local deltaY = waypoint.Y - HumanoidRootPart.Position.Y
-    if deltaY >= 1 and deltaY <= CONFIG.MAX_JUMP_HEIGHT then
+    if deltaY >= 1 and deltaY <= CONFIG.MAX_JUMP_HEIGHT and IsGrounded(persistentData.Character) then
         SafeHumanoidChangeState(Humanoid, Enum.HumanoidStateType.Jumping)
         SafeHumanoidMoveTo(Humanoid, waypoint)
-        if persistentData.StatusGUI then persistentData.StatusGUI.UpdateDebug("NodeNav jump-> waypoint #" .. tostring(idx)) end
+        if persistentData.StatusGUI then persistentData.StatusGUI.UpdateDebug("NodeNav jump-> waypoint #" .. tostring(currentIdx)) end
         return true
     else
         SafeHumanoidMoveTo(Humanoid, waypoint)
-        if persistentData.StatusGUI then persistentData.StatusGUI.UpdateDebug("NodeNav -> waypoint #" .. tostring(idx)) end
+        if persistentData.StatusGUI then persistentData.StatusGUI.UpdateDebug("NodeNav -> waypoint #" .. tostring(currentIdx)) end
         return true
     end
 end
