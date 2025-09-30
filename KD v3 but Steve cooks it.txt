@@ -30,7 +30,6 @@ do
 	local Humanoid = FakeCharacter:FindFirstChildOfClass("Humanoid")
 	if Humanoid and Humanoid.RootPart then
 		InitCFrame = Humanoid.RootPart.CFrame
-		Humanoid:SetStateEnabled(Enum.HumanoidStateType.Dead, false)
 	end
 	replicatesignal(Player.Kill)
 	notify("\xe8\x99\x8e\xe8\x99\x8e\xe7\x94\x9f\xe5\xa8\x81 \xf0\x9f\x90\xaf\xf0\x9f\x90\xaf\xf0\x9f\x90\xaf")
