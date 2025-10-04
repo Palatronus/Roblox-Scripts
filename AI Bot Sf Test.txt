@@ -45,20 +45,21 @@ local PathfindingService = game:GetService("PathfindingService")
 -- Configuration (tweak these values for tuning)
 local CONFIG = {
 	DETECTION_RADIUS = 290,
-	ATTACK_RANGE = 34.6765,
-	IMMEDIATE_ATTACK_RADIUS = 8,
+	ATTACK_RANGE = 55,
+	IMMEDIATE_ATTACK_RADIUS = 6,
 	SWORD_NAME = "Sword",
-	BLOCKED_TIME_PATHFIND = 1,
+	BLOCKED_TIME_PATHFIND = 1.6,
 	AGENT_CLEAR_PATHFIND_OFFSET = Vector3.new(2048, 0, 0),
 	HEALING_PAD_POSITION = Vector3.new(-124, 256, 4),
-	WAYPOINT_ACCEPTANCE = 1.22,
-    WAYPOINT_DIST = 1.64785,
-    PREDICT_SWING = 17.9,
+	WAYPOINT_ACCEPTANCE = 1.3,
+    WAYPOINT_DIST = 1.15,
+    PREDICT_SWING = 15,
     PLAYERS_STOMACH_SIZE_FAT_NOT_INCLUDED = 2.39,
-    EXTRA_BACKOFF = 18.977,
-    PREDICT_PLAYER_HIT = 0.17,
-    MINIMUM_NODES_TO_LINEOFSIGHT = 4,
-    STUCK_RESET = true
+    EXTRA_BACKOFF = 23,
+    PREDICT_PLAYER_HIT = 0.19,
+    MINIMUM_NODES_TO_LINEOFSIGHT = 2,
+    STUCK_RESET = true,
+    RETRIES_BEFORE_RESET = 15
 }
 
 -- Get Player
@@ -254,14 +255,18 @@ LocalPlayer.DevComputerMovementMode = Enum.DevComputerMovementMode.Scriptable
 LocalPlayer.DevTouchMovementMode = Enum.DevTouchMovementMode.Scriptable
 
 local charge = false
+
 task.spawn(function()
-	while true do
-		task.wait(0.5 + math.random() * 5)
-		charge = true
-		task.wait(2)
-		charge = false
-	end
+    while true do
+        task.wait(0.5 + math.random() * 5)
+        if math.random() <= 0.6 then
+            charge = true
+            task.wait(2)
+            charge = false
+        end
+    end
 end)
+
 
 while true do
 	local dt = task.wait()
@@ -343,7 +348,7 @@ end
 							targetmove = vpos + lookat:VectorToWorldSpace(Vector3.new(3, 0, 2))
 							lookat *= CFrame.Angles(0, math.pi * 0.5 * (math.random() - 0.5), 0)
 						else
-							targetmove = vpos + lookat:VectorToWorldSpace(Vector3.new(1, 0, 13))
+							targetmove = vpos + lookat:VectorToWorldSpace(Vector3.new(0, 0, CONFIG.EXTRA_BACKOFF))
 						end
 					else
 						targetmove = vpos + lookat:VectorToWorldSpace(Vector3.new(0, 0, 2))
@@ -360,7 +365,7 @@ end
 			if nearestff then
 				local dirto = (targetmove - nearestff.Position) * Vector3.new(1, 0, 1)
 				if dirto.Magnitude > 0 and dirto.Magnitude < 16 then
-					targetmove += dirto.Unit * ((16 - dirto.Magnitude) + CONFIG.EXTRA_BACKOFF)
+					targetmove += dirto.Unit * ((16 - dirto.Magnitude) + (CONFIG.EXTRA_BACKOFF * 1.12))
 				end
 				if nearestffdist < 12 then
 					targetjump = true
@@ -445,14 +450,20 @@ end
         debugPrint("GOTO", "HELL NAH WHY AM I LOOPING!!, ok im forcing, if this loops too, then the dude named roblox needs better pathfinding. This might be the longest message ever lol")
         AgentPathfindForce = true
         BlockedSpamCounter = 0
-           if BlockedSpamCounter2 >= 6 and CONFIG.STUCK_RESET == true then
+           if BlockedSpamCounter2 >= CONFIG.RETRIES_BEFORE_RESET and CONFIG.STUCK_RESET == true then
              debugPrint("NAH", "THAT'S IT IM RESETTING")
              BlockedSpamCounter2 = 0
+             AgentPathfindForce = true
              hum.Health = 0
            end
     else
         debugPrint("GOTO", "I am blocked. Pathfinding...")
     end
+    if AgentPathfindForce ~= true then
+    BlockedSpamCounter = math.max((BlockedSpamCounter or 0) - 1, 0)
+    BlockedSpamCounter2 = math.max((BlockedSpamCounter2 or 0) - 1, 0)
+end
+
     BlockedTime = 0
     IsPathfinding = true
     local groundRay = workspace:Raycast(root.Position + Vector3.new(0, 5, 0), Vector3.new(0, -100, 0), RCP)
