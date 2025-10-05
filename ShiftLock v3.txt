@@ -68,6 +68,7 @@ local ws = FindFirstChildOfClass(game, "Workspace")
 local uis = FindFirstChildOfClass(game, "UserInputService")
 local lp = insGet(plrs, "LocalPlayer")
 local mouse = insGet(lp, "GetMouse")(lp)
+local pg = insGet(lp, "PlayerGui")
 
 local heartbeat = insGet(rus, "Heartbeat")
 local renderstepped = insGet(rus, "RenderStepped")
@@ -81,15 +82,32 @@ local allowshiftlock = true -- Enable/disable shiftlock functionality
 local shiftlock = false -- Current shiftlock state
 local mouseCameraMove = false
 
+-- Cursor management
+local defaultCursor = ""
+local shiftlockCursor = "rbxasset://textures/ArrowFarCursor.png" -- Shiftlock cursor icon
+
+-- Function to update cursor based on shiftlock state
+local function updateCursor()
+	if shiftlock then
+		insSet(mouse, "Icon", shiftlockCursor)
+	else
+		insSet(mouse, "Icon", defaultCursor)
+	end
+end
+
 -- Mouse behavior enums
 local enumMLCP = e.MouseBehavior.LockCurrentPosition
 local enumMLC = (insGet(uis, "TouchEnabled") and enumMLCP) or e.MouseBehavior.LockCenter 
 local enumMD = e.MouseBehavior.Default
 local enumMM = e.UserInputType.MouseMovement
+local enumMB2 = e.UserInputType.MouseButton2
 
 -- Mouse behavior management
 local mouseBehavior = nil
 local lastMouseBehavior = insGet(uis, "MouseBehavior")
+
+-- Add mouse button detection
+local IsMouseButtonPressed = insGet(uis, "IsMouseButtonPressed")
 
 -- Ensure mouse behavior stays locked when needed
 Connect(GetPropertyChangedSignal(uis, "MouseBehavior"), function()
@@ -101,6 +119,14 @@ end)
 -- Key definitions
 local KeyCode = e.KeyCode
 local keyShift = KeyCode.LeftShift
+
+-- Camera variables
+local cam = insGet(ws, "CurrentCamera")
+local camcf = insGet(cam, "CFrame")
+local camcfLV = cfGet(camcf, "LookVector")
+local camrot = cfl(v3_0, camcfLV)
+local camcfRV = cfGet(camrot, "RightVector")
+local mradN05 = -0.008726646259971648 -- Mouse sensitivity multiplier
 
 -- Camera variables
 local cam = insGet(ws, "CurrentCamera")
@@ -139,6 +165,7 @@ Connect(insGet(uis, "InputBegan"), function(input, gameProcessed)
 	local keyCode = insGet(input, "KeyCode")
 	if keyCode == keyShift then
 		shiftlock = allowshiftlock and not shiftlock
+		updateCursor() -- Update cursor when shiftlock state changes
 	end
 end)
 
@@ -161,14 +188,19 @@ local function updateShiftlock()
 		return
 	end
 	
-	-- Update camera behavior based on shiftlock state
+	-- Update camera behavior based on shiftlock state and mouse input
 	if shiftlock then
 		if allowshiftlock then
 			mouseBehavior = enumMLC
 			mouseCameraMove = true
 		else
 			shiftlock = false
+			updateCursor() -- Update cursor when shiftlock is disabled
 		end
+	elseif IsMouseButtonPressed(uis, enumMB2) then
+		-- Right-click camera panning
+		mouseBehavior = enumMLCP
+		mouseCameraMove = true
 	else
 		mouseBehavior = enumMD
 		mouseCameraMove = false
@@ -182,8 +214,10 @@ local function updateShiftlock()
 	
 	-- Update camera position when shiftlock is active
 	if shiftlock then
-		-- Orient character to face camera direction
-		cfr = cfl(pos, pos + camcfLV * v3_101)
+		-- Orient character to face camera direction with synchronized rotation speed
+		local targetCFrame = cfl(pos, pos + camcfLV * v3_101)
+		-- Apply immediate rotation for perfect sync
+		cfr = targetCFrame
 		insSet(rootpart, "CFrame", cfr)
 		
 		-- Position camera with shiftlock offset
@@ -195,47 +229,51 @@ end
 -- Connect to heartbeat for continuous updates
 Connect(heartbeat, updateShiftlock)
 
--- API functions for external control
-local ShiftlockAPI = {}
-
-function ShiftlockAPI.setEnabled(enabled)
-	allowshiftlock = enabled
-	if not enabled then
+-- API for external control
+local ShiftlockAPI = {
+	-- Toggle shiftlock on/off
+	toggle = function()
+		shiftlock = allowshiftlock and not shiftlock
+		updateCursor()
+		return shiftlock
+	end,
+	
+	-- Enable shiftlock
+	enable = function()
+		if allowshiftlock then
+			shiftlock = true
+			updateCursor()
+		end
+		return shiftlock
+	end,
+	
+	-- Disable shiftlock
+	disable = function()
 		shiftlock = false
-		mouseBehavior = enumMD
-		mouseCameraMove = false
-		insSet(uis, "MouseBehavior", enumMD)
+		updateCursor()
+		return shiftlock
+	end,
+	
+	-- Check if shiftlock is enabled
+	isEnabled = function()
+		return shiftlock
+	end,
+	
+	-- Check if shiftlock is allowed
+	isAllowed = function()
+		return allowshiftlock
+	end,
+	
+	-- Set shiftlock permission
+	setAllowed = function(allowed)
+		allowshiftlock = allowed
+		if not allowed then
+			shiftlock = false
+			updateCursor()
+		end
+		return allowshiftlock
 	end
-end
+}
 
-function ShiftlockAPI.isEnabled()
-	return allowshiftlock
-end
-
-function ShiftlockAPI.isActive()
-	return shiftlock
-end
-
-function ShiftlockAPI.toggle()
-	if allowshiftlock then
-		shiftlock = not shiftlock
-	end
-end
-
-function ShiftlockAPI.setCameraDistance(distance)
-	cammag = -math.abs(distance)
-end
-
-function ShiftlockAPI.getCameraDistance()
-	return -cammag
-end
-
--- Export API
-_G.ShiftlockAPI = ShiftlockAPI
-
--- Initialize
-print("Shiftlock system loaded successfully!")
-print("Use Left Shift to toggle shiftlock")
-print("API available at _G.ShiftlockAPI")
-
+-- Export the API
 return ShiftlockAPI
