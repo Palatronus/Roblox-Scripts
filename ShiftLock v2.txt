@@ -1,0 +1,241 @@
+--[[
+	Shiftlock functionality extracted from patchma hub by MyWorld
+	Standalone shiftlock implementation for Roblox
+]]
+
+-- Optimized function references for better performance
+local osclock = os.clock
+local tspawn = task.spawn
+local twait = task.wait
+local sin = math.sin
+local cos = math.cos
+local abs = math.abs
+local min = math.min
+local clamp = math.clamp
+
+-- Global variables
+local next = next
+local pcall = pcall
+local type = type
+local typeof = typeof
+local game = game
+
+-- Instance creation shortcuts
+local i = Instance.new 
+local v2 = Vector2.new 
+local v3 = Vector3.new
+local c3 = Color3.new 
+local cf = CFrame.new
+local cfl = CFrame.lookAt
+local angles = CFrame.fromEulerAngles
+local u2 = UDim2.new 
+local e = Enum 
+
+-- Constants
+local sine = osclock()
+local deltaTime = 0
+local v3_0 = v3()
+local v3_101 = v3(1,0,1)
+local v3_010 = v3(0,1,0)
+local cf_0 = cf()
+local v3_0150 = v3_010 * 1.5
+
+-- Metamethod optimization
+local getMetamethodFromErrorStack = function(userdata, f, test)
+	local ret = nil
+	xpcall(f, function()
+		ret = debug.info(2, "f")
+	end, userdata, nil, 0)
+	if (type(ret) ~= "function") or not test(ret) then
+		return f
+	end
+	return ret
+end
+
+local insSet = getMetamethodFromErrorStack(game, function(a,b,c) a[b]=c end, function(f) local a=i("Folder") local b="test" f(a,"Name",b) return a.Name==b end)
+local insGet = getMetamethodFromErrorStack(game, function(a,b) return a[b] end, function(f) local a=i("Folder") local b="test" a.Name=b return f(a,"Name")==b end)
+local cfGet = getMetamethodFromErrorStack(cf_0, function(a,b) return a[b] end, function(f) return f(cf(1,2,3),"Position")==v3(1,2,3) end)
+local cfMul = getMetamethodFromErrorStack(cf_0, function(a,b) return a*b end, function(f) return angles(1,2,3)*angles(1,2,3)==f(angles(1,2,3),angles(1,2,3)) end)
+local cfAdd = getMetamethodFromErrorStack(cf_0, function(a,b) return a+b end, function(f) return cf(1,2,3)+v3(1,2,3)==f(cf(1,2,3),v3(1,2,3)) end)
+
+-- Service references
+local FindFirstChildOfClass = insGet(game, "FindFirstChildOfClass")
+local GetPropertyChangedSignal = insGet(game, "GetPropertyChangedSignal")
+
+local plrs = FindFirstChildOfClass(game, "Players")
+local rus = FindFirstChildOfClass(game, "RunService")
+local ws = FindFirstChildOfClass(game, "Workspace")
+local uis = FindFirstChildOfClass(game, "UserInputService")
+local lp = insGet(plrs, "LocalPlayer")
+local mouse = insGet(lp, "GetMouse")(lp)
+
+local heartbeat = insGet(rus, "Heartbeat")
+local renderstepped = insGet(rus, "RenderStepped")
+local Connect = heartbeat.Connect
+local Wait = heartbeat.Wait
+local GetMouseDelta = insGet(uis, "GetMouseDelta")
+local IsKeyDown = insGet(uis, "IsKeyDown")
+
+-- Shiftlock variables
+local allowshiftlock = true -- Enable/disable shiftlock functionality
+local shiftlock = false -- Current shiftlock state
+local mouseCameraMove = false
+
+-- Mouse behavior enums
+local enumMLCP = e.MouseBehavior.LockCurrentPosition
+local enumMLC = (insGet(uis, "TouchEnabled") and enumMLCP) or e.MouseBehavior.LockCenter 
+local enumMD = e.MouseBehavior.Default
+local enumMM = e.UserInputType.MouseMovement
+
+-- Mouse behavior management
+local mouseBehavior = nil
+local lastMouseBehavior = insGet(uis, "MouseBehavior")
+
+-- Ensure mouse behavior stays locked when needed
+Connect(GetPropertyChangedSignal(uis, "MouseBehavior"), function()
+	if mouseBehavior and (insGet(uis, "MouseBehavior") ~= mouseBehavior) then
+		insSet(uis, "MouseBehavior", mouseBehavior)
+	end
+end)
+
+-- Key definitions
+local KeyCode = e.KeyCode
+local keyShift = KeyCode.LeftShift
+
+-- Camera variables
+local cam = insGet(ws, "CurrentCamera")
+local camcf = insGet(cam, "CFrame")
+local camcfLV = cfGet(camcf, "LookVector")
+local camrot = cfl(v3_0, camcfLV)
+local camcfRV = cfGet(camrot, "RightVector")
+local mradN05 = -0.008726646259971648 -- Mouse sensitivity multiplier
+
+-- Character and camera management
+local c = nil
+local rootpart = nil
+local cfr = cf_0
+local pos = v3_0
+local cammag = -25 -- Camera distance
+
+-- Function to get character and root part
+local function getCharacterAndRoot()
+	c = insGet(lp, "Character")
+	if c then
+		rootpart = c:FindFirstChild("HumanoidRootPart") or c:FindFirstChild("Torso") or c:FindFirstChild("UpperTorso")
+		if rootpart then
+			cfr = insGet(rootpart, "CFrame")
+			pos = cfGet(cfr, "Position")
+			cfr = cfl(pos, pos + cfGet(cfr, "LookVector") * v3_101)
+			return true
+		end
+	end
+	return false
+end
+
+-- Input handling for shiftlock toggle
+Connect(insGet(uis, "InputBegan"), function(input, gameProcessed)
+	if gameProcessed then return end
+	
+	local keyCode = insGet(input, "KeyCode")
+	if keyCode == keyShift then
+		shiftlock = allowshiftlock and not shiftlock
+	end
+end)
+
+-- Mouse movement handling for camera rotation
+Connect(insGet(uis, "InputChanged"), function(input, gameProcessed)
+	if gameProcessed then return end
+	
+	local inputType = insGet(input, "UserInputType")
+	if mouseCameraMove and inputType == enumMM then
+		local rotation = GetMouseDelta(uis) * mradN05
+		camcfLV = cfGet(cfMul(camrot, angles(rotation.Y, rotation.X, 0)), "LookVector")
+		camrot = cfl(v3_0, camcfLV)
+		camcfRV = cfGet(camrot, "RightVector")
+	end
+end)
+
+-- Main shiftlock update loop
+local function updateShiftlock()
+	if not getCharacterAndRoot() then
+		return
+	end
+	
+	-- Update camera behavior based on shiftlock state
+	if shiftlock then
+		if allowshiftlock then
+			mouseBehavior = enumMLC
+			mouseCameraMove = true
+		else
+			shiftlock = false
+		end
+	else
+		mouseBehavior = enumMD
+		mouseCameraMove = false
+	end
+	
+	-- Apply mouse behavior if it changed
+	if lastMouseBehavior ~= mouseBehavior then
+		lastMouseBehavior = mouseBehavior
+		insSet(uis, "MouseBehavior", mouseBehavior)
+	end
+	
+	-- Update camera position when shiftlock is active
+	if shiftlock then
+		-- Orient character to face camera direction
+		cfr = cfl(pos, pos + camcfLV * v3_101)
+		insSet(rootpart, "CFrame", cfr)
+		
+		-- Position camera with shiftlock offset
+		camcf = cfAdd(camrot, pos + v3_0150 + camcfRV * 1.75 + camcfLV * cammag)
+		insSet(cam, "CFrame", camcf)
+	end
+end
+
+-- Connect to heartbeat for continuous updates
+Connect(heartbeat, updateShiftlock)
+
+-- API functions for external control
+local ShiftlockAPI = {}
+
+function ShiftlockAPI.setEnabled(enabled)
+	allowshiftlock = enabled
+	if not enabled then
+		shiftlock = false
+		mouseBehavior = enumMD
+		mouseCameraMove = false
+		insSet(uis, "MouseBehavior", enumMD)
+	end
+end
+
+function ShiftlockAPI.isEnabled()
+	return allowshiftlock
+end
+
+function ShiftlockAPI.isActive()
+	return shiftlock
+end
+
+function ShiftlockAPI.toggle()
+	if allowshiftlock then
+		shiftlock = not shiftlock
+	end
+end
+
+function ShiftlockAPI.setCameraDistance(distance)
+	cammag = -math.abs(distance)
+end
+
+function ShiftlockAPI.getCameraDistance()
+	return -cammag
+end
+
+-- Export API
+_G.ShiftlockAPI = ShiftlockAPI
+
+-- Initialize
+print("Shiftlock system loaded successfully!")
+print("Use Left Shift to toggle shiftlock")
+print("API available at _G.ShiftlockAPI")
+
+return ShiftlockAPI
