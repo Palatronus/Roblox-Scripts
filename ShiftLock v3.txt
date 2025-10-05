@@ -57,6 +57,7 @@ local insGet = getMetamethodFromErrorStack(game, function(a,b) return a[b] end, 
 local cfGet = getMetamethodFromErrorStack(cf_0, function(a,b) return a[b] end, function(f) return f(cf(1,2,3),"Position")==v3(1,2,3) end)
 local cfMul = getMetamethodFromErrorStack(cf_0, function(a,b) return a*b end, function(f) return angles(1,2,3)*angles(1,2,3)==f(angles(1,2,3),angles(1,2,3)) end)
 local cfAdd = getMetamethodFromErrorStack(cf_0, function(a,b) return a+b end, function(f) return cf(1,2,3)+v3(1,2,3)==f(cf(1,2,3),v3(1,2,3)) end)
+local v3Get = getMetamethodFromErrorStack(v3_0, function(a,b) return a[b] end, function(f) return v3(1,2,3).Unit==f(v3(1,2,3),"Unit") end)
 
 -- Service references
 local FindFirstChildOfClass = insGet(game, "FindFirstChildOfClass")
@@ -128,17 +129,10 @@ local camrot = cfl(v3_0, camcfLV)
 local camcfRV = cfGet(camrot, "RightVector")
 local mradN05 = -0.008726646259971648 -- Mouse sensitivity multiplier
 
--- Camera variables
-local cam = insGet(ws, "CurrentCamera")
-local camcf = insGet(cam, "CFrame")
-local camcfLV = cfGet(camcf, "LookVector")
-local camrot = cfl(v3_0, camcfLV)
-local camcfRV = cfGet(camrot, "RightVector")
-local mradN05 = -0.008726646259971648 -- Mouse sensitivity multiplier
-
 -- Character and camera management
 local c = nil
 local rootpart = nil
+local humanoid = nil
 local cfr = cf_0
 local pos = v3_0
 local cammag = -25 -- Camera distance
@@ -148,6 +142,7 @@ local function getCharacterAndRoot()
 	c = insGet(lp, "Character")
 	if c then
 		rootpart = c:FindFirstChild("HumanoidRootPart") or c:FindFirstChild("Torso") or c:FindFirstChild("UpperTorso")
+		humanoid = c:FindFirstChildOfClass("Humanoid")
 		if rootpart then
 			cfr = insGet(rootpart, "CFrame")
 			pos = cfGet(cfr, "Position")
@@ -188,6 +183,9 @@ local function updateShiftlock()
 		return
 	end
 	
+	-- Update camera CFrame for current calculations
+	camcf = insGet(cam, "CFrame")
+	
 	-- Update camera behavior based on shiftlock state and mouse input
 	if shiftlock then
 		if allowshiftlock then
@@ -215,11 +213,13 @@ local function updateShiftlock()
 	-- Update camera position when shiftlock is active
 	if shiftlock then
 		-- Disable auto-rotate for manual control
-		insSet(humanoid, "AutoRotate", false)
+		if humanoid then
+			insSet(humanoid, "AutoRotate", false)
+		end
 		
 		-- Direct character rotation using camera look vector (SL.lua approach)
 		local camLookVector = cfGet(camcf, "LookVector")
-		local targetPosition = v3_new(
+		local targetPosition = v3(
 			camLookVector.X * 900000, -- MaxLength equivalent
 			v3Get(pos, "Y"),
 			camLookVector.Z * 900000
@@ -288,6 +288,11 @@ local ShiftlockAPI = {
 		return allowshiftlock
 	end
 }
+
+-- Initialize
+print("Shiftlock system loaded successfully!")
+print("Use Left Shift to toggle shiftlock")
+print("API available via return value")
 
 -- Export the API
 return ShiftlockAPI
