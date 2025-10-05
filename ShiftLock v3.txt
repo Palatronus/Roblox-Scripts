@@ -84,7 +84,7 @@ local mouseCameraMove = false
 
 -- Cursor management
 local defaultCursor = ""
-local shiftlockCursor = "rbxasset://textures/ArrowFarCursor.png" -- Shiftlock cursor icon
+local shiftlockCursor = "rbxasset://SystemCursors/Cross" -- Crosshair cursor matching reference image
 
 -- Function to update cursor based on shiftlock state
 local function updateCursor()
@@ -214,15 +214,29 @@ local function updateShiftlock()
 	
 	-- Update camera position when shiftlock is active
 	if shiftlock then
-		-- Orient character to face camera direction with synchronized rotation speed
-		local targetCFrame = cfl(pos, pos + camcfLV * v3_101)
-		-- Apply immediate rotation for perfect sync
-		cfr = targetCFrame
+		-- Disable auto-rotate for manual control
+		insSet(humanoid, "AutoRotate", false)
+		
+		-- Direct character rotation using camera look vector (SL.lua approach)
+		local camLookVector = cfGet(camcf, "LookVector")
+		local targetPosition = v3_new(
+			camLookVector.X * 900000, -- MaxLength equivalent
+			v3Get(pos, "Y"),
+			camLookVector.Z * 900000
+		)
+		
+		-- Apply direct rotation synchronization
+		cfr = cfl(pos, targetPosition)
 		insSet(rootpart, "CFrame", cfr)
 		
 		-- Position camera with shiftlock offset
 		camcf = cfAdd(camrot, pos + v3_0150 + camcfRV * 1.75 + camcfLV * cammag)
 		insSet(cam, "CFrame", camcf)
+	else
+		-- Re-enable auto-rotate when shiftlock is off
+		if humanoid then
+			insSet(humanoid, "AutoRotate", true)
+		end
 	end
 end
 
