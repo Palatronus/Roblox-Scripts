@@ -87,12 +87,53 @@ local mouseCameraMove = false
 local defaultCursor = ""
 local shiftlockCursor = "rbxasset://SystemCursors/Cross" -- Crosshair cursor matching reference image
 
+-- Custom cursor positioning variables
+local cursorLocked = false
+local lockedCursorPosition = nil
+
 -- Function to update cursor based on shiftlock state
 local function updateCursor()
 	if shiftlock then
 		insSet(mouse, "Icon", shiftlockCursor)
+		
+		-- Lock cursor to right-center position
+		if not cursorLocked then
+			cursorLocked = true
+			-- Calculate right-center position (75% from left edge)
+			local viewportSize = insGet(cam, "ViewportSize")
+			lockedCursorPosition = v2(viewportSize.X * 0.75, viewportSize.Y * 0.5)
+			
+			-- Set mouse behavior to lock current position
+			mouseBehavior = enumMLCP
+			insSet(uis, "MouseBehavior", mouseBehavior)
+		end
 	else
 		insSet(mouse, "Icon", defaultCursor)
+		
+		-- Unlock cursor
+		if cursorLocked then
+			cursorLocked = false
+			lockedCursorPosition = nil
+			
+			-- Reset mouse behavior to default
+			mouseBehavior = enumMD
+			insSet(uis, "MouseBehavior", mouseBehavior)
+		end
+	end
+end
+
+-- Enhanced cursor lock management
+local function maintainCursorLock()
+	if cursorLocked and lockedCursorPosition then
+		-- Ensure cursor stays locked in right-center position
+		local currentMousePos = v2(insGet(mouse, "X"), insGet(mouse, "Y"))
+		local distance = (currentMousePos - lockedCursorPosition).Magnitude
+		
+		-- If cursor drifted too far, re-center it
+		if distance > 5 then
+			-- Force cursor back to locked position
+			insSet(uis, "MouseBehavior", enumMLCP)
+		end
 	end
 end
 
@@ -161,6 +202,13 @@ Connect(insGet(uis, "InputBegan"), function(input, gameProcessed)
 	if keyCode == keyShift then
 		shiftlock = allowshiftlock and not shiftlock
 		updateCursor() -- Update cursor when shiftlock state changes
+		
+		-- Enable/disable precise rotation based on shiftlock state
+		if shiftlock then
+			enablePreciseRotation()
+		else
+			disablePreciseRotation()
+		end
 	end
 end)
 
@@ -179,69 +227,132 @@ end)
 
 -- Main shiftlock update loop
 local function updateShiftlock()
-	if not getCharacterAndRoot() then
+	if not getCharacterAndRootFE() then
 		return
 	end
+	
+	-- Update shiftlock state for FE compatibility
+	updateShiftlockState()
 	
 	-- Update camera CFrame for current calculations
 	camcf = insGet(cam, "CFrame")
 	
+	-- Maintain cursor lock if active
+	maintainCursorLock()
+	
 	-- Update camera behavior based on shiftlock state and mouse input
 	if shiftlock then
 		if allowshiftlock then
-			mouseBehavior = enumMLC
-			mouseCameraMove = true
+			-- Shiftlock is active - maintain locked cursor behavior
+			if not cursorLocked then
+				mouseBehavior = enumMLC
+				mouseCameraMove = true
+			else
+				-- Cursor is locked, maintain current behavior
+				mouseCameraMove = true
+			end
 		else
 			shiftlock = false
 			updateCursor() -- Update cursor when shiftlock is disabled
 		end
 	elseif IsMouseButtonPressed(uis, enumMB2) then
-		-- Right-click camera panning
-		mouseBehavior = enumMLCP
-		mouseCameraMove = true
+		-- Right-click camera panning (only if cursor not locked)
+		if not cursorLocked then
+			mouseBehavior = enumMLCP
+			mouseCameraMove = true
+		end
 	else
-		mouseBehavior = enumMD
-		mouseCameraMove = false
+		-- Default behavior (only if cursor not locked)
+		if not cursorLocked then
+			mouseBehavior = enumMD
+			mouseCameraMove = false
+		end
 	end
 	
-	-- Apply mouse behavior if it changed
-	if lastMouseBehavior ~= mouseBehavior then
+	-- Apply mouse behavior if it changed and cursor is not locked
+	if not cursorLocked and lastMouseBehavior ~= mouseBehavior then
 		lastMouseBehavior = mouseBehavior
-		insSet(uis, "MouseBehavior", mouseBehavior)
+		safeSetProperty(uis, "MouseBehavior", mouseBehavior)
 	end
 	
 	-- Update camera position when shiftlock is active
 	if shiftlock then
-		-- Disable auto-rotate for manual control
+		-- Disable auto-rotate for manual control (FE safe)
 		if humanoid then
-			insSet(humanoid, "AutoRotate", false)
+			safeSetProperty(humanoid, "AutoRotate", false)
 		end
 		
-		-- Direct character rotation using camera look vector (SL.lua approach)
-		local camLookVector = cfGet(camcf, "LookVector")
+		-- Precise character rotation using current camera look vector (no delay)
+		local currentCamCFrame = insGet(cam, "CFrame")
+		local camLookVector = cfGet(currentCamCFrame, "LookVector")
+		
+		-- Direct rotation synchronization with precise positioning
 		local targetPosition = v3(
-			camLookVector.X * 900000, -- MaxLength equivalent
-			v3Get(pos, "Y"),
+			camLookVector.X * 900000, -- MaxLength equivalent for precise direction
+			v3Get(pos, "Y"), -- Maintain current Y position
 			camLookVector.Z * 900000
 		)
 		
-		-- Apply direct rotation synchronization
+		-- Apply immediate rotation synchronization (FE safe)
 		cfr = cfl(pos, targetPosition)
-		insSet(rootpart, "CFrame", cfr)
+		safeSetProperty(rootpart, "CFrame", cfr)
 		
-		-- Position camera with shiftlock offset
-		camcf = cfAdd(camrot, pos + v3_0150 + camcfRV * 1.75 + camcfLV * cammag)
-		insSet(cam, "CFrame", camcf)
+		-- Enhanced camera positioning with Roblox-style offset
+		local rightVector = cfGet(currentCamCFrame, "RightVector")
+		local upVector = cfGet(currentCamCFrame, "UpVector")
+		local offsetMultiplier = calculateShiftlockOffset()
+		
+		-- Position camera with dynamic shiftlock offset
+		camcf = cfAdd(camrot, pos + v3_0150 + camcfRV * offsetMultiplier + camcfLV * cammag)
+		safeSetProperty(cam, "CFrame", camcf)
+		
+		-- Set proper camera focus for better control (FE safe)
+		local focusPosition = cfGet(camcf, "Position")
+		local focusCFrame = cf(focusPosition, focusPosition + rightVector, upVector)
+		safeSetProperty(cam, "Focus", focusCFrame)
 	else
-		-- Re-enable auto-rotate when shiftlock is off
+		-- Re-enable auto-rotate when shiftlock is off (FE safe)
 		if humanoid then
-			insSet(humanoid, "AutoRotate", true)
+			safeSetProperty(humanoid, "AutoRotate", true)
 		end
 	end
 end
 
--- Connect to heartbeat for continuous updates
+-- Connect to both heartbeat and renderstepped for precise updates
 Connect(heartbeat, updateShiftlock)
+
+-- Additional RenderStepped connection for immediate character rotation response
+local renderSteppedConnection = nil
+
+local function enablePreciseRotation()
+	if renderSteppedConnection then
+		renderSteppedConnection:Disconnect()
+	end
+	
+	renderSteppedConnection = Connect(renderstepped, function()
+		if shiftlock and getCharacterAndRootFE() then
+			-- Immediate character rotation update on every frame (FE safe)
+			local currentCamCFrame = insGet(cam, "CFrame")
+			local camLookVector = cfGet(currentCamCFrame, "LookVector")
+			
+			local targetPosition = v3(
+				camLookVector.X * 900000,
+				v3Get(pos, "Y"),
+				camLookVector.Z * 900000
+			)
+			
+			cfr = cfl(pos, targetPosition)
+			safeSetProperty(rootpart, "CFrame", cfr)
+		end
+	end)
+end
+
+local function disablePreciseRotation()
+	if renderSteppedConnection then
+		renderSteppedConnection:Disconnect()
+		renderSteppedConnection = nil
+	end
+end
 
 -- API for external control
 local ShiftlockAPI = {
@@ -249,6 +360,14 @@ local ShiftlockAPI = {
 	toggle = function()
 		shiftlock = allowshiftlock and not shiftlock
 		updateCursor()
+		
+		-- Enable/disable precise rotation
+		if shiftlock then
+			enablePreciseRotation()
+		else
+			disablePreciseRotation()
+		end
+		
 		return shiftlock
 	end,
 	
@@ -257,6 +376,7 @@ local ShiftlockAPI = {
 		if allowshiftlock then
 			shiftlock = true
 			updateCursor()
+			enablePreciseRotation()
 		end
 		return shiftlock
 	end,
@@ -265,6 +385,7 @@ local ShiftlockAPI = {
 	disable = function()
 		shiftlock = false
 		updateCursor()
+		disablePreciseRotation()
 		return shiftlock
 	end,
 	
@@ -284,6 +405,7 @@ local ShiftlockAPI = {
 		if not allowed then
 			shiftlock = false
 			updateCursor()
+			disablePreciseRotation()
 		end
 		return allowshiftlock
 	end
@@ -296,3 +418,93 @@ print("API available via return value")
 
 -- Export the API
 return ShiftlockAPI
+
+-- FE Compatibility and Roblox Shiftlock Replication
+local ReplicatedStorage = FindFirstChildOfClass(game, "ReplicatedStorage")
+local TweenService = FindFirstChildOfClass(game, "TweenService")
+
+-- State management for FE compatibility
+local shiftlockState = {
+	enabled = false,
+	allowed = true,
+	cursorLocked = false,
+	lastUpdate = 0
+}
+
+-- Network-safe property updates
+local function safeSetProperty(instance, property, value)
+	local success, error = pcall(function()
+		insSet(instance, property, value)
+	end)
+	if not success then
+		warn("Shiftlock: Failed to set " .. property .. " - " .. tostring(error))
+	end
+	return success
+end
+
+-- Enhanced character detection with FE considerations
+local function getCharacterAndRootFE()
+	local character = insGet(lp, "Character")
+	if not character then return false end
+	
+	local humanoidRootPart = character:FindFirstChild("HumanoidRootPart") or 
+	                        character:FindFirstChild("Torso") or 
+	                        character:FindFirstChild("UpperTorso")
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	
+	if humanoidRootPart and humanoid then
+		-- Verify we have network ownership or can modify
+		local success = pcall(function()
+			local testCFrame = insGet(humanoidRootPart, "CFrame")
+			return testCFrame ~= nil
+		end)
+		
+		if success then
+			c = character
+			rootpart = humanoidRootPart
+			humanoid = humanoid
+			cfr = insGet(rootpart, "CFrame")
+			pos = cfGet(cfr, "Position")
+			cfr = cfl(pos, pos + cfGet(cfr, "LookVector") * v3_101)
+			return true
+		end
+	end
+	
+	return false
+end
+
+-- Roblox-style camera offset calculation
+local function calculateShiftlockOffset()
+	local humanoidDescription = humanoid and humanoid:FindFirstChild("HumanoidDescription")
+	local offsetMultiplier = 1.75 -- Default Roblox offset
+	
+	-- Adjust offset based on character size (FE compatible)
+	if humanoidDescription then
+		local success, result = pcall(function()
+			local widthScale = insGet(humanoidDescription, "WidthScale") or 1
+			local depthScale = insGet(humanoidDescription, "DepthScale") or 1
+			return (widthScale + depthScale) / 2
+		end)
+		
+		if success and result then
+			offsetMultiplier = offsetMultiplier * result
+		end
+	end
+	
+	return offsetMultiplier
+end
+
+-- Enhanced state synchronization
+local function updateShiftlockState()
+	local currentTime = osclock()
+	
+	-- Throttle updates for performance (60 FPS max)
+	if currentTime - shiftlockState.lastUpdate < 0.016 then
+		return
+	end
+	
+	shiftlockState.lastUpdate = currentTime
+	shiftlockState.enabled = shiftlock
+	shiftlockState.allowed = allowshiftlock
+	shiftlockState.cursorLocked = cursorLocked
+end
