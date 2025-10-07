@@ -32,11 +32,48 @@ local MAX_LENGTH = 900000 -- Character rotation precision multiplier
 local ENABLED_OFFSET = CFrame.new(1.7, 0, 0) -- Right shoulder camera offset
 local DISABLED_OFFSET = CFrame.new(-1.7, 0, 0) -- Restoration offset
 
--- Anti-spin stabilization variables
-local LastCameraLookVector = Vector3.new(0, 0, -1)
-local CameraStabilizationThreshold = 0.1
-local FrameCounter = 0
-local StabilizationFrames = 3
+-- Mouse movement variables for camera control
+local MouseSensitivity = 0.002 -- Adjust for desired sensitivity
+local LastMousePosition = Vector2.new(0, 0)
+local CameraAngles = Vector2.new(0, 0) -- X = Yaw, Y = Pitch
+
+-- Handle mouse movement for camera rotation during shiftlock
+local function HandleMouseMovement()
+	if not ShiftlockActive then return end
+	
+	local mouse = LocalPlayer:GetMouse()
+	local currentMousePos = Vector2.new(mouse.X, mouse.Y)
+	local mouseDelta = currentMousePos - LastMousePosition
+	
+	-- Update camera angles based on mouse movement
+	CameraAngles = CameraAngles + Vector2.new(mouseDelta.X * MouseSensitivity, -mouseDelta.Y * MouseSensitivity)
+	
+	-- Clamp pitch to prevent over-rotation
+	CameraAngles = Vector2.new(CameraAngles.X, math.clamp(CameraAngles.Y, -1.4, 1.4))
+	
+	-- Apply rotation to camera
+	if GetCharacterComponents() then
+		local rootPosition = RootPart.Position
+		local distance = 12.5 -- Camera distance from character
+		
+		-- Calculate camera position based on angles
+		local yaw = CameraAngles.X
+		local pitch = CameraAngles.Y
+		
+		local cameraOffset = Vector3.new(
+			math.sin(yaw) * math.cos(pitch),
+			math.sin(pitch),
+			math.cos(yaw) * math.cos(pitch)
+		) * distance
+		
+		local cameraPosition = rootPosition + cameraOffset + Vector3.new(1.7, 2, 0) -- Right shoulder offset
+		local targetCFrame = CFrame.lookAt(cameraPosition, rootPosition + Vector3.new(0, 2, 0))
+		
+		SafeSetProperty(Camera, "CFrame", targetCFrame)
+	end
+	
+	LastMousePosition = currentMousePos
+end
 
 -- FE-safe property setter with error handling
 local function SafeSetProperty(instance, property, value)
@@ -73,65 +110,28 @@ local function GetCharacterComponents()
 	return false
 end
 
--- Anti-spin camera look vector stabilization
-local function StabilizeCameraLookVector()
-	local currentLookVector = Camera.CFrame.LookVector
-	
-	-- Check for sudden direction changes that indicate spinning
-	local dotProduct = LastCameraLookVector:Dot(currentLookVector)
-	
-	-- If the camera direction changed drastically, use stabilized vector
-	if dotProduct < CameraStabilizationThreshold then
-		FrameCounter = FrameCounter + 1
-		
-		-- Only update after stabilization frames to prevent jitter
-		if FrameCounter >= StabilizationFrames then
-			LastCameraLookVector = currentLookVector
-			FrameCounter = 0
-		else
-			-- Use the last stable look vector
-			return LastCameraLookVector
-		end
-	else
-		-- Smooth transition for normal camera movement
-		LastCameraLookVector = currentLookVector
-		FrameCounter = 0
-	end
-	
-	return currentLookVector
-end
-
--- Precise character rotation synchronization (SL.lua method enhanced)
+-- Precise character rotation synchronization with camera
 local function SynchronizeCharacterRotation()
 	if not GetCharacterComponents() then return end
 	
-	-- Get stabilized camera look vector to prevent spinning
-	local stabilizedLookVector = StabilizeCameraLookVector()
+	-- Get camera's horizontal look direction for character rotation
+	local cameraLookVector = Camera.CFrame.LookVector
+	local horizontalLook = Vector3.new(cameraLookVector.X, 0, cameraLookVector.Z).Unit
 	
-	-- Create horizontal look direction (Y-axis locked for stability)
-	local horizontalLook = Vector3.new(
-		stabilizedLookVector.X * MAX_LENGTH,
-		RootPart.Position.Y, -- Maintain current Y position
-		stabilizedLookVector.Z * MAX_LENGTH
-	)
+	-- Create target position for character to look at
+	local targetPosition = RootPart.Position + (horizontalLook * MAX_LENGTH)
 	
 	-- Apply immediate character rotation (FE safe)
-	local targetCFrame = CFrame.new(RootPart.Position, horizontalLook)
+	local targetCFrame = CFrame.new(RootPart.Position, targetPosition)
 	SafeSetProperty(RootPart, "CFrame", targetCFrame)
 end
 
--- Enhanced camera positioning with anti-spin technology
+-- Enhanced camera positioning with mouse movement support
 local function UpdateCameraPosition()
 	if not GetCharacterComponents() then return end
 	
-	-- Apply camera offset using SL.lua's proven method
-	local currentCameraCFrame = Camera.CFrame
-	local offsetCameraCFrame = currentCameraCFrame * ENABLED_OFFSET
-	
-	-- Update camera position (FE safe)
-	SafeSetProperty(Camera, "CFrame", offsetCameraCFrame)
-	
-	-- Update camera focus with proper matrix calculation (SL.lua method)
+	-- Only apply offset to camera focus, not the camera CFrame itself
+	-- This allows mouse movement to control camera rotation while maintaining offset
 	local focusCFrame = CFrame.fromMatrix(
 		Camera.Focus.Position,
 		Camera.CFrame.RightVector,
@@ -141,29 +141,39 @@ local function UpdateCameraPosition()
 	SafeSetProperty(Camera, "Focus", focusCFrame)
 end
 
--- Main shiftlock update loop with immediate response
+-- Main shiftlock update loop with mouse movement support
 local function ShiftlockUpdateLoop()
 	if not ShiftlockActive or not GetCharacterComponents() then return end
 	
 	-- Disable character auto-rotation for manual control
 	SafeSetProperty(Humanoid, "AutoRotate", false)
 	
+	-- Handle mouse movement for camera control
+	HandleMouseMovement()
+	
 	-- Synchronize character rotation with camera (immediate, no delay)
 	SynchronizeCharacterRotation()
 	
-	-- Update camera position for shoulder view
+	-- Update camera focus for shoulder view
 	UpdateCameraPosition()
 end
 
--- Enable shiftlock with enhanced stability
+-- Enable shiftlock with proper initialization
 local function EnableShiftlock()
 	if not ShiftlockAllowed or not GetCharacterComponents() then return end
 	
 	ShiftlockActive = true
 	
-	-- Initialize camera stabilization
-	LastCameraLookVector = Camera.CFrame.LookVector
-	FrameCounter = 0
+	-- Initialize mouse position tracking
+	local mouse = LocalPlayer:GetMouse()
+	LastMousePosition = Vector2.new(mouse.X, mouse.Y)
+	
+	-- Initialize camera angles based on current camera direction
+	local currentLookVector = Camera.CFrame.LookVector
+	CameraAngles = Vector2.new(
+		math.atan2(currentLookVector.X, currentLookVector.Z), -- Yaw
+		math.asin(-currentLookVector.Y) -- Pitch (inverted)
+	)
 	
 	-- Connect to RenderStepped for immediate response (SL.lua method)
 	if RenderConnection then
