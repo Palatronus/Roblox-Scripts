@@ -1,10 +1,9 @@
 --[[
 	Precise Shiftlock Camera System for Roblox
-	FE Compatible | Anti-Spin Technology | Immediate Response
+	FE Compatible | Mouse Movement Support | Immediate Response
 	
-	Eliminates unwanted camera spinning while maintaining perfect synchronization
-	between camera and character movements. Built upon successful SL.lua concepts
-	with enhanced stability and performance optimizations.
+	Provides authentic PC Roblox Shiftlock experience with free camera movement
+	and precise character synchronization. No camera locking issues.
 ]]
 
 -- Performance optimized references
@@ -27,53 +26,14 @@ local Character = nil
 local Humanoid = nil
 local RootPart = nil
 
--- Camera system constants (based on successful SL.lua prototype)
-local MAX_LENGTH = 900000 -- Character rotation precision multiplier
-local ENABLED_OFFSET = CFrame.new(1.7, 0, 0) -- Right shoulder camera offset
-local DISABLED_OFFSET = CFrame.new(-1.7, 0, 0) -- Restoration offset
-
--- Mouse movement variables for camera control
-local MouseSensitivity = 0.002 -- Adjust for desired sensitivity
+-- Mouse movement tracking
+local MouseSensitivity = 0.002
 local LastMousePosition = Vector2.new(0, 0)
 local CameraAngles = Vector2.new(0, 0) -- X = Yaw, Y = Pitch
 
--- Handle mouse movement for camera rotation during shiftlock
-local function HandleMouseMovement()
-	if not ShiftlockActive then return end
-	
-	local mouse = LocalPlayer:GetMouse()
-	local currentMousePos = Vector2.new(mouse.X, mouse.Y)
-	local mouseDelta = currentMousePos - LastMousePosition
-	
-	-- Update camera angles based on mouse movement
-	CameraAngles = CameraAngles + Vector2.new(mouseDelta.X * MouseSensitivity, -mouseDelta.Y * MouseSensitivity)
-	
-	-- Clamp pitch to prevent over-rotation
-	CameraAngles = Vector2.new(CameraAngles.X, math.clamp(CameraAngles.Y, -1.4, 1.4))
-	
-	-- Apply rotation to camera
-	if GetCharacterComponents() then
-		local rootPosition = RootPart.Position
-		local distance = 12.5 -- Camera distance from character
-		
-		-- Calculate camera position based on angles
-		local yaw = CameraAngles.X
-		local pitch = CameraAngles.Y
-		
-		local cameraOffset = Vector3.new(
-			math.sin(yaw) * math.cos(pitch),
-			math.sin(pitch),
-			math.cos(yaw) * math.cos(pitch)
-		) * distance
-		
-		local cameraPosition = rootPosition + cameraOffset + Vector3.new(1.7, 2, 0) -- Right shoulder offset
-		local targetCFrame = CFrame.lookAt(cameraPosition, rootPosition + Vector3.new(0, 2, 0))
-		
-		SafeSetProperty(Camera, "CFrame", targetCFrame)
-	end
-	
-	LastMousePosition = currentMousePos
-end
+-- Camera system constants
+local SHOULDER_OFFSET = Vector3.new(1.75, 2, 0) -- Right shoulder offset
+local CAMERA_DISTANCE = 12.5 -- Distance from character
 
 -- FE-safe property setter with error handling
 local function SafeSetProperty(instance, property, value)
@@ -102,7 +62,6 @@ local function GetCharacterComponents()
 		local success = pcall(function()
 			local _ = RootPart.CFrame
 			local _ = Humanoid.AutoRotate
-			local _ = Camera.CFrame
 		end)
 		return success
 	end
@@ -110,61 +69,80 @@ local function GetCharacterComponents()
 	return false
 end
 
--- Precise character rotation synchronization with camera
+-- Handle mouse movement for camera rotation
+local function HandleMouseMovement()
+	if not ShiftlockActive or not GetCharacterComponents() then return end
+	
+	local mouse = LocalPlayer:GetMouse()
+	local currentMousePos = Vector2.new(mouse.X, mouse.Y)
+	local mouseDelta = currentMousePos - LastMousePosition
+	
+	-- Update camera angles based on mouse movement
+	CameraAngles = CameraAngles + Vector2.new(mouseDelta.X * MouseSensitivity, -mouseDelta.Y * MouseSensitivity)
+	
+	-- Clamp pitch to prevent over-rotation
+	CameraAngles = Vector2.new(CameraAngles.X, math.clamp(CameraAngles.Y, -1.4, 1.4))
+	
+	-- Calculate camera position based on angles
+	local rootPosition = RootPart.Position
+	local yaw = CameraAngles.X
+	local pitch = CameraAngles.Y
+	
+	-- Create camera offset vector
+	local cameraOffset = Vector3.new(
+		math.sin(yaw) * math.cos(pitch),
+		math.sin(pitch),
+		math.cos(yaw) * math.cos(pitch)
+	) * CAMERA_DISTANCE
+	
+	-- Apply shoulder offset and position camera
+	local cameraPosition = rootPosition + cameraOffset + SHOULDER_OFFSET
+	local lookAtPosition = rootPosition + Vector3.new(0, 2, 0) -- Look at character's torso
+	
+	-- Set camera CFrame
+	local targetCFrame = CFrame.lookAt(cameraPosition, lookAtPosition)
+	SafeSetProperty(Camera, "CFrame", targetCFrame)
+	
+	LastMousePosition = currentMousePos
+end
+
+-- Synchronize character rotation with camera direction
 local function SynchronizeCharacterRotation()
 	if not GetCharacterComponents() then return end
 	
-	-- Get camera's horizontal look direction for character rotation
+	-- Get camera's horizontal look direction
 	local cameraLookVector = Camera.CFrame.LookVector
 	local horizontalLook = Vector3.new(cameraLookVector.X, 0, cameraLookVector.Z).Unit
 	
 	-- Create target position for character to look at
-	local targetPosition = RootPart.Position + (horizontalLook * MAX_LENGTH)
+	local targetPosition = RootPart.Position + (horizontalLook * 100)
 	
-	-- Apply immediate character rotation (FE safe)
+	-- Apply character rotation
 	local targetCFrame = CFrame.new(RootPart.Position, targetPosition)
 	SafeSetProperty(RootPart, "CFrame", targetCFrame)
 end
 
--- Enhanced camera positioning with mouse movement support
-local function UpdateCameraPosition()
-	if not GetCharacterComponents() then return end
-	
-	-- Only apply offset to camera focus, not the camera CFrame itself
-	-- This allows mouse movement to control camera rotation while maintaining offset
-	local focusCFrame = CFrame.fromMatrix(
-		Camera.Focus.Position,
-		Camera.CFrame.RightVector,
-		Camera.CFrame.UpVector
-	) * ENABLED_OFFSET
-	
-	SafeSetProperty(Camera, "Focus", focusCFrame)
-end
-
--- Main shiftlock update loop with mouse movement support
+-- Main shiftlock update loop
 local function ShiftlockUpdateLoop()
 	if not ShiftlockActive or not GetCharacterComponents() then return end
 	
-	-- Disable character auto-rotation for manual control
+	-- Disable character auto-rotation
 	SafeSetProperty(Humanoid, "AutoRotate", false)
 	
 	-- Handle mouse movement for camera control
 	HandleMouseMovement()
 	
-	-- Synchronize character rotation with camera (immediate, no delay)
+	-- Synchronize character rotation with camera
 	SynchronizeCharacterRotation()
-	
-	-- Update camera focus for shoulder view
-	UpdateCameraPosition()
 end
 
--- Enable shiftlock with proper initialization
+-- Enable shiftlock
 local function EnableShiftlock()
 	if not ShiftlockAllowed or not GetCharacterComponents() then return end
 	
 	ShiftlockActive = true
 	
-	-- Initialize mouse position tracking
+	-- Initialize mouse tracking
 	local mouse = LocalPlayer:GetMouse()
 	LastMousePosition = Vector2.new(mouse.X, mouse.Y)
 	
@@ -172,23 +150,26 @@ local function EnableShiftlock()
 	local currentLookVector = Camera.CFrame.LookVector
 	CameraAngles = Vector2.new(
 		math.atan2(currentLookVector.X, currentLookVector.Z), -- Yaw
-		math.asin(-currentLookVector.Y) -- Pitch (inverted)
+		math.asin(-currentLookVector.Y) -- Pitch
 	)
 	
-	-- Connect to RenderStepped for immediate response (SL.lua method)
+	-- Set mouse behavior for shiftlock
+	SafeSetProperty(UserInputService, "MouseBehavior", Enum.MouseBehavior.LockCenter)
+	
+	-- Set camera properties
+	SafeSetProperty(Camera, "CameraSubject", RootPart)
+	SafeSetProperty(Camera, "CameraType", Enum.CameraType.Custom)
+	
+	-- Connect update loop
 	if RenderConnection then
 		RenderConnection:Disconnect()
 	end
-	
 	RenderConnection = RunService.RenderStepped:Connect(ShiftlockUpdateLoop)
 	
-	-- Lock mouse to center for proper camera control
-	SafeSetProperty(UserInputService, "MouseBehavior", Enum.MouseBehavior.LockCenter)
-	
-	print("Shiftlock: Enabled (Anti-Spin)")
+	print("Shiftlock: Enabled")
 end
 
--- Disable shiftlock with proper restoration
+-- Disable shiftlock
 local function DisableShiftlock()
 	ShiftlockActive = false
 	
@@ -203,12 +184,12 @@ local function DisableShiftlock()
 		SafeSetProperty(Humanoid, "AutoRotate", true)
 	end
 	
-	-- Restore camera position using SL.lua's offset method
-	local currentCameraCFrame = Camera.CFrame
-	SafeSetProperty(Camera, "CFrame", currentCameraCFrame * DISABLED_OFFSET)
-	
 	-- Restore default mouse behavior
 	SafeSetProperty(UserInputService, "MouseBehavior", Enum.MouseBehavior.Default)
+	
+	-- Reset camera to default
+	SafeSetProperty(Camera, "CameraType", Enum.CameraType.Custom)
+	SafeSetProperty(Camera, "CameraSubject", Humanoid)
 	
 	print("Shiftlock: Disabled")
 end
@@ -244,13 +225,9 @@ local function OnCharacterAdded(character)
 	if ShiftlockActive then
 		DisableShiftlock()
 	end
-	
-	-- Reset stabilization variables
-	LastCameraLookVector = Vector3.new(0, 0, -1)
-	FrameCounter = 0
 end
 
--- Mouse behavior protection (prevent external interference)
+-- Mouse behavior protection
 local function ProtectMouseBehavior()
 	if ShiftlockActive and UserInputService.MouseBehavior ~= Enum.MouseBehavior.LockCenter then
 		SafeSetProperty(UserInputService, "MouseBehavior", Enum.MouseBehavior.LockCenter)
@@ -267,37 +244,31 @@ if LocalPlayer.Character then
 	OnCharacterAdded(LocalPlayer.Character)
 end
 
--- Enhanced API for external control
-local PreciseShiftlockAPI = {
-	-- Toggle shiftlock state
+-- API for external control
+local ShiftlockAPI = {
 	Toggle = function()
 		ToggleShiftlock()
 		return ShiftlockActive
 	end,
 	
-	-- Enable shiftlock
 	Enable = function()
 		EnableShiftlock()
 		return ShiftlockActive
 	end,
 	
-	-- Disable shiftlock
 	Disable = function()
 		DisableShiftlock()
 		return ShiftlockActive
 	end,
 	
-	-- Check if shiftlock is active
 	IsActive = function()
 		return ShiftlockActive
 	end,
 	
-	-- Check if shiftlock is allowed
 	IsAllowed = function()
 		return ShiftlockAllowed
 	end,
 	
-	-- Set shiftlock permission
 	SetAllowed = function(allowed)
 		ShiftlockAllowed = allowed
 		if not allowed and ShiftlockActive then
@@ -306,26 +277,19 @@ local PreciseShiftlockAPI = {
 		return ShiftlockAllowed
 	end,
 	
-	-- Get stabilization status
-	GetStabilizationInfo = function()
-		return {
-			LastLookVector = LastCameraLookVector,
-			FrameCounter = FrameCounter,
-			Threshold = CameraStabilizationThreshold
-		}
+	SetSensitivity = function(sensitivity)
+		MouseSensitivity = math.clamp(sensitivity, 0.0001, 0.01)
+		return MouseSensitivity
 	end,
 	
-	-- Adjust stabilization sensitivity
-	SetStabilizationThreshold = function(threshold)
-		CameraStabilizationThreshold = math.clamp(threshold, 0.01, 1.0)
-		return CameraStabilizationThreshold
+	GetSensitivity = function()
+		return MouseSensitivity
 	end
 }
 
 -- System initialization
-print("Precise Shiftlock Camera System Loaded!")
-print("Features: Anti-Spin Technology | FE Compatible | Immediate Response")
+print("Shiftlock Camera System Loaded!")
 print("Press Shift to toggle Shiftlock mode")
 
 -- Export API
-return PreciseShiftlockAPI
+return ShiftlockAPI
