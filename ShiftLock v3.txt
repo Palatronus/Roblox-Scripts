@@ -1,51 +1,44 @@
 --[[
-	PC Roblox Shiftlock Replication Script
-	Frontend-Compatible | Emulator-Ready | Shift Key Toggle Only
+	Precise Shiftlock Camera System for Roblox
+	FE Compatible | Anti-Spin Technology | Immediate Response
 	
-	Replicates the exact behavior of PC Roblox's native Shiftlock system
-	- Triggered exclusively by Shift key (no UI elements)
-	- Precise camera positioning and character rotation
-	- Full frontend compatibility for emulators
-	- Toggle functionality matching PC Roblox behavior
+	Eliminates unwanted camera spinning while maintaining perfect synchronization
+	between camera and character movements. Built upon successful SL.lua concepts
+	with enhanced stability and performance optimizations.
 ]]
 
--- Performance optimized function references
-local task_spawn = task.spawn
-local task_wait = task.wait
-local math_rad = math.rad
-local math_clamp = math.clamp
-local os_clock = os.clock
-
--- Core Roblox services
-local Players = game:GetService("Players")
+-- Performance optimized references
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
+local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 
--- Player references
+-- Player and camera references
 local LocalPlayer = Players.LocalPlayer
-local Mouse = LocalPlayer:GetMouse()
 local Camera = Workspace.CurrentCamera
 
 -- Shiftlock state management
-local ShiftlockEnabled = false
+local ShiftlockActive = false
 local ShiftlockAllowed = true
+local RenderConnection = nil
 
--- Camera and character references
+-- Character component references
 local Character = nil
 local Humanoid = nil
 local RootPart = nil
 
--- Camera positioning constants (matching PC Roblox)
-local CAMERA_OFFSET = Vector3.new(1.75, 0, 0) -- Right shoulder offset
-local CAMERA_DISTANCE = 12.5 -- Distance from character
-local ROTATION_SPEED = 0.007 -- Mouse sensitivity multiplier
+-- Camera system constants (based on successful SL.lua prototype)
+local MAX_LENGTH = 900000 -- Character rotation precision multiplier
+local ENABLED_OFFSET = CFrame.new(1.7, 0, 0) -- Right shoulder camera offset
+local DISABLED_OFFSET = CFrame.new(-1.7, 0, 0) -- Restoration offset
 
--- Input state tracking
-local LastMouseBehavior = UserInputService.MouseBehavior
-local MouseLocked = false
+-- Anti-spin stabilization variables
+local LastCameraLookVector = Vector3.new(0, 0, -1)
+local CameraStabilizationThreshold = 0.1
+local FrameCounter = 0
+local StabilizationFrames = 3
 
--- Frontend-safe property setter
+-- FE-safe property setter with error handling
 local function SafeSetProperty(instance, property, value)
 	local success, error = pcall(function()
 		instance[property] = value
@@ -56,7 +49,7 @@ local function SafeSetProperty(instance, property, value)
 	return success
 end
 
--- Get character and validate components (FE compatible)
+-- Enhanced character component detection with FE validation
 local function GetCharacterComponents()
 	Character = LocalPlayer.Character
 	if not Character then return false end
@@ -67,11 +60,12 @@ local function GetCharacterComponents()
 	          
 	Humanoid = Character:FindFirstChildOfClass("Humanoid")
 	
-	-- Verify we can access these components
+	-- Validate component accessibility for FE compatibility
 	if RootPart and Humanoid then
 		local success = pcall(function()
 			local _ = RootPart.CFrame
 			local _ = Humanoid.AutoRotate
+			local _ = Camera.CFrame
 		end)
 		return success
 	end
@@ -79,193 +73,213 @@ local function GetCharacterComponents()
 	return false
 end
 
--- Calculate precise camera position (PC Roblox style)
-local function CalculateCameraPosition()
-	if not GetCharacterComponents() then return end
+-- Anti-spin camera look vector stabilization
+local function StabilizeCameraLookVector()
+	local currentLookVector = Camera.CFrame.LookVector
 	
-	local rootCFrame = RootPart.CFrame
-	local rootPosition = rootCFrame.Position
+	-- Check for sudden direction changes that indicate spinning
+	local dotProduct = LastCameraLookVector:Dot(currentLookVector)
 	
-	-- Get camera's current look direction
-	local cameraLookVector = Camera.CFrame.LookVector
-	local cameraRightVector = Camera.CFrame.RightVector
-	local cameraUpVector = Camera.CFrame.UpVector
+	-- If the camera direction changed drastically, use stabilized vector
+	if dotProduct < CameraStabilizationThreshold then
+		FrameCounter = FrameCounter + 1
+		
+		-- Only update after stabilization frames to prevent jitter
+		if FrameCounter >= StabilizationFrames then
+			LastCameraLookVector = currentLookVector
+			FrameCounter = 0
+		else
+			-- Use the last stable look vector
+			return LastCameraLookVector
+		end
+	else
+		-- Smooth transition for normal camera movement
+		LastCameraLookVector = currentLookVector
+		FrameCounter = 0
+	end
 	
-	-- Calculate offset position (right shoulder view)
-	local offsetPosition = rootPosition + 
-		(cameraRightVector * CAMERA_OFFSET.X) +
-		(cameraUpVector * CAMERA_OFFSET.Y) +
-		(cameraLookVector * CAMERA_OFFSET.Z)
-	
-	-- Position camera behind and to the right of character
-	local cameraPosition = offsetPosition - (cameraLookVector * CAMERA_DISTANCE)
-	
-	-- Create camera CFrame looking at character
-	local targetCFrame = CFrame.lookAt(cameraPosition, rootPosition + Vector3.new(0, 2, 0))
-	
-	return targetCFrame
+	return currentLookVector
 end
 
--- Synchronize character rotation with camera (PC Roblox behavior)
+-- Precise character rotation synchronization (SL.lua method enhanced)
 local function SynchronizeCharacterRotation()
 	if not GetCharacterComponents() then return end
 	
-	-- Get camera's horizontal look direction
-	local cameraLookVector = Camera.CFrame.LookVector
-	local horizontalLook = Vector3.new(cameraLookVector.X, 0, cameraLookVector.Z).Unit
+	-- Get stabilized camera look vector to prevent spinning
+	local stabilizedLookVector = StabilizeCameraLookVector()
 	
-	-- Create rotation CFrame maintaining Y position
-	local currentPosition = RootPart.Position
-	local targetCFrame = CFrame.lookAt(currentPosition, currentPosition + horizontalLook)
+	-- Create horizontal look direction (Y-axis locked for stability)
+	local horizontalLook = Vector3.new(
+		stabilizedLookVector.X * MAX_LENGTH,
+		RootPart.Position.Y, -- Maintain current Y position
+		stabilizedLookVector.Z * MAX_LENGTH
+	)
 	
-	-- Apply rotation (FE safe)
+	-- Apply immediate character rotation (FE safe)
+	local targetCFrame = CFrame.new(RootPart.Position, horizontalLook)
 	SafeSetProperty(RootPart, "CFrame", targetCFrame)
 end
 
--- Handle mouse movement for camera rotation
-local function HandleMouseMovement(input)
-	if not ShiftlockEnabled or not MouseLocked then return end
+-- Enhanced camera positioning with anti-spin technology
+local function UpdateCameraPosition()
+	if not GetCharacterComponents() then return end
 	
-	local mouseDelta = UserInputService:GetMouseDelta()
-	local rotationX = mouseDelta.X * ROTATION_SPEED
-	local rotationY = mouseDelta.Y * ROTATION_SPEED
+	-- Apply camera offset using SL.lua's proven method
+	local currentCameraCFrame = Camera.CFrame
+	local offsetCameraCFrame = currentCameraCFrame * ENABLED_OFFSET
 	
-	-- Apply camera rotation
-	local currentCFrame = Camera.CFrame
-	local newCFrame = currentCFrame * CFrame.Angles(-rotationY, -rotationX, 0)
+	-- Update camera position (FE safe)
+	SafeSetProperty(Camera, "CFrame", offsetCameraCFrame)
 	
-	SafeSetProperty(Camera, "CFrame", newCFrame)
+	-- Update camera focus with proper matrix calculation (SL.lua method)
+	local focusCFrame = CFrame.fromMatrix(
+		Camera.Focus.Position,
+		Camera.CFrame.RightVector,
+		Camera.CFrame.UpVector
+	) * ENABLED_OFFSET
+	
+	SafeSetProperty(Camera, "Focus", focusCFrame)
 end
 
--- Enable Shiftlock mode
+-- Main shiftlock update loop with immediate response
+local function ShiftlockUpdateLoop()
+	if not ShiftlockActive or not GetCharacterComponents() then return end
+	
+	-- Disable character auto-rotation for manual control
+	SafeSetProperty(Humanoid, "AutoRotate", false)
+	
+	-- Synchronize character rotation with camera (immediate, no delay)
+	SynchronizeCharacterRotation()
+	
+	-- Update camera position for shoulder view
+	UpdateCameraPosition()
+end
+
+-- Enable shiftlock with enhanced stability
 local function EnableShiftlock()
 	if not ShiftlockAllowed or not GetCharacterComponents() then return end
 	
-	ShiftlockEnabled = true
+	ShiftlockActive = true
 	
-	-- Lock mouse to center (PC Roblox behavior)
-	MouseLocked = true
+	-- Initialize camera stabilization
+	LastCameraLookVector = Camera.CFrame.LookVector
+	FrameCounter = 0
+	
+	-- Connect to RenderStepped for immediate response (SL.lua method)
+	if RenderConnection then
+		RenderConnection:Disconnect()
+	end
+	
+	RenderConnection = RunService.RenderStepped:Connect(ShiftlockUpdateLoop)
+	
+	-- Lock mouse to center for proper camera control
 	SafeSetProperty(UserInputService, "MouseBehavior", Enum.MouseBehavior.LockCenter)
 	
-	-- Disable character auto-rotation
-	SafeSetProperty(Humanoid, "AutoRotate", false)
-	
-	print("Shiftlock: Enabled")
+	print("Shiftlock: Enabled (Anti-Spin)")
 end
 
--- Disable Shiftlock mode
+-- Disable shiftlock with proper restoration
 local function DisableShiftlock()
-	ShiftlockEnabled = false
-	MouseLocked = false
+	ShiftlockActive = false
 	
-	-- Restore default mouse behavior
-	SafeSetProperty(UserInputService, "MouseBehavior", Enum.MouseBehavior.Default)
+	-- Disconnect update loop
+	if RenderConnection then
+		RenderConnection:Disconnect()
+		RenderConnection = nil
+	end
 	
-	-- Re-enable character auto-rotation
+	-- Restore character auto-rotation
 	if GetCharacterComponents() then
 		SafeSetProperty(Humanoid, "AutoRotate", true)
 	end
 	
+	-- Restore camera position using SL.lua's offset method
+	local currentCameraCFrame = Camera.CFrame
+	SafeSetProperty(Camera, "CFrame", currentCameraCFrame * DISABLED_OFFSET)
+	
+	-- Restore default mouse behavior
+	SafeSetProperty(UserInputService, "MouseBehavior", Enum.MouseBehavior.Default)
+	
 	print("Shiftlock: Disabled")
 end
 
--- Toggle Shiftlock state (PC Roblox behavior)
+-- Toggle shiftlock state
 local function ToggleShiftlock()
-	if ShiftlockEnabled then
+	if ShiftlockActive then
 		DisableShiftlock()
 	else
 		EnableShiftlock()
 	end
 end
 
--- Handle Shift key input
+-- Input handling for Shift key toggle
 local function OnInputBegan(input, gameProcessed)
 	if gameProcessed then return end
 	
-	-- Check for Shift key press (both left and right shift)
+	-- Support both left and right shift keys
 	if input.KeyCode == Enum.KeyCode.LeftShift or input.KeyCode == Enum.KeyCode.RightShift then
 		ToggleShiftlock()
 	end
 end
 
--- Handle mouse movement input
-local function OnInputChanged(input, gameProcessed)
-	if gameProcessed then return end
-	
-	if input.UserInputType == Enum.UserInputType.MouseMovement then
-		HandleMouseMovement(input)
-	end
-end
-
--- Main update loop (matches PC Roblox timing)
-local function UpdateShiftlock()
-	if not ShiftlockEnabled or not GetCharacterComponents() then return end
-	
-	-- Synchronize character rotation with camera
-	SynchronizeCharacterRotation()
-	
-	-- Update camera position for shoulder view
-	local targetCameraFrame = CalculateCameraPosition()
-	if targetCameraFrame then
-		SafeSetProperty(Camera, "CFrame", targetCameraFrame)
-	end
-end
-
--- Handle character respawn
+-- Handle character respawn and cleanup
 local function OnCharacterAdded(character)
 	Character = character
 	
-	-- Wait for character to fully load
-	character:WaitForChild("HumanoidRootPart", 5)
-	character:WaitForChild("Humanoid", 5)
+	-- Wait for essential components
+	character:WaitForChild("HumanoidRootPart", 10)
+	character:WaitForChild("Humanoid", 10)
 	
 	-- Reset shiftlock state on respawn
-	if ShiftlockEnabled then
+	if ShiftlockActive then
 		DisableShiftlock()
+	end
+	
+	-- Reset stabilization variables
+	LastCameraLookVector = Vector3.new(0, 0, -1)
+	FrameCounter = 0
+end
+
+-- Mouse behavior protection (prevent external interference)
+local function ProtectMouseBehavior()
+	if ShiftlockActive and UserInputService.MouseBehavior ~= Enum.MouseBehavior.LockCenter then
+		SafeSetProperty(UserInputService, "MouseBehavior", Enum.MouseBehavior.LockCenter)
 	end
 end
 
--- Initialize connections
+-- Initialize system connections
 UserInputService.InputBegan:Connect(OnInputBegan)
-UserInputService.InputChanged:Connect(OnInputChanged)
-RunService.Heartbeat:Connect(UpdateShiftlock)
+UserInputService:GetPropertyChangedSignal("MouseBehavior"):Connect(ProtectMouseBehavior)
 
--- Handle character respawning
+-- Handle character management
 LocalPlayer.CharacterAdded:Connect(OnCharacterAdded)
 if LocalPlayer.Character then
 	OnCharacterAdded(LocalPlayer.Character)
 end
 
--- Prevent mouse behavior changes when locked
-UserInputService:GetPropertyChangedSignal("MouseBehavior"):Connect(function()
-	if MouseLocked and UserInputService.MouseBehavior ~= Enum.MouseBehavior.LockCenter then
-		SafeSetProperty(UserInputService, "MouseBehavior", Enum.MouseBehavior.LockCenter)
-	end
-end)
-
--- API for external control (optional)
-local ShiftlockAPI = {
+-- Enhanced API for external control
+local PreciseShiftlockAPI = {
 	-- Toggle shiftlock state
 	Toggle = function()
 		ToggleShiftlock()
-		return ShiftlockEnabled
+		return ShiftlockActive
 	end,
 	
 	-- Enable shiftlock
 	Enable = function()
 		EnableShiftlock()
-		return ShiftlockEnabled
+		return ShiftlockActive
 	end,
 	
 	-- Disable shiftlock
 	Disable = function()
 		DisableShiftlock()
-		return ShiftlockEnabled
+		return ShiftlockActive
 	end,
 	
-	-- Check if shiftlock is enabled
-	IsEnabled = function()
-		return ShiftlockEnabled
+	-- Check if shiftlock is active
+	IsActive = function()
+		return ShiftlockActive
 	end,
 	
 	-- Check if shiftlock is allowed
@@ -276,17 +290,32 @@ local ShiftlockAPI = {
 	-- Set shiftlock permission
 	SetAllowed = function(allowed)
 		ShiftlockAllowed = allowed
-		if not allowed and ShiftlockEnabled then
+		if not allowed and ShiftlockActive then
 			DisableShiftlock()
 		end
 		return ShiftlockAllowed
+	end,
+	
+	-- Get stabilization status
+	GetStabilizationInfo = function()
+		return {
+			LastLookVector = LastCameraLookVector,
+			FrameCounter = FrameCounter,
+			Threshold = CameraStabilizationThreshold
+		}
+	end,
+	
+	-- Adjust stabilization sensitivity
+	SetStabilizationThreshold = function(threshold)
+		CameraStabilizationThreshold = math.clamp(threshold, 0.01, 1.0)
+		return CameraStabilizationThreshold
 	end
 }
 
--- Initialize
-print("PC Roblox Shiftlock System Loaded!")
+-- System initialization
+print("Precise Shiftlock Camera System Loaded!")
+print("Features: Anti-Spin Technology | FE Compatible | Immediate Response")
 print("Press Shift to toggle Shiftlock mode")
-print("Frontend-compatible | Emulator-ready")
 
 -- Export API
-return ShiftlockAPI
+return PreciseShiftlockAPI
