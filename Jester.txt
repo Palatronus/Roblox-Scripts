@@ -5324,7 +5324,10 @@ AccessoryWeld.C0=Lerp(AccessoryWeld.C0,cf(-1.3122088835075812e-16,-0.88849985599
 RightHip.C0=Lerp(RightHip.C0,cfMul(cf(1,-1,0),angles(0,1.5707963267948966,0.7853981633974483*sin(sine*1))),deltaTime) 
 LeftShoulder.C0=Lerp(LeftShoulder.C0,cfMul(cf(-1,0.5,0),angles(0,-1.5707963267948966,-1.5707963267948966)),deltaTime) 
 --MW_animatorProgressSave: Torso,0,0,0,1,-90,0,0,1,0,0,0,1,0,0,0,1,0,0,0,1,180,0,0,1,Head,0,0,0,1,-90,0,0,1,1,0,0,1,0,0,0,1,0,0,0,1,180,0,0,1,RightArm,1,0,0,1,0,0,0,1,0.5,0,0,1,90,0,0,1,0,0,0,1,90,0,0,1,LeftLeg,-1,0,0,1,0,0,0,1,-1,0,0,1,-90,0,0,1,0,0,0,1,0,45,0,1
-		end,
+		end
+	})
+end
+--[[
 		jump=function()
 			RootJoint.C0=Lerp(RootJoint.C0,angles(-1.5707963267948966,0,3.141592653589793),deltaTime) 
 Neck.C0=Lerp(Neck.C0,cfMul(cf(0,1,0),angles(-1.5707963267948966,0,3.141592653589793)),deltaTime) 
@@ -5349,6 +5352,7 @@ LeftShoulder.C0=Lerp(LeftShoulder.C0,cfMul(cf(-1,0.5,0),angles(0,-1.570796326794
 		end
 	})
 end)
+]]
 
 lbl("JESTER REREREANIMATION")
 lbl("i finally got a pc")
