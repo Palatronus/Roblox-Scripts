@@ -1,221 +1,114 @@
 --[[
-  Frontend-Compatible Shiftlock (PC Behavior, LDPlayer-safe)
-  - Camera locks while Shift is held
-  - Character-relative camera movement while locked
-  - Smooth transition on lock/unlock
-  - Touchscreen emulation friendly (LDPlayer)
-  - No extras beyond standard PC shiftlock
+    Frontend-compatible Shiftlock
+    PC-accurate behavior with emulator-safe handling (e.g., LDPlayer).
+    - Prevents involuntary camera locking
+    - Preserves full camera movement freedom
+    - Matches PC Shiftlock by locking mouse to center and offsetting camera to shoulder
+    - Avoids direct Camera CFrame/Focus manipulation
 ]]
 
--- Services
-local RunService = game:GetService("RunService")
-local UserInputService = game:GetService("UserInputService")
+local CoreGui = game:GetService("CoreGui")
 local Players = game:GetService("Players")
-local Workspace = game:GetService("Workspace")
+local ContextActionService = game:GetService("ContextActionService")
+local UserInputService = game:GetService("UserInputService")
 
--- Shortcuts
-local LocalPlayer = Players.LocalPlayer
-local Camera = Workspace.CurrentCamera
+local Player = Players.LocalPlayer
+
+-- UI
+local ShiftLockScreenGui = Instance.new("ScreenGui")
+ShiftLockScreenGui.Name = "Shiftlock (CoreGui)"
+ShiftLockScreenGui.Parent = CoreGui
+ShiftLockScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+ShiftLockScreenGui.ResetOnSpawn = false
+
+local States = {
+    Off = "rbxasset://textures/ui/mouseLock_off@2x.png",
+    On = "rbxasset://textures/ui/mouseLock_on@2x.png",
+    Lock = "rbxasset://textures/MouseLockedCursor.png"
+}
+
+local ShiftLockButton = Instance.new("ImageButton")
+ShiftLockButton.Parent = ShiftLockScreenGui
+ShiftLockButton.BackgroundTransparency = 1
+ShiftLockButton.Position = UDim2.new(0.86, 0, 0.5, 0)
+ShiftLockButton.Size = UDim2.new(0.064, 0, 0.066, 0)
+ShiftLockButton.SizeConstraint = Enum.SizeConstraint.RelativeXX
+ShiftLockButton.Image = States.Off
+
+local ShiftlockCursor = Instance.new("ImageLabel")
+ShiftlockCursor.Name = "ShiftlockCursor"
+ShiftlockCursor.Parent = ShiftLockScreenGui
+ShiftlockCursor.Image = States.Lock
+ShiftlockCursor.Size = UDim2.new(0.03, 0, 0.03, 0)
+ShiftlockCursor.Position = UDim2.new(0.5, 0, 0.5, 0)
+ShiftlockCursor.AnchorPoint = Vector2.new(0.5, 0.5)
+ShiftlockCursor.SizeConstraint = Enum.SizeConstraint.RelativeXX
+ShiftlockCursor.BackgroundTransparency = 1
+ShiftlockCursor.Visible = false
 
 -- State
-local ShiftHeld = false
-local RenderConn: RBXScriptConnection? = nil
+local enabled = false
 
--- Character refs
-local Character: Model? = nil
-local Humanoid: Humanoid? = nil
-local RootPart: BasePart? = nil
+local function getHumanoid()
+    local char = Player.Character
+    if not char then return nil end
+    return char:FindFirstChildOfClass("Humanoid")
+end
 
--- Camera params (match PC feel)
-local SENSITIVITY = 0.002
-local MAX_PITCH = 1.4 -- ~80 degrees
-local DISTANCE = 12.5
-local SHOULDER_X = 1.75
-local SHOULDER_Y = 2
-
--- Runtime camera angles
-local yaw = 0
-local pitch = 0
-
--- FE-safe property setter
-local function safeSet(instance: Instance, prop: string, value)
-    local ok, err = pcall(function()
-        instance[prop] = value
-    end)
-    if not ok then
-        warn("Shiftlock: failed to set " .. prop .. " => " .. tostring(err))
+local function canLockMouse()
+    -- On pure touch devices, don’t force mouse lock. Emulators with keyboard/mouse are fine.
+    if UserInputService.TouchEnabled and not UserInputService.MouseEnabled and not UserInputService.KeyboardEnabled then
+        return false
     end
-    return ok
+    return true
 end
 
-local function getCharacter()
-    Character = LocalPlayer.Character
-    if not Character then return false end
-
-    Humanoid = Character:FindFirstChildOfClass("Humanoid")
-    RootPart = Character:FindFirstChild("HumanoidRootPart")
-        or Character:FindFirstChild("Torso")
-        or Character:FindFirstChild("UpperTorso")
-
-    if not Humanoid or not RootPart then return false end
-
-    -- quick FE read validation
-    local ok = pcall(function()
-        local _ = RootPart.CFrame
-        local _ = Humanoid.AutoRotate
-        local _ = Camera.CFrame
-    end)
-    return ok
-end
-
--- Build camera using yaw/pitch and shoulder offset relative to view
-local function computeCameraCFrame()
-    local rootPos = RootPart.Position
-
-    -- forward from yaw/pitch (unit)
-    local fx = math.sin(yaw) * math.cos(pitch)
-    local fy = math.sin(pitch)
-    local fz = math.cos(yaw) * math.cos(pitch)
-    local forward = Vector3.new(fx, fy, fz)
-
-    -- orientation CFrame centered at root looking forward
-    local orient = CFrame.lookAt(rootPos, rootPos + forward)
-
-    -- position behind the character (third-person)
-    local basePos = rootPos - forward * DISTANCE
-
-    -- shoulder offset relative to camera orientation
-    local pos = basePos + orient.RightVector * SHOULDER_X + orient.UpVector * SHOULDER_Y
-    return CFrame.lookAt(pos, rootPos + Vector3.new(0, 2, 0))
-end
-
-local function alignCharacterToYaw()
-    -- Align character horizontally to camera yaw
-    local rp = RootPart.Position
-    local look2d = Vector3.new(math.sin(yaw), 0, math.cos(yaw))
-    local target = rp + look2d * 100
-    local cf = CFrame.new(rp, target)
-    safeSet(RootPart, "CFrame", cf)
-end
-
--- Main update (only active while Shift held)
-local function onRenderStep(dt: number)
-    if not ShiftHeld then return end
-    if not getCharacter() then return end
-
-    -- Only lock mouse when a real keyboard is present; avoids LDPlayer touch clashes
-    if UserInputService.KeyboardEnabled then
-        if UserInputService.MouseBehavior ~= Enum.MouseBehavior.LockCenter then
-            safeSet(UserInputService, "MouseBehavior", Enum.MouseBehavior.LockCenter)
-        end
+local function applyShiftlockState(on)
+    local humanoid = getHumanoid()
+    if humanoid then
+        -- PC behavior keeps AutoRotate; the avatar faces movement direction.
+        humanoid.AutoRotate = true
+        -- Shoulder offset matching PC shiftlock feel; avoids Camera CFrame mutations.
+        humanoid.CameraOffset = on and Vector3.new(1.7, 0, 0) or Vector3.new(0, 0, 0)
     end
 
-    -- Use GetMouseDelta for robust emulator support
-    local delta = UserInputService:GetMouseDelta()
-    yaw += delta.X * SENSITIVITY
-    pitch = math.clamp(pitch - delta.Y * SENSITIVITY, -MAX_PITCH, MAX_PITCH)
-
-    -- Stop autorotation and drive character by camera
-    safeSet(Humanoid, "AutoRotate", false)
-    alignCharacterToYaw()
-
-    -- Update camera
-    local camCF = computeCameraCFrame()
-    safeSet(Camera, "CFrame", camCF)
-end
-
--- Smooth unlock transition: lerp camera from shoulder to Roblox default
-local function smoothUnlock()
-    if not getCharacter() then return end
-
-    -- starting camera
-    local startCF = Camera.CFrame
-
-    -- target camera: look at character from current direction, but remove shoulder offset
-    local rootPos = RootPart.Position
-    local dir = (startCF.LookVector).Unit
-    local endPos = rootPos - dir * DISTANCE
-    local endCF = CFrame.lookAt(endPos, rootPos + Vector3.new(0, 2, 0))
-
-    local t = 0
-    local dur = 0.15 -- short and smooth
-    while t < dur do
-        t += RunService.RenderStepped:Wait()
-        local alpha = math.clamp(t / dur, 0, 1)
-        local cf = startCF:Lerp(endCF, alpha)
-        safeSet(Camera, "CFrame", cf)
-    end
-end
-
-local function beginLock()
-    if ShiftHeld then return end
-    if not getCharacter() then return end
-
-    ShiftHeld = true
-
-    -- initialize angles from current camera
-    local lv = Camera.CFrame.LookVector
-    yaw = math.atan2(lv.X, lv.Z)
-    pitch = math.asin(lv.Y)
-
-    -- connect render loop if needed
-    if RenderConn then RenderConn:Disconnect() end
-    RenderConn = RunService.RenderStepped:Connect(onRenderStep)
-end
-
-local function endLock()
-    if not ShiftHeld then return end
-    ShiftHeld = false
-
-    -- restore defaults without disturbing touch interactions
-    if UserInputService.MouseBehavior == Enum.MouseBehavior.LockCenter then
-        safeSet(UserInputService, "MouseBehavior", Enum.MouseBehavior.Default)
+    if canLockMouse() then
+        UserInputService.MouseBehavior = on and Enum.MouseBehavior.LockCenter or Enum.MouseBehavior.Default
+        -- Hide default cursor when locked; show center crosshair instead.
+        pcall(function()
+            UserInputService.MouseIconEnabled = not on
+        end)
     end
 
-    if getCharacter() then
-        safeSet(Humanoid, "AutoRotate", true)
-    end
-
-    -- smooth camera back
-    smoothUnlock()
+    ShiftLockButton.Image = on and States.On or States.Off
+    ShiftlockCursor.Visible = on
 end
 
--- Input handlers (hold-to-lock)
-local function onInputBegan(input: InputObject, gp: boolean)
-    if gp then return end
-    if input.KeyCode == Enum.KeyCode.LeftShift or input.KeyCode == Enum.KeyCode.RightShift then
-        beginLock()
-    end
+local function toggle()
+    enabled = not enabled
+    applyShiftlockState(enabled)
 end
 
-local function onInputEnded(input: InputObject, gp: boolean)
-    if gp then return end
-    if input.KeyCode == Enum.KeyCode.LeftShift or input.KeyCode == Enum.KeyCode.RightShift then
-        endLock()
+-- Button toggle
+ShiftLockButton.MouseButton1Click:Connect(toggle)
+
+-- Keyboard toggle (PC-like): LeftShift
+local function shiftlockAction(actionName, inputState, inputObject)
+    if inputState == Enum.UserInputState.Begin then
+        toggle()
     end
 end
+ContextActionService:BindAction("ShiftLockToggle", shiftlockAction, false, Enum.KeyCode.LeftShift)
 
--- Character lifecycle
-local function onCharacterAdded(char: Model)
-    Character = char
-    char:WaitForChild("Humanoid", 10)
-    char:WaitForChild("HumanoidRootPart", 10)
-    -- safest reset
-    endLock()
-end
+-- Maintain state on respawn
+Player.CharacterAdded:Connect(function()
+    -- Wait briefly for Humanoid to exist
+    local char = Player.Character
+    if char then char:WaitForChild("Humanoid", 3) end
+    applyShiftlockState(enabled)
+end)
 
--- Touchscreen emulation safety (LDPlayer): only re-lock center while held
-local function protectMouseBehavior()
-    if not ShiftHeld then return end
-    if UserInputService.KeyboardEnabled and UserInputService.MouseBehavior ~= Enum.MouseBehavior.LockCenter then
-        safeSet(UserInputService, "MouseBehavior", Enum.MouseBehavior.LockCenter)
-    end
-end
+-- Initial application (in case character is already loaded)
+applyShiftlockState(false)
 
--- Connections
-UserInputService.InputBegan:Connect(onInputBegan)
-UserInputService.InputEnded:Connect(onInputEnded)
-UserInputService:GetPropertyChangedSignal("MouseBehavior"):Connect(protectMouseBehavior)
-
-Players.LocalPlayer.CharacterAdded:Connect(onCharacterAdded)
-if LocalPlayer.Character then onCharacterAdded(LocalPlayer.Character) end
+return true
