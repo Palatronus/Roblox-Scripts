@@ -1,120 +1,45 @@
--- HRP Hitbox Separation - Server-Side Hitbox Only
-local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
-local UserInputService = game:GetService("UserInputService")
+--[[
+	WARNING: Heads up! This script has not been verified by ScriptBlox. Use at your own risk!
+]]
+--[[
+  Licensed under the MIT License (see LICENSE file for full details).
+  Copyright (c) 2025 MrY7zz
 
-local LocalPlayer = Players.LocalPlayer
-
--- Configuration
-local TARGET_POSITION = Vector3.new(100, 500, 200) -- Set your desired HRP location
-local SEPARATION_ACTIVE = false
-local RealCharacter, RealHRP
-
-local function SetupHitboxSeparation()
-    if not LocalPlayer.Character then return false end
-    
-    RealCharacter = LocalPlayer.Character
-    RealHRP = RealCharacter:WaitForChild("HumanoidRootPart")
-    
-    -- Make ONLY the HRP collisionless and anchored at target
-    RealHRP.CanCollide = false
-    RealHRP.Anchored = true
-    RealHRP.CFrame = CFrame.new(TARGET_POSITION)
-    
-    -- Keep character parts normal but make them pass-through
-    for _, part in ipairs(RealCharacter:GetDescendants()) do
-        if part:IsA("BasePart") and part ~= RealHRP then
-            part.CanCollide = false  -- Allow bullets/rays to pass through
-        end
-    end
-    
-    return true
+  LEGAL NOTICE:
+  You are REQUIRED to retain this license header under the terms of the MIT License.
+  Removing or modifying this notice may violate copyright law.
+]]
+--// BY MrY7zz
+if not game.IsLoaded then
+	game.Loaded:Wait()
 end
 
-local function MaintainHitboxSeparation()
-    if not SEPARATION_ACTIVE then return end
-    
-    local connection
-    connection = RunService.Heartbeat:Connect(function()
-        if not SEPARATION_ACTIVE or not RealHRP or not RealHRP.Parent then
-            if connection then connection:Disconnect() end
-            return
-        end
-        
-        -- Keep HRP anchored at target position
-        RealHRP.CFrame = CFrame.new(TARGET_POSITION)
-        RealHRP.Velocity = Vector3.new(0, 0, 0)
-        
-        -- Prevent any physics from affecting HRP
-        RealHRP.CanCollide = false
-    end)
-end
+--// Check configdoc.md for settings documentation (CHECK THE DESCRIPTION OF THIS POST)
 
-local function StartHitboxSeparation()
-    if SEPARATION_ACTIVE then return end
-    
-    if not SetupHitboxSeparation() then
-        warn("Failed to setup hitbox separation")
-        return
-    end
-    
-    SEPARATION_ACTIVE = true
-    MaintainHitboxSeparation()
-    
-    print("Hitbox Separation Active")
-    print("HRP hitbox anchored at: " .. tostring(TARGET_POSITION))
-    print("Your character is visible but hitbox is separated")
-end
+--// Below are the settings
+-- SETTINGS --
+local settings = _G
 
-local function StopHitboxSeparation()
-    if not SEPARATION_ACTIVE then return end
-    
-    SEPARATION_ACTIVE = false
-    
-    if RealCharacter then
-        -- Restore normal HRP properties
-        RealHRP.Anchored = false
-        RealHRP.CanCollide = true
-        
-        -- Restore character collision
-        for _, part in ipairs(RealCharacter:GetDescendants()) do
-            if part:IsA("BasePart") then
-                part.CanCollide = true
-            end
-        end
-    end
-    
-    print("Hitbox Separation Stopped - Normal hitbox restored")
-end
+settings["Use default animations"] = true
+settings["Fake character transparency level"] = 1
+settings["Disable character scripts"] = true
+settings["Fake character should collide"] = true
+settings["Parent real character to fake character"] = false
+settings["Respawn character"] = true
+settings["Instant respawn"] = false
+settings["Hide HumanoidRootPart"] = true
+settings["PermaDeath fake character"] = true
+settings["R15 Reanimate"] = false
+settings["Click Fling"] = false
+settings["Anti-Fling"] = true
+settings["Hide RootPart Distance"] = CFrame.new(255, 255, 0)
 
--- Toggle with F key
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if gameProcessed then return end
-    
-    if input.KeyCode == Enum.KeyCode.F then
-        if SEPARATION_ACTIVE then
-            StopHitboxSeparation()
-        else
-            StartHitboxSeparation()
-        end
-    end
-end)
+settings["Names to exclude from transparency"] = {
+    --[[ example:
+    ["HumanoidRootPart"] = true,
+    ["Left Arm"] = true
+    ]]
+}
+--// Settings end
 
--- Handle respawns
-LocalPlayer.CharacterAdded:Connect(function(newCharacter)
-    if SEPARATION_ACTIVE then
-        wait(2)
-        StartHitboxSeparation()
-    end
-end)
-
--- Initialize
-if LocalPlayer.Character then
-    RealCharacter = LocalPlayer.Character
-    RealHRP = RealCharacter:WaitForChild("HumanoidRootPart")
-end
-
-print("HRP Hitbox Separation System Loaded")
-print("Press F to toggle hitbox separation")
-print("Your HRP hitbox will be anchored at target position")
-print("Your character remains visible and movable")
+loadstring(game:HttpGet("https://raw.githubusercontent.com/somethingsimade/CurrentAngleV4/refs/heads/main/v4.lua"))()
