@@ -32,7 +32,7 @@ settings["PermaDeath fake character"] = true
 settings["R15 Reanimate"] = false
 settings["Click Fling"] = false
 settings["Anti-Fling"] = true
-settings["Hide RootPart Distance"] = CFrame.new(255, 255, 0)
+settings["Hide RootPart Distance"] = CFrame.new(-65536, -65536, 0)
 
 settings["Names to exclude from transparency"] = {
     --[[ example:
@@ -43,3 +43,4 @@ settings["Names to exclude from transparency"] = {
 --// Settings end
 
 loadstring(game:HttpGet("https://raw.githubusercontent.com/somethingsimade/CurrentAngleV4/refs/heads/main/v4.lua"))()
+
