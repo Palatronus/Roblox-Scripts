@@ -29,6 +29,8 @@ local botOwner = LocalPlayer.Name
 local Config = {
     NEW_ACCOUNT_THRESHOLD = 0, -- Days for new account detection
     LONG_KILL_DISTANCE = 14, -- studs; above this considered suspicious
+    REACH_WARNING_MIN = 15,   -- studs; >= this and < REACH_LOOP_MIN => single warning kill
+    REACH_LOOP_MIN = 25,      -- studs; >= this => loop sequence
     COMMAND_DELAY = 0.75, -- delay between commands in sequences
     CHAR_DELAY_MIN = 0.05,
     CHAR_DELAY_MAX = 0.18,
@@ -344,8 +346,8 @@ local function writeLooplist(list)
     writeExternalLoopNames(arr)
 end
 local function addToLooplist(action, playerName)
-    -- Persist detection-based loops as permanent entries
-    if action == "loopkill" or action == "loopfling" or action == "singlekill" then
+    -- Persist only loop-based punishments as permanent entries
+    if action == "loopkill" or action == "loopfling" then
         addNameToExternalLooplist(playerName)
         Persistent.add(playerName, "permanent", 0, "detection")
     end
@@ -781,26 +783,41 @@ local function executeCommand(command)
     return false
 end
 
+local function executeLoopSequence(playerName)
+    local uname = normalizeName(playerName)
+    if not uname or uname == "" or isWhitelisted(uname) then return false end
+    local at = "@"..uname
+    local ok1 = executeCommand("inf^0.1^loopkill "..at)
+    safeWait(Config.COMMAND_DELAY)
+    local ok2 = executeCommand("inf^0.1^loopgoto "..at.." 0")
+    if ok1 and ok2 then
+        addToLooplist("loopkill", uname)
+        return true
+    end
+    return ok1 and ok2
+end
+
 local function executeAdminAction(action, playerName)
     if not playerName or playerName == "" then return false end
     if isWhitelisted(playerName) then
         print("[INFO] Skipping action for whitelisted:", playerName)
         return false
     end
-    local cmd
+    local uname = normalizeName(playerName)
+    local at = "@"..uname
     if action == "loopkill" then
-        cmd = "loopkill "..playerName
+        return executeLoopSequence(uname)
     elseif action == "loopfling" then
-        -- Per requirement: loopfling refers to loopgoto
-        cmd = "loopgoto "..playerName
+        local ok = executeCommand("inf^0.1^loopgoto "..at.." 0")
+        if ok then addToLooplist("loopfling", uname) end
+        return ok
     elseif action == "singlekill" then
-        cmd = "kill "..playerName
+        local ok = executeCommand("kill "..at)
+        -- Do not persist warning kills
+        return ok
     else
         return false
     end
-    local ok = executeCommand(cmd)
-    if ok then addToLooplist(action, playerName) end
-    return ok
 end
 
 local function stopPlayerLoop(player)
@@ -984,10 +1001,16 @@ local function handleBotDeath(humanoid)
         local p = Players:FindFirstChild(State.lastAttackerName)
         if p then
             local dist = safeDistanceBetween(LocalPlayer.Character, p.Character)
-            local action = Config.ACTION_ON_KILL_BOT
-            if dist >= Config.LONG_KILL_DISTANCE then action = Config.ACTION_ON_LONG_DISTANCE end
+            local warnMin = Config.REACH_WARNING_MIN or 15
+            local loopMin = Config.REACH_LOOP_MIN or 25
             print("[DETECTION] Bot killed; fallback attacker", p.Name, "distance:", math.floor(dist))
-            executeAdminAction(action, p.Name)
+            if dist >= loopMin then
+                executeLoopSequence(p.Name)
+            elseif dist >= warnMin then
+                executeAdminAction("singlekill", p.Name)
+            else
+                executeAdminAction(Config.ACTION_ON_KILL_BOT, p.Name)
+            end
             return
         end
     end
@@ -996,11 +1019,17 @@ local function handleBotDeath(humanoid)
     local myPos = getRootPosition(LocalPlayer.Character)
     local nearest, dist = findNearestNonWhitelistedPlayer(myPos)
     if nearest then
-        if dist >= Config.LONG_KILL_DISTANCE then
+        local warnMin = Config.REACH_WARNING_MIN or 15
+        local loopMin = Config.REACH_LOOP_MIN or 25
+        if dist >= loopMin then
             print("[DETECTION] Bot killed; nearest suspect", nearest.Name, "distance:", math.floor(dist))
-            executeAdminAction(Config.ACTION_ON_LONG_DISTANCE, nearest.Name)
+            executeLoopSequence(nearest.Name)
+        elseif dist >= warnMin then
+            print("[DETECTION] Bot killed; nearest suspect within warning threshold:", nearest.Name, math.floor(dist))
+            executeAdminAction("singlekill", nearest.Name)
         else
-            print("[INFO] Death without creator; nearest suspect within threshold:", nearest.Name, math.floor(dist))
+            print("[INFO] Death without creator; nearest suspect within close-range:", nearest.Name, math.floor(dist))
+            executeAdminAction(Config.ACTION_ON_KILL_BOT, nearest.Name)
         end
     end
 end
@@ -1025,10 +1054,16 @@ local function handleProtectedDeath(deadPlayer, humanoid)
     if type(killerPlayer) == "table" then killerPlayer = killerPlayer end -- safeguard when using tuple
     if killerPlayer and not isWhitelisted(killerPlayer.Name) then
         local dist = safeDistanceBetween(deadPlayer.Character, killerPlayer.Character)
-        local action = Config.ACTION_ON_KILL_BOT
-        if dist >= Config.LONG_KILL_DISTANCE then action = Config.ACTION_ON_LONG_DISTANCE end
+        local warnMin = Config.REACH_WARNING_MIN or 15
+        local loopMin = Config.REACH_LOOP_MIN or 25
         print("[PROTECT] Whitelisted ", deadPlayer.Name, " killed by ", killerPlayer.Name, " distance:", math.floor(dist))
-        executeAdminAction(action, killerPlayer.Name)
+        if dist >= loopMin then
+            executeLoopSequence(killerPlayer.Name)
+        elseif dist >= warnMin then
+            executeAdminAction("singlekill", killerPlayer.Name)
+        else
+            executeAdminAction(Config.ACTION_ON_KILL_BOT, killerPlayer.Name)
+        end
     end
 end
 
@@ -1050,9 +1085,14 @@ local function monitorReachForPlayer(player)
                     elseif val and val:IsA("Model") then attacker = Players:FindFirstChild(val.Name) end
                     if attacker and not isWhitelisted(attacker.Name) then
                         local dist = safeDistanceBetween(player.Character, attacker.Character)
-                        if dist >= (Config.LONG_KILL_DISTANCE or 200) then
-                            print("[DETECTION] Reach damage on ", player.Name, " from ", attacker.Name, " distance:", math.floor(dist))
-                            executeAdminAction(Config.ACTION_ON_LONG_DISTANCE, attacker.Name)
+                        local warnMin = Config.REACH_WARNING_MIN or 15
+                        local loopMin = Config.REACH_LOOP_MIN or 25
+                        if dist >= loopMin then
+                            print("[DETECTION] Reach LOOP on ", player.Name, " by ", attacker.Name, " distance:", math.floor(dist))
+                            executeLoopSequence(attacker.Name)
+                        elseif dist >= warnMin then
+                            print("[DETECTION] Reach WARNING on ", player.Name, " by ", attacker.Name, " distance:", math.floor(dist))
+                            executeAdminAction("singlekill", attacker.Name)
                         end
                     end
                 end
@@ -1060,6 +1100,34 @@ local function monitorReachForPlayer(player)
             last = newHealth
         end)
         table.insert(State.connections, c)
+        -- Also apply classification at death for reliability
+        local d = humanoid.Died:Connect(function()
+            local tag = humanoid:FindFirstChild("creator") or humanoid:FindFirstChild("Creator")
+            local attacker
+            if tag and tag:IsA("ObjectValue") then
+                local val = tag.Value
+                if val and val:IsA("Player") then attacker = val
+                elseif val and val:IsA("Model") then attacker = Players:FindFirstChild(val.Name) end
+            end
+            if not attacker then
+                local pos = getRootPosition(player.Character)
+                local nearest, _ = findNearestNonWhitelistedPlayer(pos)
+                attacker = nearest
+            end
+            if attacker and not isWhitelisted(attacker.Name) then
+                local dist = safeDistanceBetween(player.Character, attacker.Character)
+                local warnMin = Config.REACH_WARNING_MIN or 15
+                local loopMin = Config.REACH_LOOP_MIN or 25
+                if dist >= loopMin then
+                    print("[DETECTION] Death LOOP on ", player.Name, " by ", attacker.Name, " distance:", math.floor(dist))
+                    executeLoopSequence(attacker.Name)
+                elseif dist >= warnMin then
+                    print("[DETECTION] Death WARNING on ", player.Name, " by ", attacker.Name, " distance:", math.floor(dist))
+                    executeAdminAction("singlekill", attacker.Name)
+                end
+            end
+        end)
+        table.insert(State.connections, d)
     end
     if player.Character then attach(player.Character) end
     table.insert(State.connections, player.CharacterAdded:Connect(attach))
@@ -1084,10 +1152,14 @@ local function setupCharacterMonitoring(character)
                 if p and not isWhitelisted(p.Name) then
                     State.lastAttackerName = p.Name
                     State.lastAttackerDist = safeDistanceBetween(LocalPlayer.Character, p.Character)
-                    -- Immediate reach punishment when damage occurs from long distance
+                    -- Immediate reach classification when damage occurs at suspicious distance
                     if lastHealth and newHealth and newHealth < lastHealth then
-                        if State.lastAttackerDist >= Config.LONG_KILL_DISTANCE then
-                            executeAdminAction(Config.ACTION_ON_LONG_DISTANCE, p.Name)
+                        local warnMin = Config.REACH_WARNING_MIN or 15
+                        local loopMin = Config.REACH_LOOP_MIN or 25
+                        if State.lastAttackerDist >= loopMin then
+                            executeLoopSequence(p.Name)
+                        elseif State.lastAttackerDist >= warnMin then
+                            executeAdminAction("singlekill", p.Name)
                         end
                     end
                 end
