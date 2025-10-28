@@ -10,6 +10,7 @@
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
+local HttpService = game:GetService("HttpService")
 local UserInputService = game:GetService("UserInputService")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 local TextChatService = game:GetService("TextChatService")
@@ -27,7 +28,7 @@ local botOwner = LocalPlayer.Name
 
 local Config = {
     NEW_ACCOUNT_THRESHOLD = 0, -- Days for new account detection
-    LONG_KILL_DISTANCE = 24, -- studs; above this considered suspicious
+    LONG_KILL_DISTANCE = 14, -- studs; above this considered suspicious
     COMMAND_DELAY = 0.75, -- delay between commands in sequences
     CHAR_DELAY_MIN = 0.05,
     CHAR_DELAY_MAX = 0.18,
@@ -65,6 +66,16 @@ local Config = {
     STUCK_MOVE_EPSILON = 2.0,      -- minimum movement to consider not stuck (studs)
     STUCK_FREEZE_TIMEOUT = 10,     -- seconds with < epsilon movement before recovery
     STUCK_RECOVERY_ENABLED = true  -- run auto-recovery when frozen
+    ,
+    -- Persistence and security
+    PERSIST_DATA_FOLDER = "SecurityBot_Data",
+    PERSIST_JSON_PATH = "SecurityBot_Data/looped.json",
+    TEMP_LOOP_TTL_SEC = 0,           -- 0 = never expire temporary loops
+    ENCRYPT_STORAGE = true,
+    ENCRYPTION_KEY_SEED = "SentinelKeySeed",
+    -- Desktop bridge fallback (used when direct file writes are blocked)
+    BRIDGE_ENABLED = true,
+    BRIDGE_URL = "http://127.0.0.1:8765" -- expected endpoints: /append, /remove, /set
 }
 
 -- ========================================
@@ -139,26 +150,108 @@ end
 
 local function ensureLooplistFile()
     if not hasFilesystem() then return end
-    local path = resolveExternalPath()
+    local primary = resolveExternalPath()
     local ok = true
-    if not isfile(path) then
+    if not isfile(primary) then
         ok = pcall(function()
-            writefile(path, "")
+            writefile(primary, "")
         end)
     end
     if not ok then
-        print("[WARN] Unable to create looplist file:", path)
+        print("[WARN] Unable to create primary looplist file:", primary)
+        -- Fallback inside executor workspace
+        local folder = Config.PERSIST_DATA_FOLDER
+        if type(isfolder) == "function" and not isfolder(folder) then
+            pcall(function() makefolder(folder) end)
+        end
+        local fb = Config.PERSIST_DATA_FOLDER.."/Loopkills.txt"
+        State.loopPathFallback = fb
+        if not isfile(fb) then
+            local okfb = pcall(function() writefile(fb, "") end)
+            if not okfb then print("[WARN] Fallback looplist file failed:", fb) end
+        end
+    else
+        State.loopPathFallback = nil
     end
+end
+
+-- ========================================
+-- DESKTOP BRIDGE (HTTP) FALLBACKS
+-- ========================================
+
+local function httpGet(url)
+    local ok, res
+    -- Try common executor-specific HTTP functions first
+    if type(http_request) == "function" then
+        ok, res = pcall(function() return http_request({Url = url, Method = "GET"}) end)
+    elseif type(syn) == "table" and type(syn.request) == "function" then
+        ok, res = pcall(function() return syn.request({Url = url, Method = "GET"}) end)
+    elseif type(request) == "function" then
+        ok, res = pcall(function() return request({Url = url, Method = "GET"}) end)
+    end
+    if ok and res then
+        if type(res) == "table" then
+            if res.Success == true and (res.Body or res.StatusCode == 200) then return res.Body or "" end
+            if res.StatusCode == 200 and res.Body then return res.Body end
+        elseif type(res) == "string" then
+            return res
+        end
+    end
+    -- Fallback to Roblox HttpService if permitted
+    local ok2, body = pcall(function()
+        return game:HttpGet(url)
+    end)
+    if ok2 and body then return body end
+    return nil
+end
+
+local function bridgeEnabled()
+    return Config.BRIDGE_ENABLED and type(Config.BRIDGE_URL) == "string" and #Config.BRIDGE_URL > 0
+end
+
+local function bridgeAppend(name)
+    if not bridgeEnabled() then return false end
+    local n = normalizeName(name)
+    if not n or n == "" then return false end
+    local url = string.format("%s/append?name=%s", Config.BRIDGE_URL, HttpService:UrlEncode(n))
+    return httpGet(url) ~= nil
+end
+
+local function bridgeRemove(name)
+    if not bridgeEnabled() then return false end
+    local n = normalizeName(name)
+    if not n or n == "" then return false end
+    local url = string.format("%s/remove?name=%s", Config.BRIDGE_URL, HttpService:UrlEncode(n))
+    return httpGet(url) ~= nil
+end
+
+local function bridgeSet(names)
+    if not bridgeEnabled() then return false end
+    local list
+    if type(names) == "table" then
+        local tmp = {}
+        for _, nn in ipairs(names) do
+            local u = normalizeName(nn)
+            if u and u ~= "" then table.insert(tmp, u) end
+        end
+        list = table.concat(tmp, ",")
+    else
+        list = tostring(names or "")
+    end
+    local url = string.format("%s/set?names=%s", Config.BRIDGE_URL, HttpService:UrlEncode(list))
+    return httpGet(url) ~= nil
 end
 
 local function readExternalLoopNames()
     local namesSet = {}
     if not hasFilesystem() then return {} end
     local path = resolveExternalPath()
-    local ok, content = pcall(function()
-        return readfile(path)
-    end)
-    if not ok or not content then return {} end
+    local ok, content = pcall(function() return readfile(path) end)
+    if not ok or not content or content == "" then
+        local fb = State.loopPathFallback or (Config.PERSIST_DATA_FOLDER.."/Loopkills.txt")
+        ok, content = pcall(function() return readfile(fb) end)
+        if not ok or not content then content = "" end
+    end
     for token in string.gmatch(content, "[^,;\n]+") do
         local n = normalizeName(token:match("^%s*(.-)%s*$"))
         if n and n ~= "" then namesSet[n] = true end
@@ -170,7 +263,12 @@ local function readExternalLoopNames()
 end
 
 local function writeExternalLoopNames(names)
-    if not hasFilesystem() then return end
+    if not hasFilesystem() then
+        -- Use bridge as a fallback when direct FS writes are unavailable
+        local okb = bridgeSet(names or {})
+        if not okb then print("[WARN] Bridge set failed; cannot persist looplist externally.") end
+        return
+    end
     local path = resolveExternalPath()
     local uniq = {}
     for _, n in ipairs(names or {}) do
@@ -182,16 +280,27 @@ local function writeExternalLoopNames(names)
     table.sort(out)
     local lines = {}
     for _, n in ipairs(out) do table.insert(lines, "@"..n..",") end
-    local ok = pcall(function()
-        writefile(path, table.concat(lines, "\n"))
-    end)
+    local payload = table.concat(lines, "\n")
+    local ok = pcall(function() writefile(path, payload) end)
     if not ok then
-        print("[WARN] Unable to write looplist file:", path)
+        local fb = State.loopPathFallback or (Config.PERSIST_DATA_FOLDER.."/Loopkills.txt")
+        local okfb = pcall(function() writefile(fb, payload) end)
+        State.loopPathFallback = fb
+        if not okfb then
+            print("[WARN] Unable to write both primary and fallback looplist files.")
+            -- Last resort: desktop bridge
+            local okb = bridgeSet(out)
+            if not okb then print("[WARN] Bridge set failed; external list not updated.") end
+        end
     end
 end
 
 local function addNameToExternalLooplist(playerName)
-    if not hasFilesystem() then return end
+    if not hasFilesystem() then
+        local okb = bridgeAppend(playerName)
+        if not okb then print("[WARN] Bridge append failed for", playerName) end
+        return
+    end
     ensureLooplistFile()
     local arr = readExternalLoopNames()
     local set = {}
@@ -206,7 +315,11 @@ local function addNameToExternalLooplist(playerName)
 end
 
 local function removeNameFromExternalLooplist(playerName)
-    if not hasFilesystem() then return end
+    if not hasFilesystem() then
+        local okb = bridgeRemove(playerName)
+        if not okb then print("[WARN] Bridge remove failed for", playerName) end
+        return
+    end
     local arr = readExternalLoopNames()
     local set = {}
     for _, n in ipairs(arr) do set[n] = true end
@@ -230,11 +343,16 @@ local function writeLooplist(list)
     for n, _ in pairs((list and list.loopkill) or {}) do table.insert(arr, n) end
     writeExternalLoopNames(arr)
 end
-local function addToLooplist(_, playerName)
-    addNameToExternalLooplist(playerName)
+local function addToLooplist(action, playerName)
+    -- Persist detection-based loops as permanent entries
+    if action == "loopkill" or action == "loopfling" or action == "singlekill" then
+        addNameToExternalLooplist(playerName)
+        Persistent.add(playerName, "permanent", 0, "detection")
+    end
 end
 local function removeFromLooplist(playerName)
     removeNameFromExternalLooplist(playerName)
+    Persistent.remove(playerName)
 end
 
 -- ========================================
@@ -914,6 +1032,39 @@ local function handleProtectedDeath(deadPlayer, humanoid)
     end
 end
 
+-- Monitor reach (stud) damage for any player. Punish attacker if distance is excessive.
+local function monitorReachForPlayer(player)
+    if not player or player == LocalPlayer then return end
+    local function attach(char)
+        if not char then return end
+        local humanoid = char:FindFirstChild("Humanoid")
+        if not humanoid then return end
+        local last = humanoid.Health
+        local c = humanoid.HealthChanged:Connect(function(newHealth)
+            if last and newHealth and newHealth < last then
+                local tag = humanoid:FindFirstChild("creator") or humanoid:FindFirstChild("Creator")
+                if tag and tag:IsA("ObjectValue") then
+                    local val = tag.Value
+                    local attacker
+                    if val and val:IsA("Player") then attacker = val
+                    elseif val and val:IsA("Model") then attacker = Players:FindFirstChild(val.Name) end
+                    if attacker and not isWhitelisted(attacker.Name) then
+                        local dist = safeDistanceBetween(player.Character, attacker.Character)
+                        if dist >= (Config.LONG_KILL_DISTANCE or 200) then
+                            print("[DETECTION] Reach damage on ", player.Name, " from ", attacker.Name, " distance:", math.floor(dist))
+                            executeAdminAction(Config.ACTION_ON_LONG_DISTANCE, attacker.Name)
+                        end
+                    end
+                end
+            end
+            last = newHealth
+        end)
+        table.insert(State.connections, c)
+    end
+    if player.Character then attach(player.Character) end
+    table.insert(State.connections, player.CharacterAdded:Connect(attach))
+end
+
 local function setupCharacterMonitoring(character)
     local humanoid = character:WaitForChild("Humanoid", 10)
     if humanoid then
@@ -1020,6 +1171,8 @@ local function setupPlayerEvents()
     print("[INFO] Setting up player monitoring...")
     for _, p in ipairs(Players:GetPlayers()) do
         processNewPlayer(p)
+        -- Reach detection for regular players
+        monitorReachForPlayer(p)
         -- Protection for whitelisted players
         if isWhitelisted(p.Name) then
             local function hook(char)
@@ -1038,6 +1191,7 @@ local function setupPlayerEvents()
     table.insert(State.connections, Players.PlayerAdded:Connect(function(p)
         safeWait(1)
         processNewPlayer(p)
+        monitorReachForPlayer(p)
         if isWhitelisted(p.Name) then
             local function hook(char)
                 local humanoid = char:FindFirstChild("Humanoid")
@@ -1130,4 +1284,142 @@ if initSuccess then
 else
     print("[ERROR] Failed to initialize Security Bot")
 end
+-- Simple XOR + Base64 obfuscation (optional) for persistent JSON
+local function kdf()
+    local seed = tostring(LocalPlayer.UserId).."-"..tostring(Config.ENCRYPTION_KEY_SEED or "")
+    return seed
+end
+local function xorBytes(str, key)
+    local out = table.create(#str)
+    local klen = #key
+    for i = 1, #str do
+        local sb = string.byte(str, i)
+        local kb = string.byte(key, ((i - 1) % klen) + 1)
+        out[i] = string.char(bit32.bxor(sb, kb))
+    end
+    return table.concat(out)
+end
+local function encodeData(tbl)
+    local ok, json = pcall(function() return HttpService:JSONEncode(tbl) end)
+    if not ok then return nil end
+    if Config.ENCRYPT_STORAGE then
+        local obf = xorBytes(json, kdf())
+        return (game:GetService("HttpService"):Base64Encode(obf))
+    end
+    return json
+end
+local function decodeData(str)
+    if not str or str == "" then return nil end
+    local raw = str
+    if Config.ENCRYPT_STORAGE then
+        local okb, dec = pcall(function() return HttpService:Base64Decode(raw) end)
+        if not okb then return nil end
+        raw = xorBytes(dec, kdf())
+    end
+    local ok, tbl = pcall(function() return HttpService:JSONDecode(raw) end)
+    if ok then return tbl end
+    return nil
+end
 
+-- Persistent storage for looped users
+Persistent = { entries = {}, loaded = false }
+
+function Persistent.load()
+    if not hasFilesystem() then Persistent.loaded = true; return true end
+    local folder = Config.PERSIST_DATA_FOLDER
+    if type(isfolder) == "function" and not isfolder(folder) then pcall(function() makefolder(folder) end) end
+    local path = Config.PERSIST_JSON_PATH
+    local ok, data = pcall(function() return readfile(path) end)
+    if not ok or not data or data == "" then Persistent.loaded = true; return true end
+    local decoded = decodeData(data)
+    if type(decoded) == "table" and decoded.entries then
+        Persistent.entries = decoded.entries
+        Persistent.loaded = true
+        return true
+    end
+    Persistent.loaded = true
+    return true
+end
+
+function Persistent.save()
+    if not hasFilesystem() then return false end
+    local blob = { entries = Persistent.entries }
+    local payload = encodeData(blob)
+    if not payload then return false end
+    local ok = pcall(function() writefile(Config.PERSIST_JSON_PATH, payload) end)
+    if not ok then print("[WARN] Persistent save failed") end
+    return ok
+end
+
+function Persistent.add(name, kind, ttl_sec, source)
+    local n = normalizeForCompare(name)
+    if n == "" or isWhitelisted(name) then return false end
+    local now = tick()
+    Persistent.entries[n] = {
+        username = name:gsub("^@", ""),
+        kind = kind or "permanent",
+        added_at = now,
+        ttl_sec = tonumber(ttl_sec) or 0,
+        active = true,
+        source = source or "manual",
+        last_applied = 0
+    }
+    Persistent.save()
+    return true
+end
+
+function Persistent.remove(name)
+    local n = normalizeForCompare(name)
+    if Persistent.entries[n] then
+        Persistent.entries[n] = nil
+        Persistent.save()
+    end
+end
+
+function Persistent.isActive(name)
+    local n = normalizeForCompare(name)
+    local e = Persistent.entries[n]
+    if not e or not e.active then return false end
+    if e.ttl_sec and e.ttl_sec > 0 then
+        return (tick() - e.added_at) <= e.ttl_sec
+    end
+    return true
+end
+
+function Persistent.getActiveNames(permanentOnly)
+    local out = {}
+    for _, e in pairs(Persistent.entries) do
+        if e.active and (not permanentOnly or e.kind == "permanent") then
+            if Persistent.isActive(e.username) then table.insert(out, e.username) end
+        end
+    end
+    table.sort(out)
+    return out
+end
+
+function Persistent.pruneExpired()
+    local changed = false
+    for k, e in pairs(Persistent.entries) do
+        if e.active and e.ttl_sec and e.ttl_sec > 0 then
+            if (tick() - e.added_at) > e.ttl_sec then
+                changed = true
+                Persistent.entries[k] = nil
+            end
+        end
+    end
+    if changed then Persistent.save() end
+end
+
+function Persistent.export()
+    return encodeData({ entries = Persistent.entries })
+end
+
+function Persistent.import(payload)
+    local decoded = decodeData(payload)
+    if type(decoded) == "table" and decoded.entries then
+        Persistent.entries = decoded.entries
+        Persistent.save()
+        return true
+    end
+    return false
+end
