@@ -64,6 +64,13 @@ local Config = {
     ,
     LOOPLIST_FILE = "SecurityBot_looplist.txt" -- local file to persist current loop list
     ,
+    -- Action throttling to stop repeated command spam
+    ACTION_COOLDOWNS = {
+        singlekill = 8,    -- seconds
+        loopkill   = 45,   -- seconds
+        loopfling  = 45    -- seconds
+    }
+    ,
     -- Stuck watchdog
     STUCK_MOVE_EPSILON = 2.0,      -- minimum movement to consider not stuck (studs)
     STUCK_FREEZE_TIMEOUT = 10,     -- seconds with < epsilon movement before recovery
@@ -103,6 +110,7 @@ local State = {
     botActive = false,
     seqRan = false,
     connections = {},
+    cooldowns = {}, -- name -> {action -> lastTick}
     textInputSupported = false,
     lastAttackerName = nil,
     lastAttackerDist = 0,
@@ -139,6 +147,30 @@ end
 local function normalizeForCompare(name)
     if not name or name == "" then return "" end
     return string.lower((name:gsub("^@", "")))
+end
+
+-- Self/owner helpers and action throttling
+local function isSelf(name)
+    if not name then return false end
+    return normalizeForCompare(name) == normalizeForCompare(LocalPlayer.Name)
+end
+
+local function canRunAction(name, action)
+    if not name or name == "" then return false end
+    -- Never target self
+    if isSelf(name) then return false end
+    -- If already looped, do not re-run loop commands
+    if (action == "loopkill" or action == "loopfling") and Persistent.isActive(name) then
+        return false
+    end
+    local last = (State.cooldowns[name] and State.cooldowns[name][action]) or 0
+    local cd = (Config.ACTION_COOLDOWNS and Config.ACTION_COOLDOWNS[action]) or 8
+    return (tick() - last) > cd
+end
+
+local function markActionRun(name, action)
+    State.cooldowns[name] = State.cooldowns[name] or {}
+    State.cooldowns[name][action] = tick()
 end
 
 -- External looplist file support (Windows path)
@@ -730,6 +762,8 @@ end
 local OWNER_SET, MOD_SET = {}, {}
 for _, n in pairs(OWNER_WHITELIST) do OWNER_SET[normalizeForCompare(n)] = true end
 for _, n in pairs(MOD_WHITELIST) do MOD_SET[normalizeForCompare(n)] = true end
+-- Always treat the bot owner (LocalPlayer) as whitelisted
+OWNER_SET[normalizeForCompare(botOwner)] = true
 
 local function isWhitelisted(username)
     if not username then return false end
@@ -785,13 +819,15 @@ end
 
 local function executeLoopSequence(playerName)
     local uname = normalizeName(playerName)
-    if not uname or uname == "" or isWhitelisted(uname) then return false end
+    if not uname or uname == "" or isWhitelisted(uname) or isSelf(uname) then return false end
+    if not canRunAction(uname, "loopkill") then return false end
     local at = "@"..uname
     local ok1 = executeCommand("inf^0.1^loopkill "..at)
     safeWait(Config.COMMAND_DELAY)
     local ok2 = executeCommand("inf^0.1^loopgoto "..at.." 0")
     if ok1 and ok2 then
         addToLooplist("loopkill", uname)
+        markActionRun(uname, "loopkill")
         return true
     end
     return ok1 and ok2
@@ -799,7 +835,7 @@ end
 
 local function executeAdminAction(action, playerName)
     if not playerName or playerName == "" then return false end
-    if isWhitelisted(playerName) then
+    if isWhitelisted(playerName) or isSelf(playerName) then
         print("[INFO] Skipping action for whitelisted:", playerName)
         return false
     end
@@ -808,12 +844,18 @@ local function executeAdminAction(action, playerName)
     if action == "loopkill" then
         return executeLoopSequence(uname)
     elseif action == "loopfling" then
+        if not canRunAction(uname, "loopfling") then return false end
         local ok = executeCommand("inf^0.1^loopgoto "..at.." 0")
-        if ok then addToLooplist("loopfling", uname) end
+        if ok then
+            addToLooplist("loopfling", uname)
+            markActionRun(uname, "loopfling")
+        end
         return ok
     elseif action == "singlekill" then
+        if not canRunAction(uname, "singlekill") then return false end
         local ok = executeCommand("kill "..at)
         -- Do not persist warning kills
+        if ok then markActionRun(uname, "singlekill") end
         return ok
     else
         return false
@@ -863,7 +905,7 @@ local function runJoinSequence()
     if names and #names > 0 then
         local tmp = {}
         for _, n in ipairs(names) do
-            if not isWhitelisted(n) then
+            if not isWhitelisted(n) and normalizeForCompare(n) ~= normalizeForCompare(LocalPlayer.Name) then
                 table.insert(tmp, "@"..n)
             end
         end
@@ -987,7 +1029,7 @@ local function handleBotDeath(humanoid)
         end
     end
     -- Primary path: creator tag provided a killer
-    if killerPlayer and not isWhitelisted(killerPlayer.Name) then
+    if killerPlayer and killerPlayer ~= LocalPlayer and not isWhitelisted(killerPlayer.Name) then
         local dist = safeDistanceBetween(LocalPlayer.Character, killerPlayer.Character)
         local action = Config.ACTION_ON_KILL_BOT
         if dist >= Config.LONG_KILL_DISTANCE then action = Config.ACTION_ON_LONG_DISTANCE end
@@ -1083,7 +1125,7 @@ local function monitorReachForPlayer(player)
                     local attacker
                     if val and val:IsA("Player") then attacker = val
                     elseif val and val:IsA("Model") then attacker = Players:FindFirstChild(val.Name) end
-                    if attacker and not isWhitelisted(attacker.Name) then
+                    if attacker and attacker ~= LocalPlayer and not isWhitelisted(attacker.Name) then
                         local dist = safeDistanceBetween(player.Character, attacker.Character)
                         local warnMin = Config.REACH_WARNING_MIN or 15
                         local loopMin = Config.REACH_LOOP_MIN or 25
@@ -1114,7 +1156,7 @@ local function monitorReachForPlayer(player)
                 local nearest, _ = findNearestNonWhitelistedPlayer(pos)
                 attacker = nearest
             end
-            if attacker and not isWhitelisted(attacker.Name) then
+            if attacker and attacker ~= LocalPlayer and not isWhitelisted(attacker.Name) then
                 local dist = safeDistanceBetween(player.Character, attacker.Character)
                 local warnMin = Config.REACH_WARNING_MIN or 15
                 local loopMin = Config.REACH_LOOP_MIN or 25
@@ -1149,7 +1191,7 @@ local function setupCharacterMonitoring(character)
                 local p
                 if val and val:IsA("Player") then p = val
                 elseif val and val:IsA("Model") then p = Players:FindFirstChild(val.Name) end
-                if p and not isWhitelisted(p.Name) then
+                if p and p ~= LocalPlayer and not isWhitelisted(p.Name) then
                     State.lastAttackerName = p.Name
                     State.lastAttackerDist = safeDistanceBetween(LocalPlayer.Character, p.Character)
                     -- Immediate reach classification when damage occurs at suspicious distance
