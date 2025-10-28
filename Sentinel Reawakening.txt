@@ -52,6 +52,7 @@ local Config = {
     INPUT_VERIFY_TIMEOUT = 0.6,
     DEBUG_INPUT = false,
     FOCUS_RECAPTURE_RETRY = 6,
+    EXTERNAL_LOOPLIST_PATH = "C:/Users/MEV/Desktop/Loopkills.txt",
     PLACE_ID = game.PlaceId,
     SERVER_HOP_CHECK_DELAY = 10, -- seconds after join to check solo
     ACTION_ON_NEW_ACCOUNT = "loopkill", -- loopkill | loopfling | singlekill
@@ -135,81 +136,110 @@ local function normalizeName(name)
     return name:gsub("^@", "")
 end
 
+-- External looplist file support (Windows path)
+local function resolveExternalPath(raw)
+    local p = raw or Config.EXTERNAL_LOOPLIST_PATH
+    if not p or p == "" then return "Loopkills.txt" end
+    p = p:gsub("\\", "/")
+    p = p:gsub("^/", "")
+    return p
+end
+
 local function ensureLooplistFile()
-    if hasFilesystem() then
-        local ok = true
-        if not isfile(Config.LOOPLIST_FILE) then
-            ok = pcall(function()
-                writefile(Config.LOOPLIST_FILE, "")
-            end)
-        end
-        if not ok then
-            print("[WARN] Unable to create looplist file:", Config.LOOPLIST_FILE)
-        end
-    end
-end
-
-local function readLooplist()
-    local list = { loopkill = {}, loopfling = {} }
-    if not hasFilesystem() then return list end
-    local ok, content = pcall(function()
-        return readfile(Config.LOOPLIST_FILE)
-    end)
-    if not ok or not content then return list end
-    for line in string.gmatch(content .. "\n", "([^\n]*)\n") do
-        local ln = line:match("^%s*(.-)%s*$")
-        if ln and ln ~= "" then
-            local action, user = ln:match("^(loopkill)%s*:%s*(.+)$")
-            if not action then action, user = ln:match("^(loopfling)%s*:%s*(.+)$") end
-            if action and user then
-                user = normalizeName(user)
-                list[action][user] = true
-            else
-                -- Fallback: if line starts with @name, treat as loopkill
-                local plain = normalizeName(ln)
-                if plain then list.loopkill[plain] = true end
-            end
-        end
-    end
-    return list
-end
-
-local function writeLooplist(list)
     if not hasFilesystem() then return end
-    local buf = {}
-    for user, _ in pairs(list.loopkill or {}) do
-        table.insert(buf, "loopkill: " .. user)
+    local path = resolveExternalPath()
+    local ok = true
+    if not isfile(path) then
+        ok = pcall(function()
+            writefile(path, "")
+        end)
     end
-    for user, _ in pairs(list.loopfling or {}) do
-        table.insert(buf, "loopfling: " .. user)
+    if not ok then
+        print("[WARN] Unable to create looplist file:", path)
     end
+end
+
+local function readExternalLoopNames()
+    local namesSet = {}
+    if not hasFilesystem() then return {} end
+    local path = resolveExternalPath()
+    local ok, content = pcall(function()
+        return readfile(path)
+    end)
+    if not ok or not content then return {} end
+    for token in string.gmatch(content, "[^,\n]+") do
+        local n = normalizeName(token:match("^%s*(.-)%s*$"))
+        if n and n ~= "" then namesSet[n] = true end
+    end
+    local arr = {}
+    for n, _ in pairs(namesSet) do table.insert(arr, n) end
+    table.sort(arr)
+    return arr
+end
+
+local function writeExternalLoopNames(names)
+    if not hasFilesystem() then return end
+    local path = resolveExternalPath()
+    local uniq = {}
+    for _, n in ipairs(names or {}) do
+        local u = normalizeName(n)
+        if u and u ~= "" then uniq[u] = true end
+    end
+    local out = {}
+    for n, _ in pairs(uniq) do table.insert(out, n) end
+    table.sort(out)
     local ok = pcall(function()
-        writefile(Config.LOOPLIST_FILE, table.concat(buf, "\n"))
+        writefile(path, table.concat(out, "\n"))
     end)
     if not ok then
-        print("[WARN] Unable to write looplist file:", Config.LOOPLIST_FILE)
+        print("[WARN] Unable to write looplist file:", path)
     end
 end
 
-local function addToLooplist(action, playerName)
+local function addNameToExternalLooplist(playerName)
     if not hasFilesystem() then return end
     ensureLooplistFile()
-    local list = readLooplist()
+    local arr = readExternalLoopNames()
+    local set = {}
+    for _, n in ipairs(arr) do set[n] = true end
     local name = normalizeName(playerName)
     if not name then return end
-    list[action] = list[action] or {}
-    list[action][name] = true
-    writeLooplist(list)
+    set[name] = true
+    local out = {}
+    for n, _ in pairs(set) do table.insert(out, n) end
+    writeExternalLoopNames(out)
 end
 
-local function removeFromLooplist(playerName)
+local function removeNameFromExternalLooplist(playerName)
     if not hasFilesystem() then return end
-    local list = readLooplist()
+    local arr = readExternalLoopNames()
+    local set = {}
+    for _, n in ipairs(arr) do set[n] = true end
     local name = normalizeName(playerName)
     if not name then return end
-    if list.loopkill then list.loopkill[name] = nil end
-    if list.loopfling then list.loopfling[name] = nil end
-    writeLooplist(list)
+    set[name] = nil
+    local out = {}
+    for n, _ in pairs(set) do table.insert(out, n) end
+    writeExternalLoopNames(out)
+end
+
+-- Backwards-compatible wrappers
+local function readLooplist()
+    local arr = readExternalLoopNames()
+    local list = { loopkill = {}, loopfling = {} }
+    for _, n in ipairs(arr) do list.loopkill[n] = true; list.loopfling[n] = true end
+    return list
+end
+local function writeLooplist(list)
+    local arr = {}
+    for n, _ in pairs((list and list.loopkill) or {}) do table.insert(arr, n) end
+    writeExternalLoopNames(arr)
+end
+local function addToLooplist(_, playerName)
+    addNameToExternalLooplist(playerName)
+end
+local function removeFromLooplist(playerName)
+    removeNameFromExternalLooplist(playerName)
 end
 
 -- ========================================
@@ -695,16 +725,30 @@ end
 
 local function runJoinSequence()
     if State.seqRan or not Config.SEQUENCE_ON_JOIN then return end
+    -- Build comma-separated @name list from external file
+    ensureLooplistFile()
+    local names = readExternalLoopNames() -- returns plain names (no @)
+    local atList = ""
+    if names and #names > 0 then
+        local tmp = {}
+        for _, n in ipairs(names) do table.insert(tmp, "@"..n) end
+        atList = table.concat(tmp, ",")
+    end
+
     local seq = {
-        "novoid",
-        "inf^10^tppos 0 -1000000 0",
-        "inf^0.1^loopkill",
-        "inf^2^walkfling",
-        "inf^0.1^loopgoto",
-        "instarespawn",
-        "antiban",
-        "lessfilter 1"
+        "inf^5^tppos 0 -1000000 0",
+        "spawn",
     }
+    if atList ~= "" then table.insert(seq, "inf^0.1^loopkill "..atList) end
+    table.insert(seq, "inf^2^walkfling")
+    if atList ~= "" then
+        table.insert(seq, "inf^0.1^loopgoto "..atList.." 0")
+    else
+        table.insert(seq, "inf^0.1^loopgoto 0")
+    end
+    table.insert(seq, "instarespawn")
+    table.insert(seq, "novoid")
+
     for _, cmd in ipairs(seq) do
         executeCommand(cmd)
         safeWait(Config.COMMAND_DELAY)
@@ -822,15 +866,6 @@ local function initializeBot()
     setupChatMonitoring()
     setupPlayerEvents()
     ensureLooplistFile()
-    local persisted = readLooplist()
-    for name, _ in pairs(persisted.loopkill or {}) do
-        executeCommand("loopkill "..name)
-        safeWait(Config.COMMAND_DELAY)
-    end
-    for name, _ in pairs(persisted.loopfling or {}) do
-        executeCommand("loopgoto "..name)
-        safeWait(Config.COMMAND_DELAY)
-    end
     if LocalPlayer.Character then
         setupCharacterMonitoring(LocalPlayer.Character)
     end
