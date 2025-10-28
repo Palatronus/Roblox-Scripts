@@ -254,17 +254,11 @@ local function initializeBot()
     -- Attempt to find Infinite Yield command bar once at startup
     findInfiniteYieldCommandBar()
     
+    -- If command bar is not found, log a warning but do not attempt programmatic activation
     if not State.commandBarFound then
-        print("[WARNING] Infinite Yield command bar not found at startup. Attempting programmatic activation.")
-        -- Programmatically trigger 'ş' key press to activate command bar
-        simulateKeyPress(Enum.KeyCode.Semicolon) -- 'ş' key is often mapped to Semicolon
-        safeWait(3) -- Increased wait time to give the command bar more time to appear after key press
-        findInfiniteYieldCommandBar() -- Re-check for command bar after programmatic activation
-        if not State.commandBarFound then
-            print("[ERROR] Command bar failed to activate programmatically. Command execution may fail.")
-        end
+        print("[WARNING] Infinite Yield command bar not found. Command execution will only work if it becomes available later.")
     end
-    
+
     -- Programmatically activate the bot
     State.botActive = true
     print("[BOT STATUS] Bot Activated automatically.")
