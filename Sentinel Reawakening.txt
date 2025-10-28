@@ -68,7 +68,7 @@ local Config = {
 
 local OWNER_WHITELIST = {"HollowGol"}
 local MOD_WHITELIST = {
-    "STEVETheReal916", "ColonThreeSpam", "SpawnYellow2", "SpawnBlack1",
+    "ColonThreeSpam", "SpawnYellow2", "SpawnBlack1",
     "s71pl", "TheSwordFightingBot2", "Jacobthecool292", "babyyodasonglol",
     "Kandale_Dingul", "redalert_E", "fariahoque28", "baze15651",
     "well_ihateboblux", "0bj687Alt"
@@ -892,3 +892,4 @@ if initSuccess then
 else
     print("[ERROR] Failed to initialize Security Bot")
 end
+
