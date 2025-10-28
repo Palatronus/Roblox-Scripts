@@ -74,7 +74,7 @@ local Config = {
 local OWNER_WHITELIST = {"HollowGol"}
 local MOD_WHITELIST = {
     "STEVETheReal916", "ColonThreeSpam", "SpawnYellow2", "SpawnBlack1",
-    "s71pl", "TheSwordFightingBot2", "Jacobthecool292", "babyyodasonglol",
+    "s71pl", "Jacobthecool292", "babyyodasonglol",
     "Kandale_Dingul", "redalert_E", "fariahoque28", "baze15651",
     "well_ihateboblux", "0bj687Alt"
 }
@@ -93,6 +93,7 @@ local State = {
     textInputSupported = false,
     lastAttackerName = nil,
     lastAttackerDist = 0,
+    initialSetupComplete = false,
 }
 
 -- ========================================
@@ -119,6 +120,12 @@ end
 local function normalizeName(name)
     if not name or name == "" then return nil end
     return name:gsub("^@", "")
+end
+
+-- Case-insensitive normalization for whitelist comparisons
+local function normalizeForCompare(name)
+    if not name or name == "" then return "" end
+    return string.lower((name:gsub("^@", "")))
 end
 
 -- External looplist file support (Windows path)
@@ -599,18 +606,15 @@ local function ensureCommandBarFocused()
     return true
 end
 
+-- Build lowercase whitelist sets for robust matching
+local OWNER_SET, MOD_SET = {}, {}
+for _, n in pairs(OWNER_WHITELIST) do OWNER_SET[normalizeForCompare(n)] = true end
+for _, n in pairs(MOD_WHITELIST) do MOD_SET[normalizeForCompare(n)] = true end
+
 local function isWhitelisted(username)
     if not username then return false end
-    
-    for _, name in pairs(OWNER_WHITELIST) do
-        if name == username then return true end
-    end
-    
-    for _, name in pairs(MOD_WHITELIST) do
-        if name == username then return true end
-    end
-    
-    return false
+    local n = normalizeForCompare(username)
+    return OWNER_SET[n] or MOD_SET[n] or false
 end
 
 local function isNewAccount(player)
@@ -883,6 +887,33 @@ local function handleBotDeath(humanoid)
     end
 end
 
+-- Apply protection: if a whitelisted owner/mod dies to a non-whitelisted player, punish the skid
+local function handleProtectedDeath(deadPlayer, humanoid)
+    if not deadPlayer or not isWhitelisted(deadPlayer.Name) then return end
+    local killerPlayer
+    local tag = humanoid:FindFirstChild("creator") or humanoid:FindFirstChild("Creator")
+    if tag and tag:IsA("ObjectValue") then
+        local val = tag.Value
+        if val and val:IsA("Player") then
+            killerPlayer = val
+        elseif val and val:IsA("Model") then
+            killerPlayer = Players:FindFirstChild(val.Name)
+        end
+    end
+    if not killerPlayer then
+        local pos = getRootPosition(deadPlayer.Character)
+        killerPlayer = (findNearestNonWhitelistedPlayer(pos))
+    end
+    if type(killerPlayer) == "table" then killerPlayer = killerPlayer end -- safeguard when using tuple
+    if killerPlayer and not isWhitelisted(killerPlayer.Name) then
+        local dist = safeDistanceBetween(deadPlayer.Character, killerPlayer.Character)
+        local action = Config.ACTION_ON_KILL_BOT
+        if dist >= Config.LONG_KILL_DISTANCE then action = Config.ACTION_ON_LONG_DISTANCE end
+        print("[PROTECT] Whitelisted ", deadPlayer.Name, " killed by ", killerPlayer.Name, " distance:", math.floor(dist))
+        executeAdminAction(action, killerPlayer.Name)
+    end
+end
+
 local function setupCharacterMonitoring(character)
     local humanoid = character:WaitForChild("Humanoid", 10)
     if humanoid then
@@ -925,14 +956,101 @@ local function processNewPlayer(player)
     end
 end
 
+-- Sentinel chat commands for owners/mods
+local function handleSentinelCommand(sender, text)
+    if not sender or not isWhitelisted(sender.Name) or type(text) ~= "string" then return false end
+    local raw = text
+    local lower = string.lower(raw)
+    local function extractUser(pattern)
+        local name = raw:match(pattern)
+        if not name then return nil end
+        name = name:gsub("^@", "")
+        name = name:gsub(",%s*$", "")
+        return name
+    end
+    local uname
+    if lower:match("^%s*sentinel%s+temploop") then
+        uname = extractUser("sentinel%s+temploop%s+@?([%w_]+),?%s*$")
+        if not uname then return false end
+        local at = "@"..uname
+        executeCommand("inf^0.1^loopkill "..at)
+        safeWait(Config.COMMAND_DELAY)
+        executeCommand("inf^0.1^loopgoto "..at.." 0")
+        return true
+    elseif lower:match("^%s*sentinel%s+loop") then
+        uname = extractUser("sentinel%s+loop%s+@?([%w_]+),?%s*$")
+        if not uname then return false end
+        local at = "@"..uname
+        executeCommand("inf^0.1^loopkill "..at)
+        safeWait(Config.COMMAND_DELAY)
+        executeCommand("inf^0.1^loopgoto "..at.." 0")
+        if hasFilesystem() then
+            addNameToExternalLooplist(uname)
+        else
+            print("[WARN] Filesystem unavailable; cannot persist to external looplist.")
+        end
+        return true
+    elseif lower:match("^%s*sentinel%s+unloop") then
+        uname = extractUser("sentinel%s+unloop%s+@?([%w_]+),?%s*$")
+        if not uname then return false end
+        executeCommand("break")
+        safeWait(Config.COMMAND_DELAY)
+        executeCommand("unloopkill all")
+        safeWait(Config.COMMAND_DELAY)
+        executeCommand("unloopgoto all")
+        if hasFilesystem() then
+            removeNameFromExternalLooplist(uname)
+        else
+            print("[WARN] Filesystem unavailable; cannot remove from external looplist.")
+        end
+        local path = resolveExternalPath()
+        executeCommand("inf^5^tppos 0 -1000000 0")
+        safeWait(Config.COMMAND_DELAY)
+        executeCommand("inf^0.1^loopkill "..path)
+        safeWait(Config.COMMAND_DELAY)
+        executeCommand("inf^2^walkfling")
+        safeWait(Config.COMMAND_DELAY)
+        executeCommand("inf^0.1^loopgoto "..path.." 0")
+        return true
+    end
+    return false
+end
+
 local function setupPlayerEvents()
     print("[INFO] Setting up player monitoring...")
     for _, p in ipairs(Players:GetPlayers()) do
         processNewPlayer(p)
+        -- Protection for whitelisted players
+        if isWhitelisted(p.Name) then
+            local function hook(char)
+                local humanoid = char:FindFirstChild("Humanoid")
+                if humanoid then
+                    local c = humanoid.Died:Connect(function()
+                        handleProtectedDeath(p, humanoid)
+                    end)
+                    table.insert(State.connections, c)
+                end
+            end
+            if p.Character then hook(p.Character) end
+            table.insert(State.connections, p.CharacterAdded:Connect(hook))
+        end
     end
     table.insert(State.connections, Players.PlayerAdded:Connect(function(p)
         safeWait(1)
         processNewPlayer(p)
+        if isWhitelisted(p.Name) then
+            local function hook(char)
+                local humanoid = char:FindFirstChild("Humanoid")
+                if humanoid then
+                    local c = humanoid.Died:Connect(function()
+                        handleProtectedDeath(p, humanoid)
+                    end)
+                    table.insert(State.connections, c)
+                end
+            end
+            if p.Character then hook(p.Character) end
+            table.insert(State.connections, p.CharacterAdded:Connect(hook))
+        end
     end))
 end
 
@@ -942,8 +1060,13 @@ local function setupChatMonitoring()
         TextChatService.MessageReceived:Connect(function(message)
             if message.TextSource and message.TextSource.UserId then
                 local p = Players:GetPlayerByUserId(message.TextSource.UserId)
-                if p and message.Text == Config.STOP_KEYWORD then
-                    stopPlayerLoop(p)
+                if p then
+                    local txt = message.Text or ""
+                    if txt == Config.STOP_KEYWORD then
+                        stopPlayerLoop(p)
+                    else
+                        handleSentinelCommand(p, txt)
+                    end
                 end
             end
         end)
@@ -954,6 +1077,8 @@ local function setupChatMonitoring()
                 p.Chatted:Connect(function(msg)
                     if msg == Config.STOP_KEYWORD then
                         stopPlayerLoop(p)
+                    else
+                        handleSentinelCommand(p, msg)
                     end
                 end)
             end
@@ -962,6 +1087,8 @@ local function setupChatMonitoring()
             p.Chatted:Connect(function(msg)
                 if msg == Config.STOP_KEYWORD then
                     stopPlayerLoop(p)
+                else
+                    handleSentinelCommand(p, msg)
                 end
             end)
         end)
@@ -971,10 +1098,12 @@ end
 local function initializeBot()
     print("[INFO] Initializing Security Bot...")
     State.botActive = true
+    ensureLooplistFile()
+    runJoinSequence()
+    State.initialSetupComplete = true
     detectTextInputSupport()
     setupChatMonitoring()
     setupPlayerEvents()
-    ensureLooplistFile()
     if LocalPlayer.Character then
         setupCharacterMonitoring(LocalPlayer.Character)
     end
@@ -983,7 +1112,6 @@ local function initializeBot()
     end)
     print("[SUCCESS] Security Bot v4.0 initialized!")
     print("[INFO] Monitoring new accounts (Age ≤", Config.NEW_ACCOUNT_THRESHOLD, "days)")
-    runJoinSequence()
     task.spawn(checkSoloAndHop)
     startStuckWatchdog()
     return true
