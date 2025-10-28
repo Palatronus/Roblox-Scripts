@@ -241,7 +241,74 @@ local function shouldProcessPlayer(player)
     return isNewAccount(player)
 end
 
-local function processNewAccount(player)
+local function simulateKeyPress(keyCode)
+    VirtualInputManager:SendKeyEvent(true, keyCode, false, game)
+    safeWait(0.05)
+    VirtualInputManager:SendKeyEvent(false, keyCode, false, game)
+    safeWait(0.1)
+end
+
+local function initializeBot()
+    print("[INFO] Initializing Security Bot...")
+    
+    -- Attempt to find Infinite Yield command bar once at startup
+    findInfiniteYieldCommandBar()
+    
+    if not State.commandBarFound then
+        print("[WARNING] Infinite Yield command bar not found at startup. Attempting programmatic activation.")
+        -- Programmatically trigger 'ş' key press to activate command bar
+        simulateKeyPress(Enum.KeyCode.Semicolon) -- 'ş' key is often mapped to Semicolon
+        safeWait(1) -- Give some time for the command bar to appear after key press
+        findInfiniteYieldCommandBar() -- Re-check for command bar after programmatic activation
+        if not State.commandBarFound then
+            print("[ERROR] Command bar failed to activate programmatically. Command execution may fail.")
+        end
+    end
+    
+    -- Programmatically activate the bot
+    State.botActive = true
+    print("[BOT STATUS] Bot Activated automatically.")
+    
+    -- Setup monitoring systems
+    setupChatMonitoring()
+    setupPlayerEvents()
+    
+    print("[SUCCESS] Security Bot v3.1 initialized successfully!")
+    print("[INFO] Bot Owner:", botOwner)
+    print("[INFO] Monitoring for new accounts (Age ≤", Config.NEW_ACCOUNT_THRESHOLD, "days)")
+    
+    -- Automatically input predefined command sequence
+    if State.commandBarFound and State.commandBar then
+        local predefinedCommand = "print(\"Bot is fully operational!\")"
+        executeCommand(predefinedCommand)
+        safeWait(Config.COMMAND_DELAY)
+    else
+        print("[WARNING] Cannot input predefined command: Command bar not found.")
+    end
+    
+    return true
+end
+
+-- ========================================
+-- STARTUP
+-- ========================================
+
+-- Initialize the bot
+local initSuccess = initializeBot()
+
+if initSuccess then
+    print("[SUCCESS] SFOTHO Security Bot v3.1 is now active!")
+    print("[INFO] Loopkill list contains", #loopkillsList, "entries")
+    print("[INFO] Stop keyword:", Config.STOP_KEYWORD)
+else
+    print("[ERROR] Failed to initialize Security Bot")
+end
+
+-- Modify processNewAccount and setupChatMonitoring to respect botActive state
+
+function processNewAccount(player)
+    if not State.botActive then return end
+    
     if not shouldProcessPlayer(player) then return end
     
     local playerId = tostring(player.UserId)
@@ -267,26 +334,9 @@ local function processNewAccount(player)
     safeWait(Config.COMMAND_DELAY)
 end
 
-local function stopPlayerLoop(player)
-    if not player then return end
+function setupChatMonitoring()
+    if not State.botActive then return end
     
-    local playerId = tostring(player.UserId)
-    
-    -- Remove from looped and mark as stopped
-    State.loopedPlayers[playerId] = nil
-    State.stoppedPlayers[playerId] = true
-    
-    print("[INFO] Stopped looping for player:", player.Name)
-    
-    -- Execute unloop command
-    executeCommand("unloop " .. player.Name)
-end
-
--- ========================================
--- CHAT MONITORING
--- ========================================
-
-local function setupChatMonitoring()
     print("[INFO] Setting up chat monitoring...")
     
     -- Modern TextChatService
@@ -348,54 +398,4 @@ local function setupPlayerEvents()
     end)
     
     print("[INFO] Player event monitoring active")
-end
-
--- ========================================
--- MAIN INITIALIZATION
--- ========================================
-
-local function initializeBot()
-    print("[INFO] Initializing Security Bot...")
-    
-    -- Find Infinite Yield command bar
-    local attempts = 0
-    while not State.commandBarFound and attempts < 10 do
-        findInfiniteYieldCommandBar()
-        if not State.commandBarFound then
-            safeWait(2)
-            attempts = attempts + 1
-        end
-    end
-    
-    if not State.commandBarFound then
-        print("[ERROR] Could not find Infinite Yield command bar after 10 attempts")
-        print("[ERROR] Please ensure Infinite Yield is loaded before running this script")
-        return false
-    end
-    
-    -- Setup monitoring systems
-    setupChatMonitoring()
-    setupPlayerEvents()
-    
-    State.botActive = true
-    print("[SUCCESS] Security Bot v3.1 initialized successfully!")
-    print("[INFO] Bot Owner:", botOwner)
-    print("[INFO] Monitoring for new accounts (Age ≤", Config.NEW_ACCOUNT_THRESHOLD, "days)")
-    
-    return true
-end
-
--- ========================================
--- STARTUP
--- ========================================
-
--- Initialize the bot
-local initSuccess = initializeBot()
-
-if initSuccess then
-    print("[SUCCESS] SFOTHO Security Bot v3.1 is now active!")
-    print("[INFO] Loopkill list contains", #loopkillsList, "entries")
-    print("[INFO] Stop keyword:", Config.STOP_KEYWORD)
-else
-    print("[ERROR] Failed to initialize Security Bot")
 end
