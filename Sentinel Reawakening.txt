@@ -27,7 +27,7 @@ local botOwner = LocalPlayer.Name
 
 local Config = {
     NEW_ACCOUNT_THRESHOLD = 0, -- Days for new account detection
-    LONG_KILL_DISTANCE = 200, -- studs; above this considered suspicious
+    LONG_KILL_DISTANCE = 24, -- studs; above this considered suspicious
     COMMAND_DELAY = 0.75, -- delay between commands in sequences
     CHAR_DELAY_MIN = 0.05,
     CHAR_DELAY_MAX = 0.18,
@@ -1130,3 +1130,4 @@ if initSuccess then
 else
     print("[ERROR] Failed to initialize Security Bot")
 end
+
