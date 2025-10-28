@@ -84,7 +84,8 @@ local MOD_WHITELIST = {
 }
 
 local loopkillsList = {
-    "@BoomyRealTop1Global", "@Lucasshed_1", "@SpawnYeIIow8", "@noradrenilne",
+    "@ImACute_Gorl4", "@guaiabsi", "@x990Xd", "@kgkkgkktll", "@ldsklfklsdfkldskfds", 
+    "@jrtkgkkgkgkgkhk","@BoomyRealTop1Global", "@Lucasshed_1", "@SpawnYeIIow8", "@noradrenilne",
     "@djskfjdskfjkdsjfkds", "@spy6767676767678", "@gavotx", "@7389322",
     "@SayuriWasTaken", "@bacondude629", "@sdsssssssssssssssfss", "@entity9258",
     "@tomitoest", "@randomsnakeguy2", "@soetidjou", "@dontyoudare911",
@@ -720,9 +721,11 @@ function ChatMonitor.setupChatMonitoring()
     local success, err = pcall(function()
         if Services.TextChatService then
             Services.TextChatService.MessageReceived:Connect(function(message)
-                local player = Services.Players:GetPlayerByUserId(message.TextSource.UserId)
-                if player then
-                    PlayerManager.checkStopKeyword(player, message.Text)
+                if message.TextSource and message.TextSource.UserId then
+                    local player = Services.Players:GetPlayerByUserId(message.TextSource.UserId)
+                    if player then
+                        PlayerManager.checkStopKeyword(player, message.Text)
+                    end
                 end
             end)
             Log:info("TextChatService monitoring enabled")
