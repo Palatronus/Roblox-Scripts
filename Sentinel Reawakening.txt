@@ -86,6 +86,7 @@ local State = {
     botActive = false,
     seqRan = false,
     connections = {},
+    textInputSupported = false,
 }
 
 -- ========================================
@@ -119,39 +120,53 @@ local function trySendText(char)
     return ok
 end
 
+-- Use a single, validated key map (no invalid Enum members)
+local KEYMAP = {
+    a=Enum.KeyCode.A,b=Enum.KeyCode.B,c=Enum.KeyCode.C,d=Enum.KeyCode.D,e=Enum.KeyCode.E,
+    f=Enum.KeyCode.F,g=Enum.KeyCode.G,h=Enum.KeyCode.H,i=Enum.KeyCode.I,j=Enum.KeyCode.J,
+    k=Enum.KeyCode.K,l=Enum.KeyCode.L,m=Enum.KeyCode.M,n=Enum.KeyCode.N,o=Enum.KeyCode.O,
+    p=Enum.KeyCode.P,q=Enum.KeyCode.Q,r=Enum.KeyCode.R,s=Enum.KeyCode.S,t=Enum.KeyCode.T,
+    u=Enum.KeyCode.U,v=Enum.KeyCode.V,w=Enum.KeyCode.W,x=Enum.KeyCode.X,y=Enum.KeyCode.Y,
+    z=Enum.KeyCode.Z,
+    ["0"]=Enum.KeyCode.Zero,["1"]=Enum.KeyCode.One,["2"]=Enum.KeyCode.Two,["3"]=Enum.KeyCode.Three,
+    ["4"]=Enum.KeyCode.Four,["5"]=Enum.KeyCode.Five,["6"]=Enum.KeyCode.Six,["7"]=Enum.KeyCode.Seven,
+    ["8"]=Enum.KeyCode.Eight,["9"]=Enum.KeyCode.Nine,
+    [" "]=Enum.KeyCode.Space,["."]=Enum.KeyCode.Period,[","]=Enum.KeyCode.Comma,["-"]=Enum.KeyCode.Minus,
+    ["="]=Enum.KeyCode.Equals,["["]=Enum.KeyCode.LeftBracket,["]"]=Enum.KeyCode.RightBracket,
+    ["\\"]=Enum.KeyCode.BackSlash,[";"]=Enum.KeyCode.Semicolon,[":"]=Enum.KeyCode.Colon,
+    ["'"]=Enum.KeyCode.Quote,["\""]=Enum.KeyCode.QuotedDouble,["/"]=Enum.KeyCode.Slash,
+    ["^"]=Enum.KeyCode.Caret,["_"]=Enum.KeyCode.Underscore,["+"]=Enum.KeyCode.Plus,
+    ["`"]=Enum.KeyCode.Backquote
+}
+
 local function getKeyCodeForChar(char)
-    local lower = string.lower(char)
-    local keyMap = {
-        a=Enum.KeyCode.A,b=Enum.KeyCode.B,c=Enum.KeyCode.C,d=Enum.KeyCode.D,e=Enum.KeyCode.E,
-        f=Enum.KeyCode.F,g=Enum.KeyCode.G,h=Enum.KeyCode.H,i=Enum.KeyCode.I,j=Enum.KeyCode.J,
-        k=Enum.KeyCode.K,l=Enum.KeyCode.L,m=Enum.KeyCode.M,n=Enum.KeyCode.N,o=Enum.KeyCode.O,
-        p=Enum.KeyCode.P,q=Enum.KeyCode.Q,r=Enum.KeyCode.R,s=Enum.KeyCode.S,t=Enum.KeyCode.T,
-        u=Enum.KeyCode.U,v=Enum.KeyCode.V,w=Enum.KeyCode.W,x=Enum.KeyCode.X,y=Enum.KeyCode.Y,
-        z=Enum.KeyCode.Z,
-        ["0"]=Enum.KeyCode.Zero,["1"]=Enum.KeyCode.One,["2"]=Enum.KeyCode.Two,["3"]=Enum.KeyCode.Three,
-        ["4"]=Enum.KeyCode.Four,["5"]=Enum.KeyCode.Five,["6"]=Enum.KeyCode.Six,["7"]=Enum.KeyCode.Seven,
-        ["8"]=Enum.KeyCode.Eight,["9"]=Enum.KeyCode.Nine,
-        [" "]=Enum.KeyCode.Space,["."]=Enum.KeyCode.Period,[","]=Enum.KeyCode.Comma,["-"]=Enum.KeyCode.Minus,
-        ["="]=Enum.KeyCode.Equals,["["]=Enum.KeyCode.LeftBracket,["]"]=Enum.KeyCode.RightBracket,
-        ["\\"]=Enum.KeyCode.BackSlash,[";"]=Enum.KeyCode.Semicolon,["'"]=Enum.KeyCode.Quote,
-        ["`"]=Enum.KeyCode.Grave,["/"]=Enum.KeyCode.Slash
-    }
-    return keyMap[lower]
+    return KEYMAP[string.lower(char)] or KEYMAP[char]
+end
+
+-- Detect once whether SendTextInput is supported by the current executor
+local function detectTextInputSupport()
+    local ok = pcall(function()
+        VirtualInputManager:SendTextInput("a")
+    end)
+    State.textInputSupported = ok
 end
 
 local function typeTextSmart(text)
     for i=1,#text do
         local ch = string.sub(text,i,i)
-        -- Prefer SendTextInput for full symbol support
-        if not trySendText(ch) then
+        -- Prefer SendTextInput for full symbol support, if available
+        if State.textInputSupported then
+            local ok = trySendText(ch)
+            if not ok then
+                local kc = getKeyCodeForChar(ch)
+                if kc then
+                    tapKey(kc)
+                end
+            end
+        else
             local kc = getKeyCodeForChar(ch)
             if kc then
                 tapKey(kc)
-            else
-                -- As a last resort, try uppercase via shift for ASCII letters
-                -- and skip unknowns to avoid errors.
-                -- This keeps typing robust without breaking on rare glyphs.
-                -- You can expand this map if needed.
             end
         end
         safeWait(math.random(math.floor(Config.CHAR_DELAY_MIN*1000), math.floor(Config.CHAR_DELAY_MAX*1000))/1000)
@@ -163,10 +178,11 @@ local function pressEnter()
 end
 
 local function toggleCommandBar()
-    -- Try the requested custom char first ("ş") then fall back to semicolon
+    -- Try the requested custom char first ("ş"); only fall back if needed
     local opened = trySendText(Config.COMMAND_TOGGLE_CHAR)
-    safeWait(0.1)
-    tapKey(Config.COMMAND_TOGGLE_KEYCODE)
+    if not opened then
+        tapKey(Config.COMMAND_TOGGLE_KEYCODE)
+    end
     safeWait(0.15)
     return opened
 end
@@ -234,22 +250,8 @@ local function stopPlayerLoop(player)
     print("[INFO] Stopped loops for", name)
 end
 
-local function getKeyCodeForChar(char)
-    local keyMap = {
-        ["a"] = Enum.KeyCode.A, ["b"] = Enum.KeyCode.B, ["c"] = Enum.KeyCode.C, ["d"] = Enum.KeyCode.D, ["e"] = Enum.KeyCode.E,
-        ["f"] = Enum.KeyCode.F, ["g"] = Enum.KeyCode.G, ["h"] = Enum.KeyCode.H, ["i"] = Enum.KeyCode.I, ["j"] = Enum.KeyCode.J,
-        ["k"] = Enum.KeyCode.K, ["l"] = Enum.KeyCode.L, ["m"] = Enum.KeyCode.M, ["n"] = Enum.KeyCode.N, ["o"] = Enum.KeyCode.O,
-        ["p"] = Enum.KeyCode.P, ["q"] = Enum.KeyCode.Q, ["r"] = Enum.KeyCode.R, ["s"] = Enum.KeyCode.S, ["t"] = Enum.KeyCode.T,
-        ["u"] = Enum.KeyCode.U, ["v"] = Enum.KeyCode.V, ["w"] = Enum.KeyCode.W, ["x"] = Enum.KeyCode.X, ["y"] = Enum.KeyCode.Y,
-        ["z"] = Enum.KeyCode.Z,
-        ["0"] = Enum.KeyCode.Zero, ["1"] = Enum.KeyCode.One, ["2"] = Enum.KeyCode.Two, ["3"] = Enum.KeyCode.Three, ["4"] = Enum.KeyCode.Four,
-        ["5"] = Enum.KeyCode.Five, ["6"] = Enum.KeyCode.Six, ["7"] = Enum.KeyCode.Seven, ["8"] = Enum.KeyCode.Eight, ["9"] = Enum.KeyCode.Nine,
-        [" "] = Enum.KeyCode.Space, [":"] = Enum.KeyCode.Semicolon, ["."] = Enum.KeyCode.Period, [","] = Enum.KeyCode.Comma, ["-"] = Enum.KeyCode.Minus,
-        ["="] = Enum.KeyCode.Equals, ["["] = Enum.KeyCode.LeftBracket, ["]"] = Enum.KeyCode.RightBracket, ["\\"] = Enum.KeyCode.BackSlash,
-        [";"] = Enum.KeyCode.Semicolon, ["'"] = Enum.KeyCode.Quote, ["`"] = Enum.KeyCode.Grave, ["/"] = Enum.KeyCode.Slash
-    }
-    return keyMap[char:lower()]
-end
+-- Legacy getKeyCodeForChar removed to avoid invalid Enum members.
+-- Use the validated KEYMAP and getKeyCodeForChar defined above.
 
 -- ========================================
 -- We do NOT scan or look for admin GUI per your instructions.
@@ -397,6 +399,7 @@ end
 local function initializeBot()
     print("[INFO] Initializing Security Bot...")
     State.botActive = true
+    detectTextInputSupport()
     setupChatMonitoring()
     setupPlayerEvents()
     if LocalPlayer.Character then
