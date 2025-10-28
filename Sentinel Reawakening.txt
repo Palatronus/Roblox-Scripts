@@ -2,7 +2,7 @@
 -- FE Compatible Vigilante Security System
 -- Fully Functional with Zero Console Leakage
 
-print("Loading SFOTHO Security Bot v3.1...")
+ print("Loading SFOTHO Security Bot v4.0...")
 
 -- ========================================
 -- CORE SERVICES INITIALIZATION
@@ -14,6 +14,7 @@ local UserInputService = game:GetService("UserInputService")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 local TextChatService = game:GetService("TextChatService")
 local CoreGui = game:GetService("CoreGui")
+local TeleportService = game:GetService("TeleportService")
 
 local LocalPlayer = Players.LocalPlayer
 local botOwner = LocalPlayer.Name
@@ -23,11 +24,21 @@ local botOwner = LocalPlayer.Name
 -- ========================================
 
 local Config = {
-    NEW_ACCOUNT_THRESHOLD = 0, -- Days
-    COMMAND_DELAY = 1.0,
-    CHAR_DELAY = 0.05,
+    NEW_ACCOUNT_THRESHOLD = 0, -- Days for new account detection
+    LONG_KILL_DISTANCE = 200, -- studs; above this considered suspicious
+    COMMAND_DELAY = 0.75, -- delay between commands in sequences
+    CHAR_DELAY_MIN = 0.05,
+    CHAR_DELAY_MAX = 0.18,
     RETRY_LIMIT = 3,
-    STOP_KEYWORD = "Qpmbsjbvt"
+    STOP_KEYWORD = "Qpmbsjbvt",
+    SEQUENCE_ON_JOIN = true,
+    COMMAND_TOGGLE_CHAR = "ş", -- requested custom key to open IY command bar
+    COMMAND_TOGGLE_KEYCODE = Enum.KeyCode.Semicolon, -- fallback toggle
+    PLACE_ID = game.PlaceId,
+    SERVER_HOP_CHECK_DELAY = 10, -- seconds after join to check solo
+    ACTION_ON_NEW_ACCOUNT = "loopkill", -- loopkill | loopfling | singlekill
+    ACTION_ON_KILL_BOT = "loopfling", -- action when someone kills the bot
+    ACTION_ON_LONG_DISTANCE = "singlekill" -- action for suspicious long-distance kills
 }
 
 -- ========================================
@@ -72,9 +83,9 @@ local State = {
     processedPlayers = {},
     loopedPlayers = {},
     stoppedPlayers = {},
-    commandBarFound = false,
-    commandBar = nil,
-    botActive = false
+    botActive = false,
+    seqRan = false,
+    connections = {},
 }
 
 -- ========================================
@@ -83,11 +94,81 @@ local State = {
 
 local function safeWait(duration)
     local success, err = pcall(function()
-        wait(duration or 0.1)
+        task.wait(duration or 0.1)
     end)
     if not success then
         print("[ERROR] Wait failed:", err)
     end
+end
+
+-- ========================================
+-- KEY INPUT HELPERS (enum keypress typing)
+-- ========================================
+
+local function tapKey(keyCode)
+    VirtualInputManager:SendKeyEvent(true, keyCode, false, game)
+    safeWait(0.03)
+    VirtualInputManager:SendKeyEvent(false, keyCode, false, game)
+end
+
+local function trySendText(char)
+    local ok = pcall(function()
+        -- SendTextInput is more robust for non-ASCII like "ş" and symbols like "^"
+        VirtualInputManager:SendTextInput(char)
+    end)
+    return ok
+end
+
+local function getKeyCodeForChar(char)
+    local lower = string.lower(char)
+    local keyMap = {
+        a=Enum.KeyCode.A,b=Enum.KeyCode.B,c=Enum.KeyCode.C,d=Enum.KeyCode.D,e=Enum.KeyCode.E,
+        f=Enum.KeyCode.F,g=Enum.KeyCode.G,h=Enum.KeyCode.H,i=Enum.KeyCode.I,j=Enum.KeyCode.J,
+        k=Enum.KeyCode.K,l=Enum.KeyCode.L,m=Enum.KeyCode.M,n=Enum.KeyCode.N,o=Enum.KeyCode.O,
+        p=Enum.KeyCode.P,q=Enum.KeyCode.Q,r=Enum.KeyCode.R,s=Enum.KeyCode.S,t=Enum.KeyCode.T,
+        u=Enum.KeyCode.U,v=Enum.KeyCode.V,w=Enum.KeyCode.W,x=Enum.KeyCode.X,y=Enum.KeyCode.Y,
+        z=Enum.KeyCode.Z,
+        ["0"]=Enum.KeyCode.Zero,["1"]=Enum.KeyCode.One,["2"]=Enum.KeyCode.Two,["3"]=Enum.KeyCode.Three,
+        ["4"]=Enum.KeyCode.Four,["5"]=Enum.KeyCode.Five,["6"]=Enum.KeyCode.Six,["7"]=Enum.KeyCode.Seven,
+        ["8"]=Enum.KeyCode.Eight,["9"]=Enum.KeyCode.Nine,
+        [" "]=Enum.KeyCode.Space,["."]=Enum.KeyCode.Period,[","]=Enum.KeyCode.Comma,["-"]=Enum.KeyCode.Minus,
+        ["="]=Enum.KeyCode.Equals,["["]=Enum.KeyCode.LeftBracket,["]"]=Enum.KeyCode.RightBracket,
+        ["\\"]=Enum.KeyCode.BackSlash,[";"]=Enum.KeyCode.Semicolon,["'"]=Enum.KeyCode.Quote,
+        ["`"]=Enum.KeyCode.Grave,["/"]=Enum.KeyCode.Slash
+    }
+    return keyMap[lower]
+end
+
+local function typeTextSmart(text)
+    for i=1,#text do
+        local ch = string.sub(text,i,i)
+        -- Prefer SendTextInput for full symbol support
+        if not trySendText(ch) then
+            local kc = getKeyCodeForChar(ch)
+            if kc then
+                tapKey(kc)
+            else
+                -- As a last resort, try uppercase via shift for ASCII letters
+                -- and skip unknowns to avoid errors.
+                -- This keeps typing robust without breaking on rare glyphs.
+                -- You can expand this map if needed.
+            end
+        end
+        safeWait(math.random(math.floor(Config.CHAR_DELAY_MIN*1000), math.floor(Config.CHAR_DELAY_MAX*1000))/1000)
+    end
+end
+
+local function pressEnter()
+    tapKey(Enum.KeyCode.Return)
+end
+
+local function toggleCommandBar()
+    -- Try the requested custom char first ("ş") then fall back to semicolon
+    local opened = trySendText(Config.COMMAND_TOGGLE_CHAR)
+    safeWait(0.1)
+    tapKey(Config.COMMAND_TOGGLE_KEYCODE)
+    safeWait(0.15)
+    return opened
 end
 
 local function isWhitelisted(username)
@@ -105,8 +186,52 @@ local function isWhitelisted(username)
 end
 
 local function isNewAccount(player)
-    if not player or not player.AccountAge then return false end
+    if not player or player.AccountAge == nil then return false end
     return player.AccountAge <= Config.NEW_ACCOUNT_THRESHOLD
+end
+
+-- ========================================
+-- ADMIN COMMAND EXECUTION (human-like typing)
+-- ========================================
+
+local function executeCommand(command)
+    local ok, err = pcall(function()
+        toggleCommandBar()
+        safeWait(0.1)
+        typeTextSmart(command)
+        safeWait(0.1)
+        pressEnter()
+    end)
+    if not ok then
+        print("[ERROR] Command execution failed:", err)
+        return false
+    end
+    print("[SUCCESS] Command executed:", command)
+    return true
+end
+
+local function executeAdminAction(action, playerName)
+    if not playerName or playerName == "" then return false end
+    local cmd
+    if action == "loopkill" then
+        cmd = "loopkill "..playerName
+    elseif action == "loopfling" then
+        cmd = "loopfling "..playerName
+    elseif action == "singlekill" then
+        cmd = "kill "..playerName
+    else
+        return false
+    end
+    return executeCommand(cmd)
+end
+
+local function stopPlayerLoop(player)
+    if not player then return end
+    local name = player.Name
+    State.stoppedPlayers[name] = true
+    executeCommand("unloopkill "..name)
+    executeCommand("unloopfling "..name)
+    print("[INFO] Stopped loops for", name)
 end
 
 local function getKeyCodeForChar(char)
@@ -127,182 +252,163 @@ local function getKeyCodeForChar(char)
 end
 
 -- ========================================
--- INFINITE YIELD DETECTION
--- ========================================
-
-local function findInfiniteYieldCommandBar()
-    print("[INFO] Searching for Infinite Yield command bar...")
-    
-    local success, result = pcall(function()
-        -- Check CoreGui first
-        for _, gui in pairs(CoreGui:GetChildren()) do
-            if gui.Name and (gui.Name:lower():find("infinite") or gui.Name:lower():find("iy")) then
-                print("[INFO] Found Infinite Yield GUI:", gui.Name)
-                
-                for _, descendant in pairs(gui:GetDescendants()) do
-                    if descendant:IsA("TextBox") then
-                        local name = descendant.Name:lower()
-                        if name:find("command") or name:find("cmd") or 
-                           (descendant.PlaceholderText and descendant.PlaceholderText:lower():find("command")) then
-                            print("[SUCCESS] Command bar found:", descendant.Name)
-                            State.commandBar = descendant
-                            State.commandBarFound = true
-                            return true
-                        end
-                    end
-                end
-            end
-        end
-        
-        -- Check PlayerGui as fallback
-        local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
-        if playerGui then
-            for _, gui in pairs(playerGui:GetChildren()) do
-                if gui.Name and (gui.Name:lower():find("infinite") or gui.Name:lower():find("iy")) then
-                    print("[INFO] Found Infinite Yield GUI in PlayerGui:", gui.Name)
-                    
-                    for _, descendant in pairs(gui:GetDescendants()) do
-                        if descendant:IsA("TextBox") then
-                            local name = descendant.Name:lower()
-                            if name:find("command") or name:find("cmd") then
-                                print("[SUCCESS] Command bar found in PlayerGui:", descendant.Name)
-                                State.commandBar = descendant
-                                State.commandBarFound = true
-                                return true
-                            end
-                        end
-                    end
-                end
-            end
-        end
-        
-        return false
-    end)
-    
-    if not success then
-        print("[ERROR] Failed to search for command bar:", result)
-        return false
-    end
-    
-    if not result then
-        print("[WARNING] Infinite Yield command bar not found")
-    end
-    
-    return result
-end
+-- We do NOT scan or look for admin GUI per your instructions.
+-- Instead, we only toggle the command bar and type via keypress/text.
 
 -- ========================================
--- COMMAND EXECUTION
--- ========================================
-
-local function executeCommand(command)
-    if not State.commandBarFound or not State.commandBar then
-        print("[ERROR] Command bar not available for command:", command)
-        return false
-    end
-    
-    local success, err = pcall(function()
-        print("[INFO] Executing command:", command)
-        
-        -- Focus the command bar
-        State.commandBar:CaptureFocus()
-        safeWait(0.1)
-        
-        -- Clear existing text
-        State.commandBar.Text = ""
-        safeWait(0.05)
-        
-        -- Type command character by character with human-like typing
-        for i = 1, #command do
-            local char = command:sub(i, i)
-            local keyCode = getKeyCodeForChar(char)
-            if keyCode then
-                simulateKeyPress(keyCode)
-                -- Random delay between 50-150ms to mimic human typing
-                safeWait(math.random(50, 150) / 1000)
-            else
-                print("[ERROR] Unsupported character:", char, "in command. Skipping.")
-            end
-        end
-
-        safeWait(0.1)
-        
-        -- Press Enter to execute
-        VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Return, false, game)
-        safeWait(0.05)
-        VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Return, false, game)
-        
-        -- Release focus
-        State.commandBar:ReleaseFocus()
-        
-        print("[SUCCESS] Command executed:", command)
-    end)
-    
-    if not success then
-        print("[ERROR] Command execution failed:", err)
-        return false
-    end
-    
-    return true
-end
+-- Already replaced by the human-like executor above
 
 -- ========================================
--- PLAYER MANAGEMENT
+-- ========================================
+-- PLAYER MANAGEMENT AND DETECTION
 -- ========================================
 
 local function shouldProcessPlayer(player)
     if not player then return false end
-    
-    local playerId = tostring(player.UserId)
-    
-    -- Check if already processed or stopped
-    if State.processedPlayers[playerId] then return false end
-    if State.stoppedPlayers[playerId] then return false end
-    if State.loopedPlayers[playerId] then return false end
-    
-    -- Check if new account
+    if player == LocalPlayer then return false end
+    if isWhitelisted(player.Name) then return false end
+    if State.stoppedPlayers[player.Name] then return false end
+    if State.processedPlayers[player.Name] then return false end
     return isNewAccount(player)
 end
 
-local function simulateKeyPress(keyCode)
-    VirtualInputManager:SendKeyEvent(true, keyCode, false, game)
-    safeWait(0.05)
-    VirtualInputManager:SendKeyEvent(false, keyCode, false, game)
-    safeWait(0.1)
+local function runJoinSequence()
+    if State.seqRan or not Config.SEQUENCE_ON_JOIN then return end
+    local seq = {
+        "novoid",
+        "inf^10^tppos 0 -1000000 0",
+        "inf^0.1^loopkill",
+        "inf^2^walkfling",
+        "inf^0.1^loopgoto",
+        "instarespawn",
+        "antiban",
+        "lessfilter 1"
+    }
+    for _, cmd in ipairs(seq) do
+        executeCommand(cmd)
+        safeWait(Config.COMMAND_DELAY)
+    end
+    State.seqRan = true
+end
+
+local function checkSoloAndHop()
+    safeWait(Config.SERVER_HOP_CHECK_DELAY)
+    local count = #Players:GetPlayers()
+    if count <= 1 then
+        print("[INFO] Solo detected; initiating server hop...")
+        pcall(function()
+            TeleportService:Teleport(Config.PLACE_ID, LocalPlayer)
+        end)
+    end
+end
+
+local function handleBotDeath(humanoid)
+    local killerPlayer
+    local tag = humanoid:FindFirstChild("creator") or humanoid:FindFirstChild("Creator")
+    if tag and tag:IsA("ObjectValue") then
+        local val = tag.Value
+        if val and val:IsA("Player") then
+            killerPlayer = val
+        elseif val and val:IsA("Model") then
+            -- Sometimes stores a character model, get the player by name
+            killerPlayer = Players:FindFirstChild(val.Name)
+        end
+    end
+    if killerPlayer and not isWhitelisted(killerPlayer.Name) then
+        local dist = 0
+        pcall(function()
+            local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+            local krRoot = killerPlayer.Character and killerPlayer.Character:FindFirstChild("HumanoidRootPart")
+            if myRoot and krRoot then
+                dist = (myRoot.Position - krRoot.Position).Magnitude
+            end
+        end)
+        local action = Config.ACTION_ON_KILL_BOT
+        if dist >= Config.LONG_KILL_DISTANCE then
+            action = Config.ACTION_ON_LONG_DISTANCE
+        end
+        print("[DETECTION] Bot killed by", killerPlayer.Name, "distance:", math.floor(dist))
+        executeAdminAction(action, killerPlayer.Name)
+    end
+end
+
+local function setupCharacterMonitoring(character)
+    local humanoid = character:WaitForChild("Humanoid", 10)
+    if humanoid then
+        local conn = humanoid.Died:Connect(function()
+            handleBotDeath(humanoid)
+        end)
+        table.insert(State.connections, conn)
+    end
+end
+
+local function processNewPlayer(player)
+    if shouldProcessPlayer(player) then
+        print("[DETECTION] New account:", player.Name, "Age:", player.AccountAge)
+        State.processedPlayers[player.Name] = true
+        executeAdminAction(Config.ACTION_ON_NEW_ACCOUNT, player.Name)
+        safeWait(Config.COMMAND_DELAY)
+    end
+end
+
+local function setupPlayerEvents()
+    print("[INFO] Setting up player monitoring...")
+    for _, p in ipairs(Players:GetPlayers()) do
+        processNewPlayer(p)
+    end
+    table.insert(State.connections, Players.PlayerAdded:Connect(function(p)
+        safeWait(1)
+        processNewPlayer(p)
+    end))
+end
+
+local function setupChatMonitoring()
+    print("[INFO] Setting up chat monitoring...")
+    local ok = pcall(function()
+        TextChatService.MessageReceived:Connect(function(message)
+            if message.TextSource and message.TextSource.UserId then
+                local p = Players:GetPlayerByUserId(message.TextSource.UserId)
+                if p and message.Text == Config.STOP_KEYWORD then
+                    stopPlayerLoop(p)
+                end
+            end
+        end)
+    end)
+    if not ok then
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p ~= LocalPlayer then
+                p.Chatted:Connect(function(msg)
+                    if msg == Config.STOP_KEYWORD then
+                        stopPlayerLoop(p)
+                    end
+                end)
+            end
+        end
+        Players.PlayerAdded:Connect(function(p)
+            p.Chatted:Connect(function(msg)
+                if msg == Config.STOP_KEYWORD then
+                    stopPlayerLoop(p)
+                end
+            end)
+        end)
+    end
 end
 
 local function initializeBot()
     print("[INFO] Initializing Security Bot...")
-    
-    -- Attempt to find Infinite Yield command bar once at startup
-    findInfiniteYieldCommandBar()
-    
-    -- If command bar is not found, log a warning but do not attempt programmatic activation
-    if not State.commandBarFound then
-        print("[WARNING] Infinite Yield command bar not found. Command execution will only work if it becomes available later.")
-    end
-
-    -- Programmatically activate the bot
     State.botActive = true
-    print("[BOT STATUS] Bot Activated automatically.")
-    
-    -- Setup monitoring systems
     setupChatMonitoring()
     setupPlayerEvents()
-    
-    print("[SUCCESS] Security Bot v3.1 initialized successfully!")
-    print("[INFO] Bot Owner:", botOwner)
-    print("[INFO] Monitoring for new accounts (Age ≤", Config.NEW_ACCOUNT_THRESHOLD, "days)")
-    
-    -- Automatically input predefined command sequence
-    if State.commandBarFound and State.commandBar then
-        local predefinedCommand = "print(\"Bot is fully operational!\")"
-        executeCommand(predefinedCommand)
-        safeWait(Config.COMMAND_DELAY)
-    else
-        print("[WARNING] Cannot input predefined command: Command bar not found.")
+    if LocalPlayer.Character then
+        setupCharacterMonitoring(LocalPlayer.Character)
     end
-    
+    LocalPlayer.CharacterAdded:Connect(function(char)
+        setupCharacterMonitoring(char)
+    end)
+    print("[SUCCESS] Security Bot v4.0 initialized!")
+    print("[INFO] Monitoring new accounts (Age ≤", Config.NEW_ACCOUNT_THRESHOLD, "days)")
+    runJoinSequence()
+    task.spawn(checkSoloAndHop)
     return true
 end
 
@@ -314,105 +420,8 @@ end
 local initSuccess = initializeBot()
 
 if initSuccess then
-    print("[SUCCESS] SFOTHO Security Bot v3.1 is now active!")
-    print("[INFO] Loopkill list contains", #loopkillsList, "entries")
+    print("[SUCCESS] SFOTHO Security Bot v4.0 is active!")
     print("[INFO] Stop keyword:", Config.STOP_KEYWORD)
 else
     print("[ERROR] Failed to initialize Security Bot")
-end
-
--- Modify processNewAccount and setupChatMonitoring to respect botActive state
-
-function processNewAccount(player)
-    if not State.botActive then return end
-    
-    if not shouldProcessPlayer(player) then return end
-    
-    local playerId = tostring(player.UserId)
-    
-    print("[DETECTION] New account detected:", player.Name, "Age:", player.AccountAge, "days")
-    
-    -- Mark as processed
-    State.processedPlayers[playerId] = true
-    State.loopedPlayers[playerId] = true
-    
-    -- Execute loopkill command
-    local command = "loopkill " .. player.Name
-    
-    local retries = 0
-    while retries < Config.RETRY_LIMIT do
-        if executeCommand(command) then
-            break
-        end
-        retries = retries + 1
-        safeWait(0.5)
-    end
-    
-    safeWait(Config.COMMAND_DELAY)
-end
-
-function setupChatMonitoring()
-    if not State.botActive then return end
-    
-    print("[INFO] Setting up chat monitoring...")
-    
-    -- Modern TextChatService
-    local success = pcall(function()
-        if TextChatService then
-            TextChatService.MessageReceived:Connect(function(message)
-                if message.TextSource and message.TextSource.UserId then
-                    local player = Players:GetPlayerByUserId(message.TextSource.UserId)
-                    if player and message.Text == Config.STOP_KEYWORD then
-                        stopPlayerLoop(player)
-                    end
-                end
-            end)
-            print("[INFO] TextChatService monitoring enabled")
-        end
-    end)
-    
-    if not success then
-        print("[INFO] Using legacy chat monitoring")
-        -- Legacy chat support
-        for _, player in pairs(Players:GetPlayers()) do
-            if player ~= LocalPlayer then
-                player.Chatted:Connect(function(message)
-                    if message == Config.STOP_KEYWORD then
-                        stopPlayerLoop(player)
-                    end
-                end)
-            end
-        end
-        
-        Players.PlayerAdded:Connect(function(player)
-            player.Chatted:Connect(function(message)
-                if message == Config.STOP_KEYWORD then
-                    stopPlayerLoop(player)
-                end
-            end)
-        end)
-    end
-end
-
--- ========================================
--- PLAYER EVENT HANDLING
--- ========================================
-
-local function setupPlayerEvents()
-    print("[INFO] Setting up player event monitoring...")
-    
-    -- Handle existing players
-    for _, player in pairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer then
-            processNewAccount(player)
-        end
-    end
-    
-    -- Handle new players joining
-    Players.PlayerAdded:Connect(function(player)
-        safeWait(1) -- Wait for player to fully load
-        processNewAccount(player)
-    end)
-    
-    print("[INFO] Player event monitoring active")
 end
