@@ -34,6 +34,13 @@ local Config = {
     SEQUENCE_ON_JOIN = true,
     COMMAND_TOGGLE_CHAR = "ş", -- requested custom key to open IY command bar
     COMMAND_TOGGLE_KEYCODE = Enum.KeyCode.Semicolon, -- fallback toggle
+    COMMAND_TOGGLE_FALLBACKS = {"Backquote", "Quote", "Slash"}, -- extra keys to try
+    COMMAND_TOGGLE_ATTEMPTS = 3,
+    COMMAND_BAR_FOCUS_TIMEOUT = 0.6,
+    POST_TOGGLE_WAIT = 0.35,
+    PRE_TYPE_WAIT = 0.07,
+    POST_TYPE_WAIT = 0.12,
+    POST_ENTER_WAIT = 0.28,
     PLACE_ID = game.PlaceId,
     SERVER_HOP_CHECK_DELAY = 10, -- seconds after join to check solo
     ACTION_ON_NEW_ACCOUNT = "loopkill", -- loopkill | loopfling | singlekill
@@ -204,10 +211,10 @@ local function tapKey(keyCode)
     VirtualInputManager:SendKeyEvent(false, keyCode, false, game)
 end
 
-local function trySendText(char)
+local function trySendText(text)
     local ok = pcall(function()
-        -- SendTextInput is more robust for non-ASCII like "ş" and symbols like "^"
-        VirtualInputManager:SendTextInput(char)
+        -- SendTextInput(text, false) improves reliability across executors
+        VirtualInputManager:SendTextInput(text, false)
     end)
     return ok
 end
@@ -243,97 +250,88 @@ end
 -- Detect once whether SendTextInput is supported by the current executor
 local function detectTextInputSupport()
     local ok = pcall(function()
-        VirtualInputManager:SendTextInput("a")
+        VirtualInputManager:SendTextInput("a", false)
     end)
     State.textInputSupported = ok
 end
 
 local function typeTextSmart(text)
-    for i=1,#text do
-        local ch = string.sub(text,i,i)
-        -- Prefer SendTextInput for full symbol support, if available
-        if State.textInputSupported then
-            local ok = trySendText(ch)
-            if not ok then
-                -- Fallback on executor failure: shifted keys and base map
-                local base
-                local isUpper = ch:match("[A-Z]") ~= nil
-                local lower = string.lower(ch)
-                local SHIFTED = {
-                    [":"] = Enum.KeyCode.Semicolon,
-                    ["_"] = Enum.KeyCode.Minus,
-                    ["+"] = Enum.KeyCode.Equals,
-                    ["\""] = Enum.KeyCode.Quote,
-                    ["^"] = Enum.KeyCode.Six
-                }
-                base = SHIFTED[ch]
-                if isUpper then base = getKeyCodeForChar(lower) end
-                if base then
-                    -- press with shift
-                    VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.LeftShift, false, game)
-                    safeWait(0.02)
-                    tapKey(base)
-                    safeWait(0.02)
-                    VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.LeftShift, false, game)
-                else
-                    local kc = getKeyCodeForChar(ch)
-                    if kc then tapKey(kc) end
-                end
-            end
+    -- Prefer sending the whole string at once when supported to avoid timing issues
+    if State.textInputSupported then
+        local ok = trySendText(text)
+        if ok then return true end
+        -- Fall through to keypress typing if executor blocks multi-char input
+    end
+    for i = 1, #text do
+        local ch = string.sub(text, i, i)
+        local isUpper = ch:match("[A-Z]") ~= nil
+        local lower = string.lower(ch)
+        local SHIFTED = {
+            [":"] = Enum.KeyCode.Semicolon,
+            ["_"] = Enum.KeyCode.Minus,
+            ["+"] = Enum.KeyCode.Equals,
+            ["\""] = Enum.KeyCode.Quote,
+            ["^"] = Enum.KeyCode.Six
+        }
+        local base = SHIFTED[ch]
+        if isUpper then base = getKeyCodeForChar(lower) end
+        if base then
+            VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.LeftShift, false, game)
+            safeWait(0.03)
+            tapKey(base)
+            safeWait(0.03)
+            VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.LeftShift, false, game)
         else
-            local isUpper = ch:match("[A-Z]") ~= nil
-            local lower = string.lower(ch)
-            local SHIFTED = {
-                [":"] = Enum.KeyCode.Semicolon,
-                ["_"] = Enum.KeyCode.Minus,
-                ["+"] = Enum.KeyCode.Equals,
-                ["\""] = Enum.KeyCode.Quote,
-                ["^"] = Enum.KeyCode.Six
-            }
-            local base = SHIFTED[ch]
-            if isUpper then base = getKeyCodeForChar(lower) end
-            if base then
-                VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.LeftShift, false, game)
-                safeWait(0.02)
-                tapKey(base)
-                safeWait(0.02)
-                VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.LeftShift, false, game)
-            else
-                local kc = getKeyCodeForChar(ch)
-                if kc then tapKey(kc) end
-            end
+            local kc = getKeyCodeForChar(ch)
+            if kc then tapKey(kc) end
         end
         safeWait(math.random(math.floor(Config.CHAR_DELAY_MIN*1000), math.floor(Config.CHAR_DELAY_MAX*1000))/1000)
-    end
-end
-
-local function pressEnter()
-    tapKey(Enum.KeyCode.Return)
-end
-
-local function toggleCommandBar()
-    -- Always use the configured keypress to open the command bar
-    tapKey(Config.COMMAND_TOGGLE_KEYCODE)
-    safeWait(0.15)
-    -- Some private IY builds may bind multiple keys. Optionally send backquote as a fallback.
-    if not UserInputService:GetFocusedTextBox() then
-        local backquote = (pcall(function() return Enum.KeyCode.Backquote end) and Enum.KeyCode.Backquote) or nil
-        if backquote then
-            tapKey(backquote)
-            safeWait(0.1)
-        end
     end
     return true
 end
 
+local function pressEnter()
+    tapKey(Enum.KeyCode.Return)
+    safeWait(0.06)
+    -- Fallback for keyboards where KeypadEnter is distinct
+    local ok, keypad = pcall(function() return Enum.KeyCode.KeypadEnter end)
+    if ok and keypad then tapKey(keypad) end
+end
+
+local function toggleCommandBar()
+    -- Build the ordered list of keys to try
+    local keys = {}
+    if Config.COMMAND_TOGGLE_KEYCODE then table.insert(keys, Config.COMMAND_TOGGLE_KEYCODE) end
+    for _, m in ipairs(Config.COMMAND_TOGGLE_FALLBACKS or {}) do
+        local kc
+        if type(m) == "string" then
+            kc = optKey(m)
+        else
+            kc = m
+        end
+        if kc then table.insert(keys, kc) end
+    end
+    -- Try each key once, waiting for focus after each
+    for _, key in ipairs(keys) do
+        tapKey(key)
+        safeWait(Config.POST_TOGGLE_WAIT)
+        if UserInputService:GetFocusedTextBox() then return true end
+    end
+    return UserInputService:GetFocusedTextBox() ~= nil
+end
+
 local function ensureCommandBarFocused()
-    -- Try multiple toggles to coax focus, without relying solely on TextBox detection
-    for i=1,3 do
+    -- Attempt limited toggles with timed wait for focus, avoiding rapid re-toggles
+    for attempt = 1, (Config.COMMAND_TOGGLE_ATTEMPTS or 3) do
         if UserInputService:GetFocusedTextBox() then return true end
         toggleCommandBar()
-        safeWait(0.12 + (i*0.03))
+        local deadline = tick() + (Config.COMMAND_BAR_FOCUS_TIMEOUT or 0.6) + (attempt-1)*0.1
+        while tick() < deadline do
+            if UserInputService:GetFocusedTextBox() then return true end
+            safeWait(0.05)
+        end
     end
-    -- Some IY bars are not TextBox-backed; proceed optimistically after attempts
+    -- Some IY bars are not TextBox-backed; proceed optimistically
     return true
 end
 
@@ -365,17 +363,18 @@ local function executeCommand(command)
         local ok, err = pcall(function()
             ensureLooplistFile()
             ensureCommandBarFocused()
-            safeWait(0.05)
+            safeWait(Config.PRE_TYPE_WAIT)
             typeTextSmart(command)
-            safeWait(0.05)
+            safeWait(Config.POST_TYPE_WAIT)
             pressEnter()
+            safeWait(Config.POST_ENTER_WAIT)
         end)
         if ok then
             print("[SUCCESS] Command executed:", command)
             return true
         else
             print("[WARN] Command attempt", attempt, "failed:", err)
-            safeWait(0.25)
+            safeWait(0.35)
         end
     end
     print("[ERROR] Command execution failed after retries:", command)
