@@ -28,7 +28,6 @@ local MOD_WHITELIST = {
     "SpawnYellow2",
     "SpawnBlack1",
     "s71pl",
-    "TheSwordFightingBot2",
     "Jacobthecool292",
     "babyyodasonglol",
     "Kandale_Dingul",
@@ -108,9 +107,9 @@ local function processCommandQueue()
     local VirtualInputManager = game:GetService("VirtualInputManager")
     
     -- Press comma key (ş key as specified)
-    VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Comma, false, game)
+    VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Comma, false)
     wait(0.1)
-    VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Comma, false, game)
+    VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Comma, false)
     wait(0.2)
     
     -- Type the command
@@ -294,7 +293,10 @@ Players.PlayerAdded:Connect(function(player)
             end
             
             if killer then
-                onPlayerDied(player, killer)
+                local killerPlayer = Players:FindFirstChild(killer)
+                if killerPlayer then
+                    onPlayerDied(player, killerPlayer)
+                end
             end
         end)
     end)
