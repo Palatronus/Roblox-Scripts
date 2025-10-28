@@ -85,6 +85,11 @@ local Config = {
     -- Desktop bridge fallback (used when direct file writes are blocked)
     BRIDGE_ENABLED = true,
     BRIDGE_URL = "http://127.0.0.1:8765" -- expected endpoints: /append, /remove, /set
+    ,
+    -- Warm-up timing
+    INIT_DELAY_SEC = 10,            -- wait before bot activates to let IY load
+    GRACE_NO_LOOP_SEC = 5,          -- initial seconds after activation to soften punishments
+    GRACE_NO_LOOP_DISTANCE = 25     -- within grace, do not loop if under this distance
 }
 
 -- ========================================
@@ -115,6 +120,9 @@ local State = {
     lastAttackerName = nil,
     lastAttackerDist = 0,
     initialSetupComplete = false,
+    startTime = tick(),
+    detectionEnableAt = 0,
+    graceEndAt = 0,
 }
 
 -- ========================================
@@ -171,6 +179,16 @@ end
 local function markActionRun(name, action)
     State.cooldowns[name] = State.cooldowns[name] or {}
     State.cooldowns[name][action] = tick()
+end
+
+-- Activation helpers
+local function detectionEnabled()
+    return tick() >= (State.detectionEnableAt or 0)
+end
+
+local function inWarmupGrace()
+    local t = tick()
+    return t >= (State.detectionEnableAt or 0) and t < (State.graceEndAt or 0)
 end
 
 -- External looplist file support (Windows path)
@@ -1030,48 +1048,84 @@ local function handleBotDeath(humanoid)
     end
     -- Primary path: creator tag provided a killer
     if killerPlayer and killerPlayer ~= LocalPlayer and not isWhitelisted(killerPlayer.Name) then
+        -- Suppress auto punishments until activation
+        if not detectionEnabled() then return end
         local dist = safeDistanceBetween(LocalPlayer.Character, killerPlayer.Character)
-        local action = Config.ACTION_ON_KILL_BOT
-        if dist >= Config.LONG_KILL_DISTANCE then action = Config.ACTION_ON_LONG_DISTANCE end
+        local warnMin = Config.REACH_WARNING_MIN or 15
+        local loopMin = Config.REACH_LOOP_MIN or 25
         print("[DETECTION] Bot killed by", killerPlayer.Name, "distance:", math.floor(dist))
-        executeAdminAction(action, killerPlayer.Name)
+        -- During grace window, avoid loops for close-range distances
+        if inWarmupGrace() and dist < (Config.GRACE_NO_LOOP_DISTANCE or loopMin) then
+            if dist >= warnMin then
+                executeAdminAction("singlekill", killerPlayer.Name)
+            else
+                -- Very close-range during grace: treat as benign
+            end
+            return
+        end
+        if dist >= loopMin then
+            executeLoopSequence(killerPlayer.Name)
+        elseif dist >= warnMin then
+            executeAdminAction("singlekill", killerPlayer.Name)
+        else
+            local action = Config.ACTION_ON_KILL_BOT
+            if dist >= (Config.LONG_KILL_DISTANCE or 14) then action = Config.ACTION_ON_LONG_DISTANCE end
+            executeAdminAction(action, killerPlayer.Name)
+        end
         return
     end
 
     -- Fallback A: use last attacker observed during HealthChanged
     if State.lastAttackerName and not isWhitelisted(State.lastAttackerName) then
+        if not detectionEnabled() then return end
         local p = Players:FindFirstChild(State.lastAttackerName)
         if p then
             local dist = safeDistanceBetween(LocalPlayer.Character, p.Character)
             local warnMin = Config.REACH_WARNING_MIN or 15
             local loopMin = Config.REACH_LOOP_MIN or 25
             print("[DETECTION] Bot killed; fallback attacker", p.Name, "distance:", math.floor(dist))
-            if dist >= loopMin then
-                executeLoopSequence(p.Name)
-            elseif dist >= warnMin then
-                executeAdminAction("singlekill", p.Name)
+            if inWarmupGrace() and dist < (Config.GRACE_NO_LOOP_DISTANCE or loopMin) then
+                if dist >= warnMin then
+                    executeAdminAction("singlekill", p.Name)
+                end
             else
-                executeAdminAction(Config.ACTION_ON_KILL_BOT, p.Name)
+                if dist >= loopMin then
+                    executeLoopSequence(p.Name)
+                elseif dist >= warnMin then
+                    executeAdminAction("singlekill", p.Name)
+                else
+                    executeAdminAction(Config.ACTION_ON_KILL_BOT, p.Name)
+                end
             end
             return
         end
     end
 
     -- Fallback B: nearest non-whitelisted player at time of death
+    if not detectionEnabled() then return end
     local myPos = getRootPosition(LocalPlayer.Character)
     local nearest, dist = findNearestNonWhitelistedPlayer(myPos)
     if nearest then
         local warnMin = Config.REACH_WARNING_MIN or 15
         local loopMin = Config.REACH_LOOP_MIN or 25
-        if dist >= loopMin then
-            print("[DETECTION] Bot killed; nearest suspect", nearest.Name, "distance:", math.floor(dist))
-            executeLoopSequence(nearest.Name)
-        elseif dist >= warnMin then
-            print("[DETECTION] Bot killed; nearest suspect within warning threshold:", nearest.Name, math.floor(dist))
-            executeAdminAction("singlekill", nearest.Name)
+        if inWarmupGrace() and dist < (Config.GRACE_NO_LOOP_DISTANCE or loopMin) then
+            if dist >= warnMin then
+                print("[DETECTION] Grace: nearest suspect warning", nearest.Name, math.floor(dist))
+                executeAdminAction("singlekill", nearest.Name)
+            else
+                print("[INFO] Grace: close-range death; no loop for", nearest.Name, math.floor(dist))
+            end
         else
-            print("[INFO] Death without creator; nearest suspect within close-range:", nearest.Name, math.floor(dist))
-            executeAdminAction(Config.ACTION_ON_KILL_BOT, nearest.Name)
+            if dist >= loopMin then
+                print("[DETECTION] Bot killed; nearest suspect", nearest.Name, "distance:", math.floor(dist))
+                executeLoopSequence(nearest.Name)
+            elseif dist >= warnMin then
+                print("[DETECTION] Bot killed; nearest suspect within warning threshold:", nearest.Name, math.floor(dist))
+                executeAdminAction("singlekill", nearest.Name)
+            else
+                print("[INFO] Death without creator; nearest suspect within close-range:", nearest.Name, math.floor(dist))
+                executeAdminAction(Config.ACTION_ON_KILL_BOT, nearest.Name)
+            end
         end
     end
 end
@@ -1118,6 +1172,11 @@ local function monitorReachForPlayer(player)
         if not humanoid then return end
         local last = humanoid.Health
         local c = humanoid.HealthChanged:Connect(function(newHealth)
+            -- Suppress auto detection until activation time
+            if not detectionEnabled() then
+                last = newHealth
+                return
+            }
             if last and newHealth and newHealth < last then
                 local tag = humanoid:FindFirstChild("creator") or humanoid:FindFirstChild("Creator")
                 if tag and tag:IsA("ObjectValue") then
@@ -1130,8 +1189,16 @@ local function monitorReachForPlayer(player)
                         local warnMin = Config.REACH_WARNING_MIN or 15
                         local loopMin = Config.REACH_LOOP_MIN or 25
                         if dist >= loopMin then
-                            print("[DETECTION] Reach LOOP on ", player.Name, " by ", attacker.Name, " distance:", math.floor(dist))
-                            executeLoopSequence(attacker.Name)
+                            if inWarmupGrace() and dist < (Config.GRACE_NO_LOOP_DISTANCE or loopMin) then
+                                -- During grace, avoid loops for close-range distances
+                                if dist >= warnMin then
+                                    print("[DETECTION] Grace: warning kill on ", attacker.Name, " distance:", math.floor(dist))
+                                    executeAdminAction("singlekill", attacker.Name)
+                                end
+                            else
+                                print("[DETECTION] Reach LOOP on ", player.Name, " by ", attacker.Name, " distance:", math.floor(dist))
+                                executeLoopSequence(attacker.Name)
+                            end
                         elseif dist >= warnMin then
                             print("[DETECTION] Reach WARNING on ", player.Name, " by ", attacker.Name, " distance:", math.floor(dist))
                             executeAdminAction("singlekill", attacker.Name)
@@ -1144,6 +1211,8 @@ local function monitorReachForPlayer(player)
         table.insert(State.connections, c)
         -- Also apply classification at death for reliability
         local d = humanoid.Died:Connect(function()
+            -- Suppress auto detection until activation time
+            if not detectionEnabled() then return end
             local tag = humanoid:FindFirstChild("creator") or humanoid:FindFirstChild("Creator")
             local attacker
             if tag and tag:IsA("ObjectValue") then
@@ -1161,8 +1230,15 @@ local function monitorReachForPlayer(player)
                 local warnMin = Config.REACH_WARNING_MIN or 15
                 local loopMin = Config.REACH_LOOP_MIN or 25
                 if dist >= loopMin then
-                    print("[DETECTION] Death LOOP on ", player.Name, " by ", attacker.Name, " distance:", math.floor(dist))
-                    executeLoopSequence(attacker.Name)
+                    if inWarmupGrace() and dist < (Config.GRACE_NO_LOOP_DISTANCE or loopMin) then
+                        if dist >= warnMin then
+                            print("[DETECTION] Grace: death warning on ", attacker.Name, " distance:", math.floor(dist))
+                            executeAdminAction("singlekill", attacker.Name)
+                        end
+                    else
+                        print("[DETECTION] Death LOOP on ", player.Name, " by ", attacker.Name, " distance:", math.floor(dist))
+                        executeLoopSequence(attacker.Name)
+                    end
                 elseif dist >= warnMin then
                     print("[DETECTION] Death WARNING on ", player.Name, " by ", attacker.Name, " distance:", math.floor(dist))
                     executeAdminAction("singlekill", attacker.Name)
@@ -1179,12 +1255,18 @@ local function setupCharacterMonitoring(character)
     local humanoid = character:WaitForChild("Humanoid", 10)
     if humanoid then
         local conn = humanoid.Died:Connect(function()
-            handleBotDeath(humanoid)
+            if detectionEnabled() then
+                handleBotDeath(humanoid)
+            end
         end)
         table.insert(State.connections, conn)
         -- Real-time attacker trace: record last attacker and distance on damage
         local lastHealth = humanoid.Health
         local hc = humanoid.HealthChanged:Connect(function(newHealth)
+            if not detectionEnabled() then
+                lastHealth = newHealth
+                return
+            end
             local tag = humanoid:FindFirstChild("creator") or humanoid:FindFirstChild("Creator")
             if tag and tag:IsA("ObjectValue") then
                 local val = tag.Value
@@ -1199,7 +1281,13 @@ local function setupCharacterMonitoring(character)
                         local warnMin = Config.REACH_WARNING_MIN or 15
                         local loopMin = Config.REACH_LOOP_MIN or 25
                         if State.lastAttackerDist >= loopMin then
-                            executeLoopSequence(p.Name)
+                            if inWarmupGrace() and State.lastAttackerDist < (Config.GRACE_NO_LOOP_DISTANCE or loopMin) then
+                                if State.lastAttackerDist >= warnMin then
+                                    executeAdminAction("singlekill", p.Name)
+                                end
+                            else
+                                executeLoopSequence(p.Name)
+                            end
                         elseif State.lastAttackerDist >= warnMin then
                             executeAdminAction("singlekill", p.Name)
                         end
@@ -1366,6 +1454,15 @@ end
 local function initializeBot()
     print("[INFO] Initializing Security Bot...")
     State.botActive = true
+    -- Warm-up delay to allow Infinite Yield to fully load
+    local initDelay = Config.INIT_DELAY_SEC or 10
+    if initDelay and initDelay > 0 then
+        print("[INFO] Warm-up: waiting ", initDelay, "s before activation...")
+        safeWait(initDelay)
+    end
+    -- Activate detection and start grace window
+    State.detectionEnableAt = tick()
+    State.graceEndAt = State.detectionEnableAt + (Config.GRACE_NO_LOOP_SEC or 5)
     ensureLooplistFile()
     runJoinSequence()
     State.initialSetupComplete = true
@@ -1413,22 +1510,31 @@ local function xorBytes(str, key)
     end
     return table.concat(out)
 end
+local function hasBase64()
+    local ok = pcall(function() HttpService:Base64Encode("test") end)
+    return ok
+end
 local function encodeData(tbl)
     local ok, json = pcall(function() return HttpService:JSONEncode(tbl) end)
     if not ok then return nil end
-    if Config.ENCRYPT_STORAGE then
+    if Config.ENCRYPT_STORAGE and hasBase64() then
         local obf = xorBytes(json, kdf())
-        return (game:GetService("HttpService"):Base64Encode(obf))
+        local okb, b64 = pcall(function() return HttpService:Base64Encode(obf) end)
+        if okb then return b64 end
     end
     return json
 end
 local function decodeData(str)
     if not str or str == "" then return nil end
     local raw = str
-    if Config.ENCRYPT_STORAGE then
+    if Config.ENCRYPT_STORAGE and hasBase64() then
         local okb, dec = pcall(function() return HttpService:Base64Decode(raw) end)
-        if not okb then return nil end
-        raw = xorBytes(dec, kdf())
+        if okb and type(dec) == "string" then
+            raw = xorBytes(dec, kdf())
+        else
+            -- Fallback: treat as plain JSON if Base64 fails
+            raw = str
+        end
     end
     local ok, tbl = pcall(function() return HttpService:JSONDecode(raw) end)
     if ok then return tbl end
