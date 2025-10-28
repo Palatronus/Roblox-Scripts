@@ -109,6 +109,23 @@ local function isNewAccount(player)
     return player.AccountAge <= Config.NEW_ACCOUNT_THRESHOLD
 end
 
+local function getKeyCodeForChar(char)
+    local keyMap = {
+        ["a"] = Enum.KeyCode.A, ["b"] = Enum.KeyCode.B, ["c"] = Enum.KeyCode.C, ["d"] = Enum.KeyCode.D, ["e"] = Enum.KeyCode.E,
+        ["f"] = Enum.KeyCode.F, ["g"] = Enum.KeyCode.G, ["h"] = Enum.KeyCode.H, ["i"] = Enum.KeyCode.I, ["j"] = Enum.KeyCode.J,
+        ["k"] = Enum.KeyCode.K, ["l"] = Enum.KeyCode.L, ["m"] = Enum.KeyCode.M, ["n"] = Enum.KeyCode.N, ["o"] = Enum.KeyCode.O,
+        ["p"] = Enum.KeyCode.P, ["q"] = Enum.KeyCode.Q, ["r"] = Enum.KeyCode.R, ["s"] = Enum.KeyCode.S, ["t"] = Enum.KeyCode.T,
+        ["u"] = Enum.KeyCode.U, ["v"] = Enum.KeyCode.V, ["w"] = Enum.KeyCode.W, ["x"] = Enum.KeyCode.X, ["y"] = Enum.KeyCode.Y,
+        ["z"] = Enum.KeyCode.Z,
+        ["0"] = Enum.KeyCode.Zero, ["1"] = Enum.KeyCode.One, ["2"] = Enum.KeyCode.Two, ["3"] = Enum.KeyCode.Three, ["4"] = Enum.KeyCode.Four,
+        ["5"] = Enum.KeyCode.Five, ["6"] = Enum.KeyCode.Six, ["7"] = Enum.KeyCode.Seven, ["8"] = Enum.KeyCode.Eight, ["9"] = Enum.KeyCode.Nine,
+        [" "] = Enum.KeyCode.Space, [":"] = Enum.KeyCode.Semicolon, ["."] = Enum.KeyCode.Period, [","] = Enum.KeyCode.Comma, ["-"] = Enum.KeyCode.Minus,
+        ["="] = Enum.KeyCode.Equals, ["["] = Enum.KeyCode.LeftBracket, ["]"] = Enum.KeyCode.RightBracket, ["\\"] = Enum.KeyCode.BackSlash,
+        [";"]. = Enum.KeyCode.Semicolon, ["'"] = Enum.KeyCode.Quote, ["`"] = Enum.KeyCode.Grave, ["/"] = Enum.KeyCode.Slash
+    }
+    return keyMap[char:lower()]
+end
+
 -- ========================================
 -- INFINITE YIELD DETECTION
 -- ========================================
@@ -195,13 +212,19 @@ local function executeCommand(command)
         State.commandBar.Text = ""
         safeWait(0.05)
         
-        -- Type command character by character
+        -- Type command character by character with human-like typing
         for i = 1, #command do
             local char = command:sub(i, i)
-            State.commandBar.Text = State.commandBar.Text .. char
-            safeWait(Config.CHAR_DELAY)
+            local keyCode = getKeyCodeForChar(char)
+            if keyCode then
+                simulateKeyPress(keyCode)
+                -- Random delay between 50-150ms to mimic human typing
+                safeWait(math.random(50, 150) / 1000)
+            else
+                print("[ERROR] Unsupported character:", char, "in command. Skipping.")
+            end
         end
-        
+
         safeWait(0.1)
         
         -- Press Enter to execute
