@@ -42,6 +42,13 @@ local Config = {
     PRE_TYPE_WAIT = 0.07,
     POST_TYPE_WAIT = 0.12,
     POST_ENTER_WAIT = 0.28,
+    -- Precise targeting and visual verification
+    COMMAND_BAR_TARGET_HINTS = {
+        "infiniteyield", "iy", "commandbar", "cmdbar", "cmd", "command"
+    },
+    VERIFY_INPUT_VISUALLY = true,
+    VISUAL_CONFIRM_DURATION = 0.8,
+    INPUT_VERIFY_TIMEOUT = 0.6,
     PLACE_ID = game.PlaceId,
     SERVER_HOP_CHECK_DELAY = 10, -- seconds after join to check solo
     ACTION_ON_NEW_ACCOUNT = "loopkill", -- loopkill | loopfling | singlekill
@@ -220,33 +227,46 @@ local function hideDevConsole()
     end)
 end
 
--- Heuristically locate the IY CommandBar TextBox and focus it directly
+-- Locate the IY CommandBar TextBox using path-based hints and scoring
 local function findCommandTextBox()
-    local patterns = {"cmd", "command", "bar", "iy", "infinite"}
-    local function matches(tb)
-        if not tb:IsA("TextBox") then return false end
+    local hints = Config.COMMAND_BAR_TARGET_HINTS or {"infiniteyield", "iy", "commandbar"}
+    local function score(tb)
+        if not tb or not tb:IsA("TextBox") then return -1 end
+        local full = string.lower(tb:GetFullName())
         local n = string.lower(tb.Name or "")
         local ph = string.lower(tb.PlaceholderText or "")
-        for _, p in ipairs(patterns) do
-            if string.find(n, p, 1, true) or string.find(ph, p, 1, true) then
-                return true
+        local s = 0
+        for _, h in ipairs(hints) do
+            if #h > 0 then
+                if string.find(full, h, 1, true) then s = s + 3 end
+                if string.find(n, h, 1, true) then s = s + 2 end
+                if ph ~= "" and string.find(ph, h, 1, true) then s = s + 2 end
             end
         end
-        return false
+        if string.find(n, "command", 1, true) then s = s + 1 end
+        if string.find(n, "bar", 1, true) then s = s + 1 end
+        if string.find(ph, "cmd", 1, true) or string.find(ph, "/cmd", 1, true) then s = s + 1 end
+        if tb:IsDescendantOf(CoreGui) then s = s + 1 end
+        return s
     end
-    local candidate
+    local best, bestScore = nil, -1
     local function scan(root)
         for _, d in ipairs(root:GetDescendants()) do
             if d:IsA("TextBox") then
-                if matches(d) then return d end
-                candidate = candidate or d
+                local sc = score(d)
+                if sc > bestScore then
+                    best = d
+                    bestScore = sc
+                end
             end
         end
     end
     pcall(function() scan(CoreGui) end)
     local pg = LocalPlayer:FindFirstChild("PlayerGui")
     if pg then pcall(function() scan(pg) end) end
-    return candidate
+    -- Require at least some confidence to avoid unintended bars
+    if bestScore >= 2 then return best end
+    return nil
 end
 
 local function focusCommandTextBox()
@@ -258,6 +278,68 @@ local function focusCommandTextBox()
         if UserInputService:GetFocusedTextBox() == tb then return true end
     end
     return false
+end
+
+-- Verify that the intended TextBox has the expected input before pressing Enter
+local function verifyInputInTarget(tb, expected)
+    if not tb or not tb:IsA("TextBox") then return false end
+    local deadline = tick() + (Config.INPUT_VERIFY_TIMEOUT or 0.6)
+    while tick() < deadline do
+        local focused = UserInputService:GetFocusedTextBox()
+        if focused == tb then
+            local ok, current = pcall(function() return tb.Text end)
+            if ok and current == expected then return true end
+        end
+        safeWait(0.05)
+    end
+    return false
+end
+
+-- Show a temporary visual overlay confirming which command bar is targeted
+local function showVisualConfirm(tb, cmd)
+    if not Config.VERIFY_INPUT_VISUALLY then return end
+    local ok, _ = pcall(function()
+        local sg = Instance.new("ScreenGui")
+        sg.ResetOnSpawn = false
+        sg.Name = "SB_CommandConfirm"
+        sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+        sg.Parent = LocalPlayer:FindFirstChild("PlayerGui") or CoreGui
+
+        local frame = Instance.new("Frame")
+        frame.Size = UDim2.new(0, 260, 0, 80)
+        frame.Position = UDim2.new(0.5, -130, 0.1, 0)
+        frame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+        frame.BackgroundTransparency = 0.3
+        frame.BorderSizePixel = 0
+        frame.Parent = sg
+
+        local ui = Instance.new("UICorner")
+        ui.CornerRadius = UDim.new(0, 8)
+        ui.Parent = frame
+
+        local label = Instance.new("TextLabel")
+        label.Size = UDim2.new(1, -12, 1, -12)
+        label.Position = UDim2.new(0, 6, 0, 6)
+        label.BackgroundTransparency = 1
+        label.TextColor3 = Color3.fromRGB(255, 255, 255)
+        label.TextScaled = true
+        label.Font = Enum.Font.Gotham
+        label.TextWrapped = true
+        local targetName = "Command Bar"
+        local okN, nameOrPath = pcall(function()
+            return tb:GetFullName()
+        end)
+        if okN and nameOrPath then targetName = nameOrPath end
+        label.Text = "Targeting: "..targetName.."\nCMD: "..tostring(cmd)
+        label.Parent = frame
+
+        task.delay(Config.VISUAL_CONFIRM_DURATION or 0.8, function()
+            sg:Destroy()
+        end)
+    end)
+    if not ok then
+        -- Non-fatal UI failure; continue silently
+    end
 end
 
 local function trySendText(text)
@@ -415,10 +497,25 @@ local function executeCommand(command)
         local ok, err = pcall(function()
             ensureLooplistFile()
             hideDevConsole()
-            ensureCommandBarFocused()
+            -- Find and focus the intended command bar
+            local target = findCommandTextBox()
+            if not target then
+                ensureCommandBarFocused()
+                target = findCommandTextBox()
+            end
+            if not target then
+                error("Target command bar not found")
+            end
+            pcall(function() target:CaptureFocus() end)
             safeWait(Config.PRE_TYPE_WAIT)
             typeTextSmart(command)
             safeWait(Config.POST_TYPE_WAIT)
+            -- Verify we typed into the correct target before submitting
+            local verified = verifyInputInTarget(target, command)
+            if not verified then
+                error("Input verification failed; refusing to submit")
+            end
+            showVisualConfirm(target, command)
             pressEnter()
             safeWait(Config.POST_ENTER_WAIT)
         end)
