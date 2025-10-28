@@ -57,14 +57,13 @@ local OWNER_WHITELIST = {
 
 local MOD_WHITELIST = {
     "STEVETheReal916", "ColonThreeSpam", "SpawnYellow2", "SpawnBlack1",
-    "s71pl", "TheSwordFightingBot2", "babyyodasonglol",
+    "s71pl", "TheSwordFightingBot2", "Jacobthecool292", "babyyodasonglol",
     "Kandale_Dingul", "redalert_E", "fariahoque28", "baze15651",
     "well_ihateboblux", "0bj687Alt"
 }
 
 -- Loopkills list
 local loopkillsList = {
-    "@ImACute_Gorl4", "@guaiabsi", "@x990Xd", "@kgkkgkktll", "@ldsklfklsdfkldskfds", "@jrtkgkkgkgkgkhk", 
     "@BoomyRealTop1Global", "@Lucasshed_1", "@SpawnYeIIow8", "@noradrenilne", "@djskfjdskfjkdsjfkds",
     "@spy6767676767678", "@gavotx", "@7389322", "@SayuriWasTaken", "@bacondude629", "@sdsssssssssssssssfss",
     "@entity9258", "@tomitoest", "@randomsnakeguy2", "@soetidjou", "@dontyoudare911", "@aerotypings",
@@ -337,9 +336,9 @@ function CommandSystem.ensureCommandBarOpen()
     -- Ensure we're targeting the command bar, not console
     local success, err = pcall(function()
         -- Press the Turkish ş key (comma key) to open command bar
-        VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Comma, false, Enum.UserInputType.Keyboard)
+        VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Comma, false, Enum.UserInputType.Keyboard, false)
         Utils.safeWait(0.1)
-        VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Comma, false, Enum.UserInputType.Keyboard)
+        VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Comma, false, Enum.UserInputType.Keyboard, false)
         Utils.safeWait(0.3) -- Wait for command bar to appear
         
         State.commandBarOpen = true
@@ -380,9 +379,9 @@ function CommandSystem.simulateInput(command)
             end
             
             -- Clear any existing text in command bar
-            VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.A, false, Enum.UserInputType.Keyboard, true) -- Ctrl+A
+            VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.A, false, Enum.UserInputType.Keyboard, true, false) -- Ctrl+A
             Utils.safeWait(0.05)
-            VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.A, false, Enum.UserInputType.Keyboard, true)
+            VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.A, false, Enum.UserInputType.Keyboard, true, false)
             Utils.safeWait(0.05)
             
             -- Type the command with human-like behavior
@@ -390,9 +389,9 @@ function CommandSystem.simulateInput(command)
             Utils.safeWait(0.1)
             
             -- Press Enter to execute
-            VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Return, false, Enum.UserInputType.Keyboard)
+            VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Return, false, Enum.UserInputType.Keyboard, false)
             Utils.safeWait(0.1)
-            VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Return, false, Enum.UserInputType.Keyboard)
+            VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Return, false, Enum.UserInputType.Keyboard, false)
             
             State.commandBarOpen = false
         end)
