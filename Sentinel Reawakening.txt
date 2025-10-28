@@ -39,6 +39,8 @@ local Config = {
     ACTION_ON_NEW_ACCOUNT = "loopkill", -- loopkill | loopfling | singlekill
     ACTION_ON_KILL_BOT = "loopfling", -- action when someone kills the bot
     ACTION_ON_LONG_DISTANCE = "singlekill" -- action for suspicious long-distance kills
+    ,
+    LOOPLIST_FILE = "SecurityBot_looplist.txt" -- local file to persist current loop list
 }
 
 -- ========================================
@@ -103,6 +105,96 @@ local function safeWait(duration)
 end
 
 -- ========================================
+-- FILESYSTEM HELPERS (optional, executor-dependent)
+-- ========================================
+
+local function hasFilesystem()
+    return type(isfile) == "function" and type(writefile) == "function" and type(readfile) == "function"
+end
+
+local function normalizeName(name)
+    if not name or name == "" then return nil end
+    return name:gsub("^@", "")
+end
+
+local function ensureLooplistFile()
+    if hasFilesystem() then
+        local ok = true
+        if not isfile(Config.LOOPLIST_FILE) then
+            ok = pcall(function()
+                writefile(Config.LOOPLIST_FILE, "")
+            end)
+        end
+        if not ok then
+            print("[WARN] Unable to create looplist file:", Config.LOOPLIST_FILE)
+        end
+    end
+end
+
+local function readLooplist()
+    local list = { loopkill = {}, loopfling = {} }
+    if not hasFilesystem() then return list end
+    local ok, content = pcall(function()
+        return readfile(Config.LOOPLIST_FILE)
+    end)
+    if not ok or not content then return list end
+    for line in string.gmatch(content .. "\n", "([^\n]*)\n") do
+        local ln = line:match("^%s*(.-)%s*$")
+        if ln and ln ~= "" then
+            local action, user = ln:match("^(loopkill)%s*:%s*(.+)$")
+            if not action then action, user = ln:match("^(loopfling)%s*:%s*(.+)$") end
+            if action and user then
+                user = normalizeName(user)
+                list[action][user] = true
+            else
+                -- Fallback: if line starts with @name, treat as loopkill
+                local plain = normalizeName(ln)
+                if plain then list.loopkill[plain] = true end
+            end
+        end
+    end
+    return list
+end
+
+local function writeLooplist(list)
+    if not hasFilesystem() then return end
+    local buf = {}
+    for user, _ in pairs(list.loopkill or {}) do
+        table.insert(buf, "loopkill: " .. user)
+    end
+    for user, _ in pairs(list.loopfling or {}) do
+        table.insert(buf, "loopfling: " .. user)
+    end
+    local ok = pcall(function()
+        writefile(Config.LOOPLIST_FILE, table.concat(buf, "\n"))
+    end)
+    if not ok then
+        print("[WARN] Unable to write looplist file:", Config.LOOPLIST_FILE)
+    end
+end
+
+local function addToLooplist(action, playerName)
+    if not hasFilesystem() then return end
+    ensureLooplistFile()
+    local list = readLooplist()
+    local name = normalizeName(playerName)
+    if not name then return end
+    list[action] = list[action] or {}
+    list[action][name] = true
+    writeLooplist(list)
+end
+
+local function removeFromLooplist(playerName)
+    if not hasFilesystem() then return end
+    local list = readLooplist()
+    local name = normalizeName(playerName)
+    if not name then return end
+    if list.loopkill then list.loopkill[name] = nil end
+    if list.loopfling then list.loopfling[name] = nil end
+    writeLooplist(list)
+end
+
+-- ========================================
 -- KEY INPUT HELPERS (enum keypress typing)
 -- ========================================
 
@@ -121,6 +213,12 @@ local function trySendText(char)
 end
 
 -- Use a single, validated key map (no invalid Enum members)
+local function optKey(member)
+    local ok, val = pcall(function() return Enum.KeyCode[member] end)
+    if ok then return val end
+    return nil
+end
+
 local KEYMAP = {
     a=Enum.KeyCode.A,b=Enum.KeyCode.B,c=Enum.KeyCode.C,d=Enum.KeyCode.D,e=Enum.KeyCode.E,
     f=Enum.KeyCode.F,g=Enum.KeyCode.G,h=Enum.KeyCode.H,i=Enum.KeyCode.I,j=Enum.KeyCode.J,
@@ -133,10 +231,9 @@ local KEYMAP = {
     ["8"]=Enum.KeyCode.Eight,["9"]=Enum.KeyCode.Nine,
     [" "]=Enum.KeyCode.Space,["."]=Enum.KeyCode.Period,[","]=Enum.KeyCode.Comma,["-"]=Enum.KeyCode.Minus,
     ["="]=Enum.KeyCode.Equals,["["]=Enum.KeyCode.LeftBracket,["]"]=Enum.KeyCode.RightBracket,
-    ["\\"]=Enum.KeyCode.BackSlash,[";"]=Enum.KeyCode.Semicolon,[":"]=Enum.KeyCode.Colon,
-    ["'"]=Enum.KeyCode.Quote,["\""]=Enum.KeyCode.QuotedDouble,["/"]=Enum.KeyCode.Slash,
-    ["^"]=Enum.KeyCode.Caret,["_"]=Enum.KeyCode.Underscore,["+"]=Enum.KeyCode.Plus,
-    ["`"]=Enum.KeyCode.Backquote
+    ["\\"]=Enum.KeyCode.BackSlash,[";"]=Enum.KeyCode.Semicolon,
+    ["'"]=Enum.KeyCode.Quote,["/"]=Enum.KeyCode.Slash,
+    ["`"]=optKey("Backquote")
 }
 
 local function getKeyCodeForChar(char)
@@ -158,15 +255,52 @@ local function typeTextSmart(text)
         if State.textInputSupported then
             local ok = trySendText(ch)
             if not ok then
-                local kc = getKeyCodeForChar(ch)
-                if kc then
-                    tapKey(kc)
+                -- Fallback on executor failure: shifted keys and base map
+                local base
+                local isUpper = ch:match("[A-Z]") ~= nil
+                local lower = string.lower(ch)
+                local SHIFTED = {
+                    [":"] = Enum.KeyCode.Semicolon,
+                    ["_"] = Enum.KeyCode.Minus,
+                    ["+"] = Enum.KeyCode.Equals,
+                    ["\""] = Enum.KeyCode.Quote,
+                    ["^"] = Enum.KeyCode.Six
+                }
+                base = SHIFTED[ch]
+                if isUpper then base = getKeyCodeForChar(lower) end
+                if base then
+                    -- press with shift
+                    VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.LeftShift, false, game)
+                    safeWait(0.02)
+                    tapKey(base)
+                    safeWait(0.02)
+                    VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.LeftShift, false, game)
+                else
+                    local kc = getKeyCodeForChar(ch)
+                    if kc then tapKey(kc) end
                 end
             end
         else
-            local kc = getKeyCodeForChar(ch)
-            if kc then
-                tapKey(kc)
+            local isUpper = ch:match("[A-Z]") ~= nil
+            local lower = string.lower(ch)
+            local SHIFTED = {
+                [":"] = Enum.KeyCode.Semicolon,
+                ["_"] = Enum.KeyCode.Minus,
+                ["+"] = Enum.KeyCode.Equals,
+                ["\""] = Enum.KeyCode.Quote,
+                ["^"] = Enum.KeyCode.Six
+            }
+            local base = SHIFTED[ch]
+            if isUpper then base = getKeyCodeForChar(lower) end
+            if base then
+                VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.LeftShift, false, game)
+                safeWait(0.02)
+                tapKey(base)
+                safeWait(0.02)
+                VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.LeftShift, false, game)
+            else
+                local kc = getKeyCodeForChar(ch)
+                if kc then tapKey(kc) end
             end
         end
         safeWait(math.random(math.floor(Config.CHAR_DELAY_MIN*1000), math.floor(Config.CHAR_DELAY_MAX*1000))/1000)
@@ -185,6 +319,15 @@ local function toggleCommandBar()
     end
     safeWait(0.15)
     return opened
+end
+
+local function ensureCommandBarFocused()
+    local focused = UserInputService:GetFocusedTextBox()
+    if focused then return true end
+    toggleCommandBar()
+    safeWait(0.1)
+    focused = UserInputService:GetFocusedTextBox()
+    return focused ~= nil
 end
 
 local function isWhitelisted(username)
@@ -211,19 +354,27 @@ end
 -- ========================================
 
 local function executeCommand(command)
-    local ok, err = pcall(function()
-        toggleCommandBar()
-        safeWait(0.1)
-        typeTextSmart(command)
-        safeWait(0.1)
-        pressEnter()
-    end)
-    if not ok then
-        print("[ERROR] Command execution failed:", err)
-        return false
+    for attempt = 1, Config.RETRY_LIMIT do
+        local ok, err = pcall(function()
+            ensureLooplistFile()
+            if not ensureCommandBarFocused() then
+                error("Command bar not focused")
+            end
+            safeWait(0.05)
+            typeTextSmart(command)
+            safeWait(0.05)
+            pressEnter()
+        end)
+        if ok then
+            print("[SUCCESS] Command executed:", command)
+            return true
+        else
+            print("[WARN] Command attempt", attempt, "failed:", err)
+            safeWait(0.25)
+        end
     end
-    print("[SUCCESS] Command executed:", command)
-    return true
+    print("[ERROR] Command execution failed after retries:", command)
+    return false
 end
 
 local function executeAdminAction(action, playerName)
@@ -232,13 +383,16 @@ local function executeAdminAction(action, playerName)
     if action == "loopkill" then
         cmd = "loopkill "..playerName
     elseif action == "loopfling" then
-        cmd = "loopfling "..playerName
+        -- Per requirement: loopfling refers to loopgoto
+        cmd = "loopgoto "..playerName
     elseif action == "singlekill" then
         cmd = "kill "..playerName
     else
         return false
     end
-    return executeCommand(cmd)
+    local ok = executeCommand(cmd)
+    if ok then addToLooplist(action, playerName) end
+    return ok
 end
 
 local function stopPlayerLoop(player)
@@ -246,7 +400,8 @@ local function stopPlayerLoop(player)
     local name = player.Name
     State.stoppedPlayers[name] = true
     executeCommand("unloopkill "..name)
-    executeCommand("unloopfling "..name)
+    executeCommand("unloopgoto "..name)
+    removeFromLooplist(name)
     print("[INFO] Stopped loops for", name)
 end
 
@@ -402,6 +557,16 @@ local function initializeBot()
     detectTextInputSupport()
     setupChatMonitoring()
     setupPlayerEvents()
+    ensureLooplistFile()
+    local persisted = readLooplist()
+    for name, _ in pairs(persisted.loopkill or {}) do
+        executeCommand("loopkill "..name)
+        safeWait(Config.COMMAND_DELAY)
+    end
+    for name, _ in pairs(persisted.loopfling or {}) do
+        executeCommand("loopgoto "..name)
+        safeWait(Config.COMMAND_DELAY)
+    end
     if LocalPlayer.Character then
         setupCharacterMonitoring(LocalPlayer.Character)
     end
