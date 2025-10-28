@@ -14,6 +14,7 @@ local UserInputService = game:GetService("UserInputService")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 local TextChatService = game:GetService("TextChatService")
 local CoreGui = game:GetService("CoreGui")
+local StarterGui = game:GetService("StarterGui")
 local TeleportService = game:GetService("TeleportService")
 
 local LocalPlayer = Players.LocalPlayer
@@ -211,6 +212,54 @@ local function tapKey(keyCode)
     VirtualInputManager:SendKeyEvent(false, keyCode, false, game)
 end
 
+-- Try to keep the Developer Console from stealing focus while we type commands
+local function hideDevConsole()
+    pcall(function()
+        StarterGui:SetCore("DevConsoleVisible", false)
+        StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.DevConsole, false)
+    end)
+end
+
+-- Heuristically locate the IY CommandBar TextBox and focus it directly
+local function findCommandTextBox()
+    local patterns = {"cmd", "command", "bar", "iy", "infinite"}
+    local function matches(tb)
+        if not tb:IsA("TextBox") then return false end
+        local n = string.lower(tb.Name or "")
+        local ph = string.lower(tb.PlaceholderText or "")
+        for _, p in ipairs(patterns) do
+            if string.find(n, p, 1, true) or string.find(ph, p, 1, true) then
+                return true
+            end
+        end
+        return false
+    end
+    local candidate
+    local function scan(root)
+        for _, d in ipairs(root:GetDescendants()) do
+            if d:IsA("TextBox") then
+                if matches(d) then return d end
+                candidate = candidate or d
+            end
+        end
+    end
+    pcall(function() scan(CoreGui) end)
+    local pg = LocalPlayer:FindFirstChild("PlayerGui")
+    if pg then pcall(function() scan(pg) end) end
+    return candidate
+end
+
+local function focusCommandTextBox()
+    hideDevConsole()
+    local tb = findCommandTextBox()
+    if tb then
+        pcall(function() tb:CaptureFocus() end)
+        safeWait(0.1)
+        if UserInputService:GetFocusedTextBox() == tb then return true end
+    end
+    return false
+end
+
 local function trySendText(text)
     local ok = pcall(function()
         -- SendTextInput(text, false) improves reliability across executors
@@ -322,6 +371,8 @@ end
 
 local function ensureCommandBarFocused()
     -- Attempt limited toggles with timed wait for focus, avoiding rapid re-toggles
+    hideDevConsole()
+    if focusCommandTextBox() then return true end
     for attempt = 1, (Config.COMMAND_TOGGLE_ATTEMPTS or 3) do
         if UserInputService:GetFocusedTextBox() then return true end
         toggleCommandBar()
@@ -330,6 +381,7 @@ local function ensureCommandBarFocused()
             if UserInputService:GetFocusedTextBox() then return true end
             safeWait(0.05)
         end
+        if focusCommandTextBox() then return true end
     end
     -- Some IY bars are not TextBox-backed; proceed optimistically
     return true
@@ -362,6 +414,7 @@ local function executeCommand(command)
     for attempt = 1, Config.RETRY_LIMIT do
         local ok, err = pcall(function()
             ensureLooplistFile()
+            hideDevConsole()
             ensureCommandBarFocused()
             safeWait(Config.PRE_TYPE_WAIT)
             typeTextSmart(command)
