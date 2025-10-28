@@ -157,6 +157,37 @@ local function normalizeForCompare(name)
     return string.lower((name:gsub("^@", "")))
 end
 
+-- Forward declaration for Persistent to avoid nil calls in early helpers.
+-- These stubs are overridden by the full implementation later in the file.
+local Persistent = { entries = {}, loaded = false }
+function Persistent.isActive(_)
+    -- Until real implementation loads, treat as not active
+    return false
+end
+function Persistent.add(_, _, _, _)
+    return false
+end
+function Persistent.remove(_)
+end
+function Persistent.save()
+    return false
+end
+function Persistent.load()
+    Persistent.loaded = true
+    return true
+end
+function Persistent.getActiveNames(_)
+    return {}
+end
+function Persistent.pruneExpired()
+end
+function Persistent.export()
+    return nil
+end
+function Persistent.import(_)
+    return false
+end
+
 -- Self/owner helpers and action throttling
 local function isSelf(name)
     if not name then return false end
@@ -576,6 +607,8 @@ local function attachInputDebug(tb)
         end)
         c2 = tb.FocusLost:Connect(function(enterPressed)
             print("[INPUT-DBG] FocusLost; enterPressed=", enterPressed)
+            State.lastEnterPressed = enterPressed
+            State.lastFocusLostAt = tick()
         end)
     end)
     return function()
@@ -584,6 +617,24 @@ local function attachInputDebug(tb)
             pcall(function() if c2 then c2:Disconnect() end end)
         end
     end
+end
+
+-- After pressing Enter, try to validate that submission likely occurred
+local function validateSubmission(tb, expected)
+    local deadline = tick() + (Config.SUBMIT_VERIFY_TIMEOUT or 0.7)
+    while tick() < deadline do
+        -- If focus was lost with enterPressed=true, assume success
+        if State.lastEnterPressed == true and (tick() - (State.lastFocusLostAt or 0)) < 1.2 then
+            return true
+        end
+        -- Some command bars clear text upon submit
+        local ok, current = pcall(function() return tb.Text end)
+        if ok and (current == nil or current == "" or current ~= expected) then
+            return true
+        end
+        safeWait(0.05)
+    end
+    return false
 end
 
 -- Suppress common key conflicts (chat slash, dev console F9) while typing
@@ -819,12 +870,26 @@ local function executeCommand(command)
             local detachDbg = attachInputDebug(target)
             pcall(function() target:CaptureFocus() end)
             local typedOk = typeIntoTarget(target, command)
-            if not typedOk then error("Input verification failed; refusing to submit") end
+            if not typedOk then
+                local tn = "?"
+                pcall(function() tn = target:GetFullName() end)
+                error("Input verification failed; target="..tostring(tn))
+            end
             showVisualConfirm(target, command)
             pressEnter()
             safeWait(0.05)
             pcall(function() target:ReleaseFocus() end)
             safeWait(Config.POST_ENTER_WAIT)
+            -- Validate that the submit likely succeeded
+            local submitted = validateSubmission(target, command)
+            if not submitted then
+                local tn = "?"
+                local cur = "?"
+                local focused = UserInputService:GetFocusedTextBox()
+                pcall(function() tn = target:GetFullName() end)
+                pcall(function() cur = target.Text end)
+                error("Submit validation failed; target="..tostring(tn).." focused="..tostring(focused==target).." text="..tostring(cur))
+            end
             detachDbg()
         end)
         if ok then
@@ -1493,8 +1558,7 @@ local function decodeData(str)
     return nil
 end
 
--- Persistent storage for looped users
-Persistent = { entries = {}, loaded = false }
+-- Persistent storage for looped users (extends forward-declared table above)
 
 function Persistent.load()
     if not hasFilesystem() then Persistent.loaded = true; return true end
