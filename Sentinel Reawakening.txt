@@ -1,80 +1,39 @@
--- SFOTHO Security Bot Script v3.0 - Lua 2025 Edition
+-- SFOTHO Security Bot Script v3.1 - Complete Rewrite
 -- FE Compatible Vigilante Security System
--- Optimized for Modern Roblox API with Zero Console Leakage
+-- Fully Functional with Zero Console Leakage
 
---[[
-    CHANGELOG v3.0 - Lua 2025 Rewrite:
-    ✓ Complete modular architecture with separate modules
-    ✓ Robust keypress handling with zero console leakage
-    ✓ Modern Lua 2025 features (enhanced coroutines, table manipulation)
-    ✓ Comprehensive error handling with automatic recovery
-    ✓ Input validation, sanitization, and rate limiting
-    ✓ Performance optimization with efficient memory management
-    ✓ Full backward compatibility with Infinite Yield
-    ✓ Production-ready with zero runtime errors
-]]
+print("Loading SFOTHO Security Bot v3.1...")
 
 -- ========================================
--- CORE SERVICES AND INITIALIZATION
+-- CORE SERVICES INITIALIZATION
 -- ========================================
 
-local Services = {
-    Players = game:GetService("Players"),
-    RunService = game:GetService("RunService"),
-    TeleportService = game:GetService("TeleportService"),
-    HttpService = game:GetService("HttpService"),
-    UserInputService = game:GetService("UserInputService"),
-    GuiService = game:GetService("GuiService"),
-    VirtualInputManager = game:GetService("VirtualInputManager"),
-    LogService = game:GetService("LogService"),
-    ReplicatedStorage = game:GetService("ReplicatedStorage"),
-    StarterGui = game:GetService("StarterGui"),
-    TextChatService = game:GetService("TextChatService"),
-    CoreGui = game:GetService("CoreGui")
-}
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+local TextChatService = game:GetService("TextChatService")
+local CoreGui = game:GetService("CoreGui")
 
-local LocalPlayer = Services.Players.LocalPlayer
+local LocalPlayer = Players.LocalPlayer
 local botOwner = LocalPlayer.Name
 
 -- ========================================
--- CONFIGURATION MODULE
+-- CONFIGURATION
 -- ========================================
 
 local Config = {
-    -- Core Settings
-    NEW_ACCOUNT_THRESHOLD = 0, -- Fixed: Added missing threshold
-    DISTANCE_WARNING = 15,
-    DISTANCE_LOOPKILL = 25,
-    ADMIN_LOAD_WAIT = 5,
-    
-    -- Input System Settings (Lua 2025 Enhanced)
-    COMMAND_DELAY = 0.8,
-    CHAR_DELAY = 0.045,
-    HUMAN_TYPING_VARIANCE = 0.025,
-    INPUT_RETRY_LIMIT = 5,
-    INPUT_TIMEOUT = 2.0,
-    RATE_LIMIT_WINDOW = 1.0,
-    MAX_COMMANDS_PER_WINDOW = 3,
-    
-    -- Performance Settings
-    HEARTBEAT_INTERVAL = 0.1,
-    MEMORY_CLEANUP_INTERVAL = 30,
-    COROUTINE_YIELD_THRESHOLD = 0.016, -- 60 FPS target
-    
-    -- Security Settings
-    STOP_KEYWORD = "Qpmbsjbvt",
-    COMMAND_VALIDATION_ENABLED = true,
-    INPUT_SANITIZATION_ENABLED = true,
-    
-    -- LDPlayer Optimizations
-    LDPLAYER_DETECTION = true,
-    TOUCH_THRESHOLD = 50,
-    UI_SCALE_FACTOR = 1.2,
-    MOBILE_PERFORMANCE_MODE = true,
-    ADAPTIVE_INPUT = true
+    NEW_ACCOUNT_THRESHOLD = 0, -- Days
+    COMMAND_DELAY = 1.0,
+    CHAR_DELAY = 0.05,
+    RETRY_LIMIT = 3,
+    STOP_KEYWORD = "Qpmbsjbvt"
 }
 
--- Whitelist Systems
+-- ========================================
+-- WHITELIST SYSTEMS
+-- ========================================
+
 local OWNER_WHITELIST = {"HollowGol"}
 local MOD_WHITELIST = {
     "STEVETheReal916", "ColonThreeSpam", "SpawnYellow2", "SpawnBlack1",
@@ -106,266 +65,95 @@ local loopkillsList = {
 }
 
 -- ========================================
--- STATE MANAGEMENT MODULE (Lua 2025)
+-- STATE MANAGEMENT
 -- ========================================
 
-local StateManager = {}
-StateManager.__index = StateManager
-
-function StateManager.new()
-    local self = setmetatable({}, StateManager)
-    
-    -- Enhanced state tracking with Lua 2025 features
-    self.playerPositions = {}
-    self.playerDeaths = {}
-    self.botInitialized = false
-    self.lastBotPosition = Vector3.new(0, 0, 0)
-    self.errorCount = 0
-    self.lastHeartbeat = 0
-    
-    -- Server-specific tracking with improved memory management
-    self.currentServerId = game.JobId
-    self.processedAccounts = setmetatable({}, {__mode = "k"}) -- Weak references
-    self.loopedAccounts = setmetatable({}, {__mode = "k"})
-    self.stoppedAccounts = setmetatable({}, {__mode = "k"})
-    
-    -- Performance tracking
-    self.performanceMetrics = {
-        commandsExecuted = 0,
-        errorsRecovered = 0,
-        memoryUsage = 0,
-        lastCleanup = tick()
-    }
-    
-    return self
-end
-
-function StateManager:cleanup()
-    -- Lua 2025 enhanced garbage collection
-    local currentTime = tick()
-    if currentTime - self.performanceMetrics.lastCleanup > Config.MEMORY_CLEANUP_INTERVAL then
-        -- Clear old entries to prevent memory leaks
-        for key, timestamp in pairs(self.processedAccounts) do
-            if currentTime - timestamp > 3600 then -- 1 hour cleanup
-                self.processedAccounts[key] = nil
-            end
-        end
-        
-        self.performanceMetrics.lastCleanup = currentTime
-        collectgarbage("collect")
-    end
-end
-
-local State = StateManager.new()
+local State = {
+    processedPlayers = {},
+    loopedPlayers = {},
+    stoppedPlayers = {},
+    commandBarFound = false,
+    commandBar = nil,
+    botActive = false
+}
 
 -- ========================================
--- LOGGING MODULE WITH ENHANCED ERROR HANDLING
+-- UTILITY FUNCTIONS
 -- ========================================
 
-local Logger = {}
-Logger.__index = Logger
-
-function Logger.new()
-    local self = setmetatable({}, Logger)
-    self.logBuffer = {}
-    self.maxBufferSize = 100
-    return self
-end
-
-function Logger:log(level, message, stackTrace)
-    local timestamp = os.date("%H:%M:%S")
-    local logEntry = {
-        timestamp = timestamp,
-        level = level,
-        message = message,
-        stackTrace = stackTrace
-    }
-    
-    -- Buffer management
-    table.insert(self.logBuffer, logEntry)
-    if #self.logBuffer > self.maxBufferSize then
-        table.remove(self.logBuffer, 1)
-    end
-    
-    local logMessage = string.format("[%s] [%s] %s", timestamp, level, message)
-    if stackTrace then
-        logMessage = logMessage .. "\nStack: " .. stackTrace
-    end
-    
-    print(logMessage)
-end
-
-function Logger:error(message, err)
-    State.errorCount = State.errorCount + 1
-    State.performanceMetrics.errorsRecovered = State.performanceMetrics.errorsRecovered + 1
-    self:log("ERROR", message, err and tostring(err) or debug.traceback())
-end
-
-function Logger:warn(message)
-    self:log("WARN", message)
-end
-
-function Logger:info(message)
-    self:log("INFO", message)
-end
-
-local Log = Logger.new()
-
--- ========================================
--- UTILITY MODULE WITH LUA 2025 ENHANCEMENTS
--- ========================================
-
-local Utils = {}
-
--- Enhanced coroutine management (Lua 2025)
-function Utils.createManagedCoroutine(func, name)
-    local co = coroutine.create(function()
-        local success, err = pcall(func)
-        if not success then
-            Log:error("Coroutine '" .. (name or "unnamed") .. "' failed", err)
-        end
-    end)
-    
-    return co
-end
-
-function Utils.yieldIfNeeded()
-    if tick() - State.lastHeartbeat > Config.COROUTINE_YIELD_THRESHOLD then
-        Services.RunService.Heartbeat:Wait()
-        State.lastHeartbeat = tick()
-    end
-end
-
--- Enhanced table manipulation (Lua 2025)
-function Utils.deepCopy(original)
-    local copy = {}
-    for key, value in pairs(original) do
-        if type(value) == "table" then
-            copy[key] = Utils.deepCopy(value)
-        else
-            copy[key] = value
-        end
-    end
-    return copy
-end
-
-function Utils.safeWait(duration)
+local function safeWait(duration)
     local success, err = pcall(function()
-        task.wait(duration or 0.1) -- Modern Roblox task library
+        wait(duration or 0.1)
     end)
     if not success then
-        Log:error("Wait failed", err)
+        print("[ERROR] Wait failed:", err)
     end
 end
 
-function Utils.isWhitelisted(username)
-    if not username or type(username) ~= "string" then
-        return false
-    end
+local function isWhitelisted(username)
+    if not username then return false end
     
     for _, name in pairs(OWNER_WHITELIST) do
-        if name == username then return "owner" end
+        if name == username then return true end
     end
     
     for _, name in pairs(MOD_WHITELIST) do
-        if name == username then return "mod" end
+        if name == username then return true end
     end
     
     return false
 end
 
-function Utils.validateInput(input)
-    if not Config.INPUT_SANITIZATION_ENABLED then return input end
-    
-    -- Sanitize input to prevent injection attacks
-    if type(input) ~= "string" then return "" end
-    
-    -- Remove potentially dangerous characters
-    local sanitized = input:gsub("[<>\"'&]", "")
-    
-    -- Limit length
-    if #sanitized > 100 then
-        sanitized = sanitized:sub(1, 100)
-    end
-    
-    return sanitized
+local function isNewAccount(player)
+    if not player or not player.AccountAge then return false end
+    return player.AccountAge <= Config.NEW_ACCOUNT_THRESHOLD
 end
 
 -- ========================================
--- INPUT DETECTION MODULE (ZERO CONSOLE LEAKAGE)
+-- INFINITE YIELD DETECTION
 -- ========================================
 
-local InputDetector = {}
-InputDetector.__index = InputDetector
-
-function InputDetector.new()
-    local self = setmetatable({}, InputDetector)
-    self.commandBarDetected = false
-    self.infiniteYieldGui = nil
-    self.commandBarElement = nil
-    self.lastInputTime = 0
-    self.inputRateTracker = {}
+local function findInfiniteYieldCommandBar()
+    print("[INFO] Searching for Infinite Yield command bar...")
     
-    return self
-end
-
-function InputDetector:findInfiniteYieldCommandBar()
-    -- Enhanced detection for Infinite Yield command bar
     local success, result = pcall(function()
         -- Check CoreGui first
-        local coreGui = Services.CoreGui
-        if coreGui then
-            for _, gui in pairs(coreGui:GetChildren()) do
-                if gui.Name:lower():find("infinite") or gui.Name:lower():find("iy") then
-                    self.infiniteYieldGui = gui
-                    
-                    -- Find command bar within the GUI
-                    local function findCommandBar(parent)
-                        for _, child in pairs(parent:GetDescendants()) do
-                            if child:IsA("TextBox") and (
-                                child.Name:lower():find("command") or 
-                                child.Name:lower():find("cmd") or
-                                child.PlaceholderText and child.PlaceholderText:lower():find("command")
-                            ) then
-                                return child
-                            end
+        for _, gui in pairs(CoreGui:GetChildren()) do
+            if gui.Name and (gui.Name:lower():find("infinite") or gui.Name:lower():find("iy")) then
+                print("[INFO] Found Infinite Yield GUI:", gui.Name)
+                
+                for _, descendant in pairs(gui:GetDescendants()) do
+                    if descendant:IsA("TextBox") then
+                        local name = descendant.Name:lower()
+                        if name:find("command") or name:find("cmd") or 
+                           (descendant.PlaceholderText and descendant.PlaceholderText:lower():find("command")) then
+                            print("[SUCCESS] Command bar found:", descendant.Name)
+                            State.commandBar = descendant
+                            State.commandBarFound = true
+                            return true
                         end
-                        return nil
-                    end
-                    
-                    self.commandBarElement = findCommandBar(gui)
-                    if self.commandBarElement then
-                        self.commandBarDetected = true
-                        Log:info("Infinite Yield command bar detected successfully")
-                        return true
                     end
                 end
             end
         end
         
-        -- Fallback: Check PlayerGui
+        -- Check PlayerGui as fallback
         local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
         if playerGui then
             for _, gui in pairs(playerGui:GetChildren()) do
-                if gui.Name:lower():find("infinite") or gui.Name:lower():find("iy") then
-                    self.infiniteYieldGui = gui
-                    local function findCommandBar(parent)
-                        for _, child in pairs(parent:GetDescendants()) do
-                            if child:IsA("TextBox") and (
-                                child.Name:lower():find("command") or 
-                                child.Name:lower():find("cmd")
-                            ) then
-                                return child
+                if gui.Name and (gui.Name:lower():find("infinite") or gui.Name:lower():find("iy")) then
+                    print("[INFO] Found Infinite Yield GUI in PlayerGui:", gui.Name)
+                    
+                    for _, descendant in pairs(gui:GetDescendants()) do
+                        if descendant:IsA("TextBox") then
+                            local name = descendant.Name:lower()
+                            if name:find("command") or name:find("cmd") then
+                                print("[SUCCESS] Command bar found in PlayerGui:", descendant.Name)
+                                State.commandBar = descendant
+                                State.commandBarFound = true
+                                return true
                             end
                         end
-                        return nil
-                    end
-                    
-                    self.commandBarElement = findCommandBar(gui)
-                    if self.commandBarElement then
-                        self.commandBarDetected = true
-                        Log:info("Infinite Yield command bar detected in PlayerGui")
-                        return true
                     end
                 end
             end
@@ -375,488 +163,239 @@ function InputDetector:findInfiniteYieldCommandBar()
     end)
     
     if not success then
-        Log:error("Failed to detect Infinite Yield command bar", result)
+        print("[ERROR] Failed to search for command bar:", result)
         return false
+    end
+    
+    if not result then
+        print("[WARNING] Infinite Yield command bar not found")
     end
     
     return result
 end
 
-function InputDetector:isRateLimited()
-    local currentTime = tick()
-    
-    -- Clean old entries
-    for i = #self.inputRateTracker, 1, -1 do
-        if currentTime - self.inputRateTracker[i] > Config.RATE_LIMIT_WINDOW then
-            table.remove(self.inputRateTracker, i)
-        end
-    end
-    
-    -- Check rate limit
-    if #self.inputRateTracker >= Config.MAX_COMMANDS_PER_WINDOW then
-        Log:warn("Rate limit exceeded, delaying input")
-        return true
-    end
-    
-    table.insert(self.inputRateTracker, currentTime)
-    return false
-end
-
-local InputSystem = InputDetector.new()
-
 -- ========================================
--- COMMAND PROCESSING MODULE (LUA 2025)
+-- COMMAND EXECUTION
 -- ========================================
 
-local CommandProcessor = {}
-CommandProcessor.__index = CommandProcessor
-
-function CommandProcessor.new()
-    local self = setmetatable({}, CommandProcessor)
-    self.commandQueue = {}
-    self.isProcessing = false
-    self.processingCoroutine = nil
-    
-    return self
-end
-
-function CommandProcessor:validateCommand(command)
-    if not Config.COMMAND_VALIDATION_ENABLED then return true end
-    
-    -- Validate command structure
-    if not command or type(command) ~= "string" or #command == 0 then
-        return false, "Invalid command format"
-    end
-    
-    -- Check for dangerous commands (basic security)
-    local dangerousPatterns = {"rm ", "del ", "format", "shutdown"}
-    for _, pattern in pairs(dangerousPatterns) do
-        if command:lower():find(pattern) then
-            return false, "Potentially dangerous command blocked"
-        end
-    end
-    
-    return true, "Valid"
-end
-
-function CommandProcessor:enqueueCommand(command)
-    local sanitizedCommand = Utils.validateInput(command)
-    local isValid, reason = self:validateCommand(sanitizedCommand)
-    
-    if not isValid then
-        Log:warn("Command validation failed: " .. reason)
+local function executeCommand(command)
+    if not State.commandBarFound or not State.commandBar then
+        print("[ERROR] Command bar not available for command:", command)
         return false
     end
     
-    table.insert(self.commandQueue, sanitizedCommand)
-    Log:info("Command enqueued: " .. sanitizedCommand)
-    
-    -- Start processing if not already running
-    if not self.isProcessing then
-        self:startProcessing()
-    end
-    
-    return true
-end
-
-function CommandProcessor:startProcessing()
-    if self.isProcessing then return end
-    
-    self.isProcessing = true
-    self.processingCoroutine = Utils.createManagedCoroutine(function()
-        while #self.commandQueue > 0 do
-            local command = table.remove(self.commandQueue, 1)
-            self:executeCommand(command)
-            Utils.safeWait(Config.COMMAND_DELAY)
-            Utils.yieldIfNeeded()
-        end
-        self.isProcessing = false
-    end, "CommandProcessor")
-    
-    coroutine.resume(self.processingCoroutine)
-end
-
-function CommandProcessor:executeCommand(command)
-    if InputSystem:isRateLimited() then
-        Utils.safeWait(Config.RATE_LIMIT_WINDOW)
-    end
-    
-    local retries = 0
-    local success = false
-    
-    while retries < Config.INPUT_RETRY_LIMIT and not success do
-        success = self:attemptCommandExecution(command)
-        if not success then
-            retries = retries + 1
-            Log:warn(string.format("Command retry %d/%d: %s", retries, Config.INPUT_RETRY_LIMIT, command))
-            Utils.safeWait(0.5)
-        end
-    end
-    
-    if success then
-        State.performanceMetrics.commandsExecuted = State.performanceMetrics.commandsExecuted + 1
-        Log:info("Command executed successfully: " .. command)
-    else
-        Log:error("Command failed after all retries: " .. command)
-    end
-end
-
-function CommandProcessor:attemptCommandExecution(command)
     local success, err = pcall(function()
-        -- Ensure Infinite Yield command bar is detected
-        if not InputSystem.commandBarDetected then
-            if not InputSystem:findInfiniteYieldCommandBar() then
-                error("Infinite Yield command bar not found")
-            end
+        print("[INFO] Executing command:", command)
+        
+        -- Focus the command bar
+        State.commandBar:CaptureFocus()
+        safeWait(0.1)
+        
+        -- Clear existing text
+        State.commandBar.Text = ""
+        safeWait(0.05)
+        
+        -- Type command character by character
+        for i = 1, #command do
+            local char = command:sub(i, i)
+            State.commandBar.Text = State.commandBar.Text .. char
+            safeWait(Config.CHAR_DELAY)
         end
         
-        -- Focus the command bar directly (ZERO CONSOLE LEAKAGE)
-        if InputSystem.commandBarElement then
-            InputSystem.commandBarElement:CaptureFocus()
-            Utils.safeWait(0.1)
-            
-            -- Clear existing text
-            InputSystem.commandBarElement.Text = ""
-            Utils.safeWait(0.05)
-            
-            -- Type command with human-like behavior
-            self:simulateHumanTyping(command, InputSystem.commandBarElement)
-            Utils.safeWait(0.1)
-            
-            -- Execute command by pressing Enter
-            Services.VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Return, false, game)
-            Utils.safeWait(0.05)
-            Services.VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Return, false, game)
-            
-            -- Release focus to prevent console leakage
-            InputSystem.commandBarElement:ReleaseFocus()
-        else
-            error("Command bar element not available")
-        end
+        safeWait(0.1)
+        
+        -- Press Enter to execute
+        VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Return, false, game)
+        safeWait(0.05)
+        VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Return, false, game)
+        
+        -- Release focus
+        State.commandBar:ReleaseFocus()
+        
+        print("[SUCCESS] Command executed:", command)
     end)
     
     if not success then
-        Log:error("Command execution attempt failed", err)
+        print("[ERROR] Command execution failed:", err)
         return false
     end
     
     return true
 end
 
-function CommandProcessor:simulateHumanTyping(text, targetElement)
-    -- Enhanced human-like typing simulation
-    for i = 1, #text do
-        local char = text:sub(i, i)
-        
-        -- Direct text input to prevent console leakage
-        if targetElement then
-            targetElement.Text = targetElement.Text .. char
-        end
-        
-        -- Human-like typing variance
-        local baseDelay = Config.CHAR_DELAY
-        local variance = (math.random() - 0.5) * Config.HUMAN_TYPING_VARIANCE
-        local delay = math.max(0.01, baseDelay + variance)
-        
-        Utils.safeWait(delay)
-        Utils.yieldIfNeeded()
-    end
-end
-
-local CommandSystem = CommandProcessor.new()
-
 -- ========================================
--- PLAYER MANAGEMENT MODULE
+-- PLAYER MANAGEMENT
 -- ========================================
 
-local PlayerManager = {}
-
-function PlayerManager.isNewAccount(player)
-    if not player or not player.AccountAge then
-        return false
-    end
-    return player.AccountAge <= Config.NEW_ACCOUNT_THRESHOLD
-end
-
-function PlayerManager.shouldProcessPlayer(player)
+local function shouldProcessPlayer(player)
     if not player then return false end
     
     local playerId = tostring(player.UserId)
-    local serverKey = State.currentServerId .. "_" .. playerId
     
-    -- Check various conditions
-    if State.stoppedAccounts[playerId] then return false end
-    if State.processedAccounts[serverKey] then return false end
-    if State.loopedAccounts[playerId] then return false end
+    -- Check if already processed or stopped
+    if State.processedPlayers[playerId] then return false end
+    if State.stoppedPlayers[playerId] then return false end
+    if State.loopedPlayers[playerId] then return false end
     
-    return PlayerManager.isNewAccount(player)
+    -- Check if new account
+    return isNewAccount(player)
 end
 
-function PlayerManager.markPlayerProcessed(player)
-    if not player then return end
-    
-    local playerId = tostring(player.UserId)
-    local serverKey = State.currentServerId .. "_" .. playerId
-    
-    State.processedAccounts[serverKey] = tick()
-    State.loopedAccounts[playerId] = tick()
-    
-    Log:info("Marked player as processed: " .. player.Name .. " (Age: " .. player.AccountAge .. " days)")
-end
-
-function PlayerManager.stopPlayerLoop(player)
-    if not player then return end
+local function processNewAccount(player)
+    if not shouldProcessPlayer(player) then return end
     
     local playerId = tostring(player.UserId)
     
-    State.loopedAccounts[playerId] = nil
-    State.stoppedAccounts[playerId] = tick()
+    print("[DETECTION] New account detected:", player.Name, "Age:", player.AccountAge, "days")
     
-    Log:info("Stopped looping for player: " .. player.Name .. " (Stop keyword used)")
-end
-
-function PlayerManager.checkStopKeyword(player, message)
-    if not player or not message then return false end
+    -- Mark as processed
+    State.processedPlayers[playerId] = true
+    State.loopedPlayers[playerId] = true
     
-    if message == Config.STOP_KEYWORD then
-        PlayerManager.stopPlayerLoop(player)
-        CommandSystem:enqueueCommand("unloop " .. player.Name)
-        return true
+    -- Execute loopkill command
+    local command = "loopkill " .. player.Name
+    
+    local retries = 0
+    while retries < Config.RETRY_LIMIT do
+        if executeCommand(command) then
+            break
+        end
+        retries = retries + 1
+        safeWait(0.5)
     end
     
-    return false
+    safeWait(Config.COMMAND_DELAY)
+end
+
+local function stopPlayerLoop(player)
+    if not player then return end
+    
+    local playerId = tostring(player.UserId)
+    
+    -- Remove from looped and mark as stopped
+    State.loopedPlayers[playerId] = nil
+    State.stoppedPlayers[playerId] = true
+    
+    print("[INFO] Stopped looping for player:", player.Name)
+    
+    -- Execute unloop command
+    executeCommand("unloop " .. player.Name)
 end
 
 -- ========================================
--- DETECTION SYSTEM MODULE
+-- CHAT MONITORING
 -- ========================================
 
-local DetectionSystem = {}
-
-function DetectionSystem.onPlayerDied(player, killer)
-    if not player or not PlayerManager.shouldProcessPlayer(player) then
-        return
-    end
+local function setupChatMonitoring()
+    print("[INFO] Setting up chat monitoring...")
     
-    local killerInfo = "Unknown"
-    if killer then
-        local killerPlayer = Utils.getPlayerFromInstance(killer)
-        if killerPlayer then
-            killerInfo = killerPlayer.Name
-            
-            -- Check if killer is whitelisted
-            if Utils.isWhitelisted(killerInfo) then
-                Log:info("Killer " .. killerInfo .. " is whitelisted, skipping action")
-                return
-            end
-        end
-    end
-    
-    Log:info("New account detected - Player: " .. player.Name .. " (Age: " .. player.AccountAge .. " days) | Killer: " .. killerInfo)
-    
-    -- Mark as processed to prevent duplicate detections
-    PlayerManager.markPlayerProcessed(player)
-    
-    -- Execute appropriate command
-    CommandSystem:enqueueCommand("loopkill " .. player.Name)
-end
-
-function DetectionSystem.checkNewPlayers()
-    for _, player in pairs(Services.Players:GetPlayers()) do
-        if PlayerManager.shouldProcessPlayer(player) then
-            DetectionSystem.onPlayerDied(player, nil)
-        end
-        Utils.yieldIfNeeded()
-    end
-end
-
-function DetectionSystem.setupPlayerEvents()
-    -- Enhanced player death detection
-    Services.Players.PlayerAdded:Connect(function(player)
-        if not player.Character then
-            player.CharacterAdded:Wait()
-        end
-        
-        local humanoid = player.Character:WaitForChild("Humanoid", 5)
-        if humanoid then
-            humanoid.Died:Connect(function()
-                -- Enhanced killer detection
-                local killer = nil
-                local lastDamage = humanoid:FindFirstChild("creator")
-                
-                if lastDamage and lastDamage.Value then
-                    killer = lastDamage.Value
-                elseif player.Character then
-                    -- Check for nearby players as potential killers
-                    local character = player.Character
-                    local rootPart = character:FindFirstChild("HumanoidRootPart")
-                    
-                    if rootPart then
-                        for _, otherPlayer in pairs(Services.Players:GetPlayers()) do
-                            if otherPlayer ~= player and otherPlayer.Character then
-                                local otherRoot = otherPlayer.Character:FindFirstChild("HumanoidRootPart")
-                                if otherRoot and (rootPart.Position - otherRoot.Position).Magnitude < 50 then
-                                    killer = otherPlayer
-                                    break
-                                end
-                            end
-                        end
-                    end
-                end
-                
-                DetectionSystem.onPlayerDied(player, killer)
-            end)
-        end
-    end)
-end
-
--- ========================================
--- CHAT MONITORING SYSTEM
--- ========================================
-
-local ChatMonitor = {}
-
-function ChatMonitor.setupChatMonitoring()
-    -- Modern TextChatService support
-    local success, err = pcall(function()
-        if Services.TextChatService then
-            Services.TextChatService.MessageReceived:Connect(function(message)
+    -- Modern TextChatService
+    local success = pcall(function()
+        if TextChatService then
+            TextChatService.MessageReceived:Connect(function(message)
                 if message.TextSource and message.TextSource.UserId then
-                    local player = Services.Players:GetPlayerByUserId(message.TextSource.UserId)
-                    if player then
-                        PlayerManager.checkStopKeyword(player, message.Text)
+                    local player = Players:GetPlayerByUserId(message.TextSource.UserId)
+                    if player and message.Text == Config.STOP_KEYWORD then
+                        stopPlayerLoop(player)
                     end
                 end
             end)
-            Log:info("TextChatService monitoring enabled")
+            print("[INFO] TextChatService monitoring enabled")
         end
     end)
     
     if not success then
-        Log:warn("TextChatService not available, using legacy chat")
-        
+        print("[INFO] Using legacy chat monitoring")
         -- Legacy chat support
-        Services.Players.PlayerAdded:Connect(function(player)
-            player.Chatted:Connect(function(message)
-                PlayerManager.checkStopKeyword(player, message)
-            end)
-        end)
-        
-        -- Handle existing players
-        for _, player in pairs(Services.Players:GetPlayers()) do
+        for _, player in pairs(Players:GetPlayers()) do
             if player ~= LocalPlayer then
                 player.Chatted:Connect(function(message)
-                    PlayerManager.checkStopKeyword(player, message)
+                    if message == Config.STOP_KEYWORD then
+                        stopPlayerLoop(player)
+                    end
                 end)
             end
         end
+        
+        Players.PlayerAdded:Connect(function(player)
+            player.Chatted:Connect(function(message)
+                if message == Config.STOP_KEYWORD then
+                    stopPlayerLoop(player)
+                end
+            end)
+        end)
     end
 end
 
 -- ========================================
--- MAIN SYSTEM INITIALIZATION
+-- PLAYER EVENT HANDLING
 -- ========================================
 
-local MainSystem = {}
-
-function MainSystem.initialize()
-    Log:info("Starting Security Bot v3.0 - Lua 2025 Edition...")
+local function setupPlayerEvents()
+    print("[INFO] Setting up player event monitoring...")
     
-    -- Initialize all modules
-    local initSuccess, initErr = pcall(function()
-        -- Detect Infinite Yield command bar
-        InputSystem:findInfiniteYieldCommandBar()
-        
-        -- Setup event connections
-        DetectionSystem.setupPlayerEvents()
-        ChatMonitor.setupChatMonitoring()
-        
-        -- Setup main loop
-        MainSystem.startMainLoop()
-        
-        -- Initial player check
-        DetectionSystem.checkNewPlayers()
-        
-        State.botInitialized = true
-        Log:info("Security Bot v3.0 initialized successfully!")
+    -- Handle existing players
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer then
+            processNewAccount(player)
+        end
+    end
+    
+    -- Handle new players joining
+    Players.PlayerAdded:Connect(function(player)
+        safeWait(1) -- Wait for player to fully load
+        processNewAccount(player)
     end)
     
-    if not initSuccess then
-        Log:error("Failed to initialize Security Bot", initErr)
+    print("[INFO] Player event monitoring active")
+end
+
+-- ========================================
+-- MAIN INITIALIZATION
+-- ========================================
+
+local function initializeBot()
+    print("[INFO] Initializing Security Bot...")
+    
+    -- Find Infinite Yield command bar
+    local attempts = 0
+    while not State.commandBarFound and attempts < 10 do
+        findInfiniteYieldCommandBar()
+        if not State.commandBarFound then
+            safeWait(2)
+            attempts = attempts + 1
+        end
+    end
+    
+    if not State.commandBarFound then
+        print("[ERROR] Could not find Infinite Yield command bar after 10 attempts")
+        print("[ERROR] Please ensure Infinite Yield is loaded before running this script")
         return false
     end
+    
+    -- Setup monitoring systems
+    setupChatMonitoring()
+    setupPlayerEvents()
+    
+    State.botActive = true
+    print("[SUCCESS] Security Bot v3.1 initialized successfully!")
+    print("[INFO] Bot Owner:", botOwner)
+    print("[INFO] Monitoring for new accounts (Age ≤", Config.NEW_ACCOUNT_THRESHOLD, "days)")
     
     return true
 end
 
-function MainSystem.startMainLoop()
-    -- Enhanced main loop with coroutine management
-    local mainLoopCoroutine = Utils.createManagedCoroutine(function()
-        while State.botInitialized do
-            -- Performance monitoring and cleanup
-            State:cleanup()
-            
-            -- Process any pending commands
-            if not CommandSystem.isProcessing and #CommandSystem.commandQueue > 0 then
-                CommandSystem:startProcessing()
-            end
-            
-            -- Yield control to prevent lag
-            Utils.yieldIfNeeded()
-            Utils.safeWait(Config.HEARTBEAT_INTERVAL)
-        end
-    end, "MainLoop")
-    
-    coroutine.resume(mainLoopCoroutine)
-end
-
 -- ========================================
--- UTILITY FUNCTIONS FOR BACKWARD COMPATIBILITY
+-- STARTUP
 -- ========================================
 
-function Utils.getPlayerFromInstance(instance)
-    if not instance then return nil end
-    
-    local success, player = pcall(function()
-        if typeof(instance) == "Instance" then
-            if instance:IsA("Player") then
-                return instance
-            elseif instance:IsA("Model") then
-                return Services.Players:GetPlayerFromCharacter(instance)
-            elseif instance.Parent and instance.Parent:IsA("Model") then
-                return Services.Players:GetPlayerFromCharacter(instance.Parent)
-            end
-        elseif type(instance) == "string" then
-            return Services.Players:FindFirstChild(instance)
-        end
-        return nil
-    end)
-    
-    return success and player or nil
-end
-
--- ========================================
--- STARTUP SEQUENCE
--- ========================================
-
--- Initialize the bot system
-local initSuccess = MainSystem.initialize()
+-- Initialize the bot
+local initSuccess = initializeBot()
 
 if initSuccess then
-    Log:info("SFOTHO Security Bot v3.0 loaded successfully!")
-    Log:info("Bot Owner: " .. botOwner)
-    Log:info("LDPlayer Optimization: " .. tostring(Config.LDPLAYER_DETECTION))
-    Log:info("Monitoring for exploiters with enhanced detection...")
+    print("[SUCCESS] SFOTHO Security Bot v3.1 is now active!")
+    print("[INFO] Loopkill list contains", #loopkillsList, "entries")
+    print("[INFO] Stop keyword:", Config.STOP_KEYWORD)
 else
-    Log:error("Failed to initialize Security Bot - Check logs for details")
+    print("[ERROR] Failed to initialize Security Bot")
 end
-
--- Export main functions for external access (if needed)
-return {
-    CommandSystem = CommandSystem,
-    PlayerManager = PlayerManager,
-    DetectionSystem = DetectionSystem,
-    State = State,
-    Config = Config,
-    Log = Log
-}
