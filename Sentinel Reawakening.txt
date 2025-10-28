@@ -1176,7 +1176,7 @@ local function monitorReachForPlayer(player)
             if not detectionEnabled() then
                 last = newHealth
                 return
-            }
+            end
             if last and newHealth and newHealth < last then
                 local tag = humanoid:FindFirstChild("creator") or humanoid:FindFirstChild("Creator")
                 if tag and tag:IsA("ObjectValue") then
