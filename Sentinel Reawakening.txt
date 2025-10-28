@@ -312,22 +312,29 @@ local function pressEnter()
 end
 
 local function toggleCommandBar()
-    -- Try the requested custom char first ("ş"); only fall back if needed
-    local opened = trySendText(Config.COMMAND_TOGGLE_CHAR)
-    if not opened then
-        tapKey(Config.COMMAND_TOGGLE_KEYCODE)
-    end
+    -- Always use the configured keypress to open the command bar
+    tapKey(Config.COMMAND_TOGGLE_KEYCODE)
     safeWait(0.15)
-    return opened
+    -- Some private IY builds may bind multiple keys. Optionally send backquote as a fallback.
+    if not UserInputService:GetFocusedTextBox() then
+        local backquote = (pcall(function() return Enum.KeyCode.Backquote end) and Enum.KeyCode.Backquote) or nil
+        if backquote then
+            tapKey(backquote)
+            safeWait(0.1)
+        end
+    end
+    return true
 end
 
 local function ensureCommandBarFocused()
-    local focused = UserInputService:GetFocusedTextBox()
-    if focused then return true end
-    toggleCommandBar()
-    safeWait(0.1)
-    focused = UserInputService:GetFocusedTextBox()
-    return focused ~= nil
+    -- Try multiple toggles to coax focus, without relying solely on TextBox detection
+    for i=1,3 do
+        if UserInputService:GetFocusedTextBox() then return true end
+        toggleCommandBar()
+        safeWait(0.12 + (i*0.03))
+    end
+    -- Some IY bars are not TextBox-backed; proceed optimistically after attempts
+    return true
 end
 
 local function isWhitelisted(username)
@@ -357,9 +364,7 @@ local function executeCommand(command)
     for attempt = 1, Config.RETRY_LIMIT do
         local ok, err = pcall(function()
             ensureLooplistFile()
-            if not ensureCommandBarFocused() then
-                error("Command bar not focused")
-            end
+            ensureCommandBarFocused()
             safeWait(0.05)
             typeTextSmart(command)
             safeWait(0.05)
