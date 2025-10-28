@@ -60,6 +60,11 @@ local Config = {
     ACTION_ON_LONG_DISTANCE = "singlekill" -- action for suspicious long-distance kills
     ,
     LOOPLIST_FILE = "SecurityBot_looplist.txt" -- local file to persist current loop list
+    ,
+    -- Stuck watchdog
+    STUCK_MOVE_EPSILON = 2.0,      -- minimum movement to consider not stuck (studs)
+    STUCK_FREEZE_TIMEOUT = 10,     -- seconds with < epsilon movement before recovery
+    STUCK_RECOVERY_ENABLED = true  -- run auto-recovery when frozen
 }
 
 -- ========================================
@@ -68,32 +73,10 @@ local Config = {
 
 local OWNER_WHITELIST = {"HollowGol"}
 local MOD_WHITELIST = {
-    "ColonThreeSpam", "SpawnYellow2", "SpawnBlack1",
+    "STEVETheReal916", "ColonThreeSpam", "SpawnYellow2", "SpawnBlack1",
     "s71pl", "TheSwordFightingBot2", "Jacobthecool292", "babyyodasonglol",
     "Kandale_Dingul", "redalert_E", "fariahoque28", "baze15651",
     "well_ihateboblux", "0bj687Alt"
-}
-
-local loopkillsList = {
-    "@ImACute_Gorl4", "@guaiabsi", "@x990Xd", "@kgkkgkktll", "@ldsklfklsdfkldskfds", 
-    "@jrtkgkkgkgkgkhk","@BoomyRealTop1Global", "@Lucasshed_1", "@SpawnYeIIow8", "@noradrenilne",
-    "@djskfjdskfjkdsjfkds", "@spy6767676767678", "@gavotx", "@7389322",
-    "@SayuriWasTaken", "@bacondude629", "@sdsssssssssssssssfss", "@entity9258",
-    "@tomitoest", "@randomsnakeguy2", "@soetidjou", "@dontyoudare911",
-    "@aerotypings", "@vaziolele2222", "@fdgdffdsf3424", "@hiyahiya583",
-    "@CapyBarchik87", "@burpboy67", "@SkinnyLegendCeana",
-    "@norasnewaccheh", "@Sugarcrashjojo", "@thetgpugooner", "@Mr_Remembers",
-    "@Tomryden2cuzwhynot", "@slaitmyarwse", "@Aquatic_515", "@lukenicolotreoyo",
-    "@Man06Tay10", "@unknownexp9", "@Jaja1og5",
-    "@unknownexp10", "@unknownexp12", "@hazaeur", "@homier_822825", "@cookie_333128", "@wubberio",
-    "@yesus120strange", "@guest_201406", "@LOS_HACKERSS", "@inbluejeans", "@nicopla1234", "@baskanpro200",
-    "@Luc_2004sad", "@suspiciousacc15", "@ohnobabyohno11", "@1B0b7", "@c00l_stark", "@miscoloredspawn",
-    "@tytytyttyyyttyytyy", "@hackerdude977", "@bloxfruit4372763", "@PavoIski", "@ceanaphobic",
-    "@BannedYouXx4_1x1x1x1", "@russki_krutoi", "@JustAnExploiterr", "@Tuscan_12345689", "@DERZKO69",
-    "@Reallylongnamelololm", "@yahyaslapbattle", "@SonicShadows126", "@sadssdasddasss", "@falooda12345_1",
-    "@bombplanner256", "@h00zgui", "@deaglestabbed", "@Luka123631", "@luigimario_1241", "@Hackerbacon694",
-    "@WhiteGuy603", "@aygul3103", "@TMKOC63", "@damnitnega", "@haushhidnuxw8eu", "@PurpleGuySmashes1",
-    "@PurpleGuySmashes", "@T0_Testing", "@Dollmyaccdisabled686", "@benzoine", "@Jqsminx", "@TheBoselyMan"
 }
 
 -- ========================================
@@ -108,6 +91,8 @@ local State = {
     seqRan = false,
     connections = {},
     textInputSupported = false,
+    lastAttackerName = nil,
+    lastAttackerDist = 0,
 }
 
 -- ========================================
@@ -167,7 +152,7 @@ local function readExternalLoopNames()
         return readfile(path)
     end)
     if not ok or not content then return {} end
-    for token in string.gmatch(content, "[^,\n]+") do
+    for token in string.gmatch(content, "[^,;\n]+") do
         local n = normalizeName(token:match("^%s*(.-)%s*$"))
         if n and n ~= "" then namesSet[n] = true end
     end
@@ -188,8 +173,10 @@ local function writeExternalLoopNames(names)
     local out = {}
     for n, _ in pairs(uniq) do table.insert(out, n) end
     table.sort(out)
+    local lines = {}
+    for _, n in ipairs(out) do table.insert(lines, "@"..n..",") end
     local ok = pcall(function()
-        writefile(path, table.concat(out, "\n"))
+        writefile(path, table.concat(lines, "\n"))
     end)
     if not ok then
         print("[WARN] Unable to write looplist file:", path)
@@ -204,6 +191,7 @@ local function addNameToExternalLooplist(playerName)
     for _, n in ipairs(arr) do set[n] = true end
     local name = normalizeName(playerName)
     if not name then return end
+    if set[name] then return end
     set[name] = true
     local out = {}
     for n, _ in pairs(set) do table.insert(out, n) end
@@ -673,6 +661,10 @@ end
 
 local function executeAdminAction(action, playerName)
     if not playerName or playerName == "" then return false end
+    if isWhitelisted(playerName) then
+        print("[INFO] Skipping action for whitelisted:", playerName)
+        return false
+    end
     local cmd
     if action == "loopkill" then
         cmd = "loopkill "..playerName
@@ -731,7 +723,11 @@ local function runJoinSequence()
     local atList = ""
     if names and #names > 0 then
         local tmp = {}
-        for _, n in ipairs(names) do table.insert(tmp, "@"..n) end
+        for _, n in ipairs(names) do
+            if not isWhitelisted(n) then
+                table.insert(tmp, "@"..n)
+            end
+        end
         atList = table.concat(tmp, ",")
     end
 
@@ -767,6 +763,78 @@ local function checkSoloAndHop()
     end
 end
 
+-- Robust position helpers to eliminate false negatives in distance checks
+local function getRootPosition(character)
+    if not character then return nil end
+    local part = character:FindFirstChild("HumanoidRootPart")
+        or character:FindFirstChild("UpperTorso")
+        or character:FindFirstChild("Torso")
+        or character:FindFirstChild("Head")
+    if part and part.Position then return part.Position end
+    return nil
+end
+
+local function safeDistanceBetween(charA, charB)
+    local a = getRootPosition(charA)
+    local b = getRootPosition(charB)
+    if a and b then return (a - b).Magnitude end
+    return 0
+end
+
+local function findNearestNonWhitelistedPlayer(pos)
+    if not pos then return nil, math.huge end
+    local nearest, best = nil, math.huge
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer and not isWhitelisted(p.Name) then
+            local cpos = getRootPosition(p.Character)
+            if cpos then
+                local d = (pos - cpos).Magnitude
+                if d < best then
+                    best = d
+                    nearest = p
+                end
+            end
+        end
+    end
+    return nearest, best
+end
+
+-- Stuck watchdog: detects freeze and auto-recovers
+local function startStuckWatchdog()
+    if not Config.STUCK_RECOVERY_ENABLED then return end
+    local epsilon = Config.STUCK_MOVE_EPSILON or 2.0
+    local timeout = Config.STUCK_FREEZE_TIMEOUT or 10
+    local lastPos = nil
+    local lastMoveAt = tick()
+    local recovering = false
+
+    table.insert(State.connections, RunService.Heartbeat:Connect(function()
+        local char = LocalPlayer.Character
+        local pos = getRootPosition(char)
+        if not pos then return end
+        if not lastPos then lastPos = pos; lastMoveAt = tick(); return end
+        local moved = (pos - lastPos).Magnitude
+        if moved >= epsilon then
+            lastPos = pos
+            lastMoveAt = tick()
+            recovering = false
+            return
+        end
+        if (tick() - lastMoveAt) > timeout and not recovering then
+            recovering = true
+            print("[WARN] Stuck freeze detected; attempting recovery...")
+            -- Conservative recovery: respawn + restore movement helpers
+            executeCommand("instarespawn")
+            safeWait(Config.COMMAND_DELAY)
+            executeCommand("novoid")
+            safeWait(Config.COMMAND_DELAY)
+            executeCommand("inf^2^walkfling")
+            -- Reset timers to avoid repeated triggers
+            lastMoveAt = tick()
+        end
+    end))
+end
+
 local function handleBotDeath(humanoid)
     local killerPlayer
     local tag = humanoid:FindFirstChild("creator") or humanoid:FindFirstChild("Creator")
@@ -779,21 +847,39 @@ local function handleBotDeath(humanoid)
             killerPlayer = Players:FindFirstChild(val.Name)
         end
     end
+    -- Primary path: creator tag provided a killer
     if killerPlayer and not isWhitelisted(killerPlayer.Name) then
-        local dist = 0
-        pcall(function()
-            local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-            local krRoot = killerPlayer.Character and killerPlayer.Character:FindFirstChild("HumanoidRootPart")
-            if myRoot and krRoot then
-                dist = (myRoot.Position - krRoot.Position).Magnitude
-            end
-        end)
+        local dist = safeDistanceBetween(LocalPlayer.Character, killerPlayer.Character)
         local action = Config.ACTION_ON_KILL_BOT
-        if dist >= Config.LONG_KILL_DISTANCE then
-            action = Config.ACTION_ON_LONG_DISTANCE
-        end
+        if dist >= Config.LONG_KILL_DISTANCE then action = Config.ACTION_ON_LONG_DISTANCE end
         print("[DETECTION] Bot killed by", killerPlayer.Name, "distance:", math.floor(dist))
         executeAdminAction(action, killerPlayer.Name)
+        return
+    end
+
+    -- Fallback A: use last attacker observed during HealthChanged
+    if State.lastAttackerName and not isWhitelisted(State.lastAttackerName) then
+        local p = Players:FindFirstChild(State.lastAttackerName)
+        if p then
+            local dist = safeDistanceBetween(LocalPlayer.Character, p.Character)
+            local action = Config.ACTION_ON_KILL_BOT
+            if dist >= Config.LONG_KILL_DISTANCE then action = Config.ACTION_ON_LONG_DISTANCE end
+            print("[DETECTION] Bot killed; fallback attacker", p.Name, "distance:", math.floor(dist))
+            executeAdminAction(action, p.Name)
+            return
+        end
+    end
+
+    -- Fallback B: nearest non-whitelisted player at time of death
+    local myPos = getRootPosition(LocalPlayer.Character)
+    local nearest, dist = findNearestNonWhitelistedPlayer(myPos)
+    if nearest then
+        if dist >= Config.LONG_KILL_DISTANCE then
+            print("[DETECTION] Bot killed; nearest suspect", nearest.Name, "distance:", math.floor(dist))
+            executeAdminAction(Config.ACTION_ON_LONG_DISTANCE, nearest.Name)
+        else
+            print("[INFO] Death without creator; nearest suspect within threshold:", nearest.Name, math.floor(dist))
+        end
     end
 end
 
@@ -804,6 +890,29 @@ local function setupCharacterMonitoring(character)
             handleBotDeath(humanoid)
         end)
         table.insert(State.connections, conn)
+        -- Real-time attacker trace: record last attacker and distance on damage
+        local lastHealth = humanoid.Health
+        local hc = humanoid.HealthChanged:Connect(function(newHealth)
+            local tag = humanoid:FindFirstChild("creator") or humanoid:FindFirstChild("Creator")
+            if tag and tag:IsA("ObjectValue") then
+                local val = tag.Value
+                local p
+                if val and val:IsA("Player") then p = val
+                elseif val and val:IsA("Model") then p = Players:FindFirstChild(val.Name) end
+                if p and not isWhitelisted(p.Name) then
+                    State.lastAttackerName = p.Name
+                    State.lastAttackerDist = safeDistanceBetween(LocalPlayer.Character, p.Character)
+                    -- Immediate reach punishment when damage occurs from long distance
+                    if lastHealth and newHealth and newHealth < lastHealth then
+                        if State.lastAttackerDist >= Config.LONG_KILL_DISTANCE then
+                            executeAdminAction(Config.ACTION_ON_LONG_DISTANCE, p.Name)
+                        end
+                    end
+                end
+            end
+            lastHealth = newHealth
+        end)
+        table.insert(State.connections, hc)
     end
 end
 
@@ -876,6 +985,7 @@ local function initializeBot()
     print("[INFO] Monitoring new accounts (Age ≤", Config.NEW_ACCOUNT_THRESHOLD, "days)")
     runJoinSequence()
     task.spawn(checkSoloAndHop)
+    startStuckWatchdog()
     return true
 end
 
@@ -892,4 +1002,3 @@ if initSuccess then
 else
     print("[ERROR] Failed to initialize Security Bot")
 end
-
