@@ -121,7 +121,7 @@ local function getKeyCodeForChar(char)
         ["5"] = Enum.KeyCode.Five, ["6"] = Enum.KeyCode.Six, ["7"] = Enum.KeyCode.Seven, ["8"] = Enum.KeyCode.Eight, ["9"] = Enum.KeyCode.Nine,
         [" "] = Enum.KeyCode.Space, [":"] = Enum.KeyCode.Semicolon, ["."] = Enum.KeyCode.Period, [","] = Enum.KeyCode.Comma, ["-"] = Enum.KeyCode.Minus,
         ["="] = Enum.KeyCode.Equals, ["["] = Enum.KeyCode.LeftBracket, ["]"] = Enum.KeyCode.RightBracket, ["\\"] = Enum.KeyCode.BackSlash,
-        [";"]. = Enum.KeyCode.Semicolon, ["'"] = Enum.KeyCode.Quote, ["`"] = Enum.KeyCode.Grave, ["/"] = Enum.KeyCode.Slash
+        [";"] = Enum.KeyCode.Semicolon, ["'"] = Enum.KeyCode.Quote, ["`"] = Enum.KeyCode.Grave, ["/"] = Enum.KeyCode.Slash
     }
     return keyMap[char:lower()]
 end
