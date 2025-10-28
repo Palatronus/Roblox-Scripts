@@ -13,6 +13,7 @@ local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 local TextChatService = game:GetService("TextChatService")
+local ContextActionService = game:GetService("ContextActionService")
 local CoreGui = game:GetService("CoreGui")
 local StarterGui = game:GetService("StarterGui")
 local TeleportService = game:GetService("TeleportService")
@@ -49,6 +50,8 @@ local Config = {
     VERIFY_INPUT_VISUALLY = true,
     VISUAL_CONFIRM_DURATION = 0.8,
     INPUT_VERIFY_TIMEOUT = 0.6,
+    DEBUG_INPUT = false,
+    FOCUS_RECAPTURE_RETRY = 6,
     PLACE_ID = game.PlaceId,
     SERVER_HOP_CHECK_DELAY = 10, -- seconds after join to check solo
     ACTION_ON_NEW_ACCOUNT = "loopkill", -- loopkill | loopfling | singlekill
@@ -350,6 +353,56 @@ local function trySendText(text)
     return ok
 end
 
+-- Recapture focus on the intended textbox until it sticks
+local function ensureTargetFocus(tb)
+    if not tb then return false end
+    for i = 1, (Config.FOCUS_RECAPTURE_RETRY or 6) do
+        local focused = UserInputService:GetFocusedTextBox()
+        if focused == tb then return true end
+        pcall(function() tb:CaptureFocus() end)
+        safeWait(0.06)
+    end
+    return UserInputService:GetFocusedTextBox() == tb
+end
+
+-- Optional diagnostic hooks to observe text changes and focus loss
+local function attachInputDebug(tb)
+    if not (Config.DEBUG_INPUT and tb and tb:IsA("TextBox")) then
+        return function() end
+    end
+    local c1, c2
+    local ok = pcall(function()
+        c1 = tb:GetPropertyChangedSignal("Text"):Connect(function()
+            print("[INPUT-DBG] Text changed:", tb.Text)
+        end)
+        c2 = tb.FocusLost:Connect(function(enterPressed)
+            print("[INPUT-DBG] FocusLost; enterPressed=", enterPressed)
+        end)
+    end)
+    return function()
+        if ok then
+            pcall(function() if c1 then c1:Disconnect() end end)
+            pcall(function() if c2 then c2:Disconnect() end end)
+        end
+    end
+end
+
+-- Suppress common key conflicts (chat slash, dev console F9) while typing
+local function suppressConflicts(active)
+    local sink = function(_, state) if state == Enum.UserInputState.Begin then return Enum.ContextActionResult.Sink end end
+    if active then
+        pcall(function()
+            ContextActionService:BindAction("SB_SinkSlash", sink, false, Enum.KeyCode.Slash)
+            ContextActionService:BindAction("SB_SinkF9", sink, false, Enum.KeyCode.F9)
+        end)
+    else
+        pcall(function()
+            ContextActionService:UnbindAction("SB_SinkSlash")
+            ContextActionService:UnbindAction("SB_SinkF9")
+        end)
+    end
+end
+
 -- Use a single, validated key map (no invalid Enum members)
 local function optKey(member)
     local ok, val = pcall(function() return Enum.KeyCode[member] end)
@@ -419,6 +472,65 @@ local function typeTextSmart(text)
         safeWait(math.random(math.floor(Config.CHAR_DELAY_MIN*1000), math.floor(Config.CHAR_DELAY_MAX*1000))/1000)
     end
     return true
+end
+
+-- Type robustly into a specific target TextBox, verifying after each strategy
+local function typeIntoTarget(tb, text)
+    if not ensureTargetFocus(tb) then return false end
+    suppressConflicts(true)
+    safeWait(Config.PRE_TYPE_WAIT)
+
+    -- Strategy 1: bulk SendTextInput
+    if State.textInputSupported then
+        local ok = trySendText(text)
+        safeWait(Config.POST_TYPE_WAIT)
+        if ok and verifyInputInTarget(tb, text) then
+            suppressConflicts(false)
+            return true
+        end
+    end
+
+    -- Strategy 2: direct property set (many IY bars rely on Text value)
+    local okSet = pcall(function() tb.Text = text end)
+    safeWait(0.06)
+    if okSet and verifyInputInTarget(tb, text) then
+        suppressConflicts(false)
+        return true
+    end
+
+    -- Strategy 3: guarded keypress typing
+    for i = 1, #text do
+        if UserInputService:GetFocusedTextBox() ~= tb then
+            ensureTargetFocus(tb)
+        end
+        local ch = string.sub(text, i, i)
+        local isUpper = ch:match("[A-Z]") ~= nil
+        local lower = string.lower(ch)
+        local SHIFTED = {
+            [":"] = Enum.KeyCode.Semicolon,
+            ["_"] = Enum.KeyCode.Minus,
+            ["+"] = Enum.KeyCode.Equals,
+            ["\""] = Enum.KeyCode.Quote,
+            ["^"] = Enum.KeyCode.Six
+        }
+        local base = SHIFTED[ch]
+        if isUpper then base = getKeyCodeForChar(lower) end
+        if base then
+            VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.LeftShift, false, game)
+            safeWait(0.02)
+            tapKey(base)
+            safeWait(0.02)
+            VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.LeftShift, false, game)
+        else
+            local kc = getKeyCodeForChar(ch)
+            if kc then tapKey(kc) end
+        end
+        safeWait(math.random(math.floor(Config.CHAR_DELAY_MIN*1000), math.floor(Config.CHAR_DELAY_MAX*1000))/1000)
+    end
+    safeWait(Config.POST_TYPE_WAIT)
+    local ok3 = verifyInputInTarget(tb, text)
+    suppressConflicts(false)
+    return ok3
 end
 
 local function pressEnter()
@@ -506,18 +618,16 @@ local function executeCommand(command)
             if not target then
                 error("Target command bar not found")
             end
+            local detachDbg = attachInputDebug(target)
             pcall(function() target:CaptureFocus() end)
-            safeWait(Config.PRE_TYPE_WAIT)
-            typeTextSmart(command)
-            safeWait(Config.POST_TYPE_WAIT)
-            -- Verify we typed into the correct target before submitting
-            local verified = verifyInputInTarget(target, command)
-            if not verified then
-                error("Input verification failed; refusing to submit")
-            end
+            local typedOk = typeIntoTarget(target, command)
+            if not typedOk then error("Input verification failed; refusing to submit") end
             showVisualConfirm(target, command)
             pressEnter()
+            safeWait(0.05)
+            pcall(function() target:ReleaseFocus() end)
             safeWait(Config.POST_ENTER_WAIT)
+            detachDbg()
         end)
         if ok then
             print("[SUCCESS] Command executed:", command)
