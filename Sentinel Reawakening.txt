@@ -1,16 +1,16 @@
--- SFOTHO Security Bot Script v2.0
+-- SFOTHO Security Bot Script v2.1
 -- FE Compatible Vigilante Security System
 -- Optimized for LDPlayer and Modern Roblox API (2023-2024)
 
 --[[
-    CHANGELOG v2.0:
-    - Fixed core errors: proper type checking for killer detection
-    - Added comprehensive error handling with pcall patterns
-    - Implemented LDPlayer touchscreen optimizations
-    - Updated to modern Roblox API standards
-    - Added performance optimizations for mobile emulation
-    - Enhanced logging system with stack traces
-    - Improved memory management
+    CHANGELOG v2.1:
+    - Fixed keyboard input targeting to command bar instead of console
+    - Implemented server-specific memory tracking for loop states
+    - Added "Qpmbsjbvt" keyword stop mechanism
+    - Enhanced human-like typing simulation
+    - Improved single detection event system
+    - Added proper server/account tracking
+    - Fixed type handling errors in player detection
 ]]
 
 -- Services (Modern API Standards)
@@ -23,6 +23,8 @@ local GuiService = game:GetService("GuiService")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 local LogService = game:GetService("LogService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local StarterGui = game:GetService("StarterGui")
+local TextChatService = game:GetService("TextChatService")
 
 -- Local References
 local LocalPlayer = Players.LocalPlayer
@@ -33,10 +35,12 @@ local CONFIG = {
     DISTANCE_WARNING = 15,
     DISTANCE_LOOPKILL = 25,
     ADMIN_LOAD_WAIT = 5,
-    COMMAND_DELAY = 0.5,
-    CHAR_DELAY = 0.02,
+    COMMAND_DELAY = 0.8,
+    CHAR_DELAY = 0.05,
+    HUMAN_TYPING_VARIANCE = 0.02,
     MAX_RETRIES = 3,
     HEARTBEAT_INTERVAL = 0.1,
+    STOP_KEYWORD = "Qpmbsjbvt",
     
     -- LDPlayer Optimizations
     LDPLAYER_DETECTION = true,
@@ -53,13 +57,14 @@ local OWNER_WHITELIST = {
 
 local MOD_WHITELIST = {
     "STEVETheReal916", "ColonThreeSpam", "SpawnYellow2", "SpawnBlack1",
-    "s71pl", "TheSwordFightingBot2", "Jacobthecool292", "babyyodasonglol",
+    "s71pl", "TheSwordFightingBot2", "babyyodasonglol",
     "Kandale_Dingul", "redalert_E", "fariahoque28", "baze15651",
     "well_ihateboblux", "0bj687Alt"
 }
 
 -- Loopkills list
 local loopkillsList = {
+    "@ImACute_Gorl4", "@guaiabsi", "@x990Xd", "@kgkkgkktll", "@ldsklfklsdfkldskfds", "@jrtkgkkgkgkgkhk", 
     "@BoomyRealTop1Global", "@Lucasshed_1", "@SpawnYeIIow8", "@noradrenilne", "@djskfjdskfjkdsjfkds",
     "@spy6767676767678", "@gavotx", "@7389322", "@SayuriWasTaken", "@bacondude629", "@sdsssssssssssssssfss",
     "@entity9258", "@tomitoest", "@randomsnakeguy2", "@soetidjou", "@dontyoudare911", "@aerotypings",
@@ -88,7 +93,17 @@ local State = {
     isLDPlayer = false,
     performanceMode = false,
     errorCount = 0,
-    lastHeartbeat = 0
+    lastHeartbeat = 0,
+    
+    -- Server-specific tracking
+    currentServerId = game.JobId,
+    processedAccounts = {}, -- Track accounts processed in this server
+    loopedAccounts = {}, -- Track currently looped accounts
+    stoppedAccounts = {}, -- Track accounts that used stop keyword
+    
+    -- Command bar detection
+    commandBarOpen = false,
+    lastCommandTime = 0
 }
 
 -- Error Handling and Logging System
@@ -318,32 +333,68 @@ function CommandSystem.processCommandQueue()
     State.isExecutingCommands = false
 end
 
+function CommandSystem.ensureCommandBarOpen()
+    -- Ensure we're targeting the command bar, not console
+    local success, err = pcall(function()
+        -- Press the Turkish ş key (comma key) to open command bar
+        VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Comma, false, Enum.UserInputType.Keyboard)
+        Utils.safeWait(0.1)
+        VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Comma, false, Enum.UserInputType.Keyboard)
+        Utils.safeWait(0.3) -- Wait for command bar to appear
+        
+        State.commandBarOpen = true
+        State.lastCommandTime = tick()
+    end)
+    
+    if not success then
+        Logger.error("Failed to open command bar", err)
+        return false
+    end
+    
+    return true
+end
+
+function CommandSystem.simulateHumanTyping(text)
+    -- Human-like typing with natural variations
+    for i = 1, #text do
+        local char = text:sub(i, i)
+        VirtualInputManager:SendTextInputCharacterEvent(char)
+        
+        -- Add human-like typing variance
+        local baseDelay = State.isLDPlayer and CONFIG.CHAR_DELAY * 1.5 or CONFIG.CHAR_DELAY
+        local variance = (math.random() - 0.5) * CONFIG.HUMAN_TYPING_VARIANCE
+        local delay = math.max(0.01, baseDelay + variance)
+        
+        Utils.safeWait(delay)
+    end
+end
+
 function CommandSystem.simulateInput(command)
     local retries = 0
     
     while retries < CONFIG.MAX_RETRIES do
         local success, err = pcall(function()
-            -- Press comma key with proper error handling
-            VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Comma, false, Enum.UserInputType.Keyboard)
-            Utils.safeWait(0.1)
-            VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Comma, false, Enum.UserInputType.Keyboard)
-            Utils.safeWait(0.2)
-            
-            -- Type command with adaptive delay for LDPlayer
-            local charDelay = State.isLDPlayer and CONFIG.CHAR_DELAY * 1.5 or CONFIG.CHAR_DELAY
-            
-            for i = 1, #command do
-                local char = command:sub(i, i)
-                VirtualInputManager:SendTextInputCharacterEvent(char)
-                Utils.safeWait(charDelay)
+            -- Ensure command bar is open
+            if not CommandSystem.ensureCommandBarOpen() then
+                error("Failed to open command bar")
             end
             
+            -- Clear any existing text in command bar
+            VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.A, false, Enum.UserInputType.Keyboard, true) -- Ctrl+A
+            Utils.safeWait(0.05)
+            VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.A, false, Enum.UserInputType.Keyboard, true)
+            Utils.safeWait(0.05)
+            
+            -- Type the command with human-like behavior
+            CommandSystem.simulateHumanTyping(command)
             Utils.safeWait(0.1)
             
-            -- Press Enter
+            -- Press Enter to execute
             VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Return, false, Enum.UserInputType.Keyboard)
             Utils.safeWait(0.1)
             VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Return, false, Enum.UserInputType.Keyboard)
+            
+            State.commandBarOpen = false
         end)
         
         if success then
@@ -359,6 +410,82 @@ function CommandSystem.simulateInput(command)
     if retries >= CONFIG.MAX_RETRIES then
         Logger.error("Command failed after max retries: " .. command)
     end
+end
+
+-- Player Detection and Management System
+local PlayerManager = {}
+
+function PlayerManager.isNewAccount(player)
+    if not player or not player.AccountAge then
+        return false
+    end
+    return player.AccountAge <= CONFIG.NEW_ACCOUNT_THRESHOLD
+end
+
+function PlayerManager.shouldProcessPlayer(player)
+    if not player then return false end
+    
+    local playerId = tostring(player.UserId)
+    local serverKey = State.currentServerId .. "_" .. playerId
+    
+    -- Check if account used stop keyword
+    if State.stoppedAccounts[playerId] then
+        return false
+    end
+    
+    -- Check if already processed in this server
+    if State.processedAccounts[serverKey] then
+        return false
+    end
+    
+    -- Check if currently being looped
+    if State.loopedAccounts[playerId] then
+        return false
+    end
+    
+    return PlayerManager.isNewAccount(player)
+end
+
+function PlayerManager.markPlayerProcessed(player)
+    if not player then return end
+    
+    local playerId = tostring(player.UserId)
+    local serverKey = State.currentServerId .. "_" .. playerId
+    
+    State.processedAccounts[serverKey] = true
+    State.loopedAccounts[playerId] = true
+    
+    Logger.info("Marked player as processed: " .. player.Name .. " (Age: " .. player.AccountAge .. " days)")
+end
+
+function PlayerManager.stopPlayerLoop(player)
+    if not player then return end
+    
+    local playerId = tostring(player.UserId)
+    
+    -- Remove from looped accounts
+    State.loopedAccounts[playerId] = nil
+    
+    -- Add to stopped accounts (global across servers)
+    State.stoppedAccounts[playerId] = true
+    
+    Logger.info("Stopped looping for player: " .. player.Name .. " (Stop keyword used)")
+end
+
+function PlayerManager.checkStopKeyword(player, message)
+    if not player or not message then return false end
+    
+    -- Check for exact stop keyword
+    if message == CONFIG.STOP_KEYWORD then
+        PlayerManager.stopPlayerLoop(player)
+        
+        -- Execute unloop command immediately
+        CommandSystem.executeCommand("unloop " .. player.Name)
+        
+        return true
+    end
+    
+    return false
 end
 
 -- Bot Initialization with Enhanced Error Handling
@@ -507,9 +634,13 @@ function DetectionSystem.checkNewPlayers()
             if player.Name == botOwner then continue end
             if Utils.isWhitelisted(player.Name) then continue end
             
-            local accountAge = BotSystem.checkAccountAge(player)
-            if accountAge == 0 then
+            -- Use enhanced player management system
+            if PlayerManager.shouldProcessPlayer(player) then
                 Logger.info("0-day account detected: " .. player.Name .. "! Adding to loopkills...")
+                
+                -- Mark as processed to prevent retriggering in this server
+                PlayerManager.markPlayerProcessed(player)
+                
                 Utils.addToLoopkills(player.Name)
                 CommandSystem.executeCommand("inf^0.1^loopkill @" .. player.Name)
                 CommandSystem.executeCommand("inf^0.1^loopgoto @" .. player.Name .. " 0")
@@ -582,6 +713,41 @@ local function setupEventConnections()
         DetectionSystem.checkNewPlayers()
         DetectionSystem.setupPlayerEvents(player)
     end)
+    
+    -- Chat monitoring for stop keyword
+    if TextChatService then
+        -- New TextChatService (2023+)
+        TextChatService.MessageReceived:Connect(function(message)
+            local success, err = pcall(function()
+                if message.TextSource then
+                    local player = Players:GetPlayerByUserId(message.TextSource.UserId)
+                    if player then
+                        PlayerManager.checkStopKeyword(player, message.Text)
+                    end
+                end
+            end)
+            
+            if not success then
+                Logger.error("Error processing chat message", err)
+            end
+        end)
+    else
+        -- Legacy chat system fallback
+        Players.PlayerAdded:Connect(function(player)
+            player.Chatted:Connect(function(message)
+                PlayerManager.checkStopKeyword(player, message)
+            end)
+        end)
+        
+        -- Setup for existing players
+        for _, player in pairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer then
+                player.Chatted:Connect(function(message)
+                    PlayerManager.checkStopKeyword(player, message)
+                end)
+            end
+        end
+    end
     
     -- Setup events for existing players
     for _, player in pairs(Players:GetPlayers()) do
