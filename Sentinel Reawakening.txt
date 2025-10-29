@@ -1,16 +1,16 @@
 local Config = {
-    OWNERS = {"MEV"},
-    MODS = {"MEV"},
+    OWNERS = {"HollowGol"},
+    MODS = {"STEVETheReal916", "ColonThreeSpam", "SpawnYellow2", "SpawnBlack1", "s71pl", "Jacobthecool292", "babyyodasonglol", "forhelpingboi8", "Kandale_Dingul", "redalert_E", "fariahoque28", "baze15651", "well_ihateboblux", "0bj687Alt"},
     Looplist = {},
 
     -- Time in seconds before the bot starts its main loop after joining.
-    INITIAL_WAIT_TIME = 5,
+    INITIAL_WAIT_TIME = 7.5,
 
     -- Time in seconds during which automated detections are inactive after INITIAL_WAIT_TIME.
-    GRACE_PERIOD_TIME = 10,
+    GRACE_PERIOD_TIME = 5,
 
     -- Distance in studs for kill detection. Kills beyond this distance are considered suspicious.
-    KILL_DISTANCE = 50,
+    KILL_DISTANCE = 15,
 
     -- Distance in studs for automated looping detection after grace period.
     LOOP_KILL_DISTANCE = 24,
@@ -19,15 +19,15 @@ local Config = {
     LOOPLIST_FILE_NAME = "SentinelLooplist.json",
 
     -- Phrase that, when chatted by a looped player, temporarily unloops them.
-    UNLOOP_PHRASE = "unloop me sentinel",
+    UNLOOP_PHRASE = "Qpmbsjbvt",
 
     -- Minimum number of non-whitelisted players required in a server to prevent server hopping.
     PLAYER_COUNT_THRESHOLD = 2,
 
     -- Multi-kill detection parameters
-    MULTI_KILL_WINDOW = 5, -- Time window in seconds to detect multiple kills
-    MULTI_KILL_THRESHOLD = 3, -- Number of kills within the window to trigger detection
-    MULTI_KILL_DISTANCE = 20, -- Kills beyond this distance contribute to multi-kill detection
+    MULTI_KILL_WINDOW = 0.25, -- Time window in seconds to detect multiple kills
+    MULTI_KILL_THRESHOLD = 2, -- Number of kills within the window to trigger detection
+    MULTI_KILL_DISTANCE = 25, -- Kills beyond this distance contribute to multi-kill detection
     RecentKills = {},
 
     -- Fling detection parameters
@@ -59,11 +59,23 @@ function Modules.Utils.normalizeForCompare(name)
     return name:lower()
 end
 
--- Function to send commands to the executor (placeholder)
+local UserInputService = game:GetService("UserInputService")
+
 function Modules.Commands.send_command(command)
     -- In a real scenario, this would interface with an external command executor.
-    -- For now, we'll just print the command.
-    print("EXECUTOR COMMAND: " .. command)
+    -- For now, we'll assume a global function provided by the executor.
+    if _G.game and _G.game.execute_command then
+        _G.game.execute_command(command)
+    else
+        print("EXECUTOR COMMAND (no _G.game.execute_command found): " .. command)
+    end
+end
+
+function Modules.Commands.send_keypress_commands(commands)
+    for _, command_text in ipairs(commands) do
+        Modules.Commands.send_command(command_text)
+        task.wait(0.5) -- Cooldown after each command
+    end
 end
 
 -- Looplist Management
@@ -410,9 +422,27 @@ function Modules.GUI.create_looplist_gui()
     local player = game:GetService("Players").LocalPlayer
     local player_gui = player:WaitForChild("PlayerGui")
 
+    -- Toggle button for the entire GUI
+    local toggle_gui_button = Instance.new("TextButton")
+    toggle_gui_button.Name = "ToggleLooplistGUIButton"
+    toggle_gui_button.Size = UDim2.new(0, 100, 0, 30)
+    toggle_gui_button.Position = UDim2.new(0, 10, 0, 10) -- Top-left corner
+    toggle_gui_button.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+    toggle_gui_button.Text = "Toggle Looplist"
+    toggle_gui_button.TextColor3 = Color3.fromRGB(255, 255, 255)
+    toggle_gui_button.Font = Enum.Font.SourceSansBold
+    toggle_gui_button.TextSize = 14
+    toggle_gui_button.BorderSizePixel = 0
+    toggle_gui_button.Parent = player_gui
+
     local screen_gui = Instance.new("ScreenGui")
     screen_gui.Name = "LooplistScreenGui"
     screen_gui.Parent = player_gui
+    screen_gui.Enabled = false -- Start disabled
+
+    toggle_gui_button.MouseButton1Click:Connect(function()
+        screen_gui.Enabled = not screen_gui.Enabled
+    end)
 
     local main_frame = Instance.new("Frame")
     main_frame.Name = "LooplistFrame"
@@ -575,13 +605,31 @@ function Modules.GUI.create_looplist_gui()
 end
 
 local function startup_sequence()
-    Modules.Looplist.load_looplist()
     print("Sentinel AI initializing...")
-    wait(Config.INITIAL_WAIT_TIME)
+    Modules.Looplist.load_looplist()
+
+    -- Initial commands to send at startup
+    local initial_commands = {
+        "inf^5^tppos 0 -1000000 0",
+        "spawn",
+        "inf^0.1^loopkill [looplist]",
+        "inf^2^walkfling",
+        "inf^0.1^loopgoto [looplist] 0",
+        "instarespawn",
+        "novoid",
+        "antiban",
+        "lessfilter 1"
+    }
+    Modules.Commands.send_keypress_commands(initial_commands)
+
+    task.wait(Config.INITIAL_WAIT_TIME)
+
     print("Grace period active for " .. Config.GRACE_PERIOD_TIME .. " seconds.")
-    wait(Config.GRACE_PERIOD_TIME)
+    Config.GracePeriodActive = true
+    task.wait(Config.GRACE_PERIOD_TIME)
     Config.GracePeriodActive = false
     print("Grace period ended. All automated detections are now active.")
+
     Modules.GUI.create_looplist_gui()
 end
 
