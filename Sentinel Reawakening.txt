@@ -99,9 +99,7 @@ Modules.Looplist = {}
 Modules.Utils = {}
 
 function Modules.Utils.normalizeName(name)
-    if not name or name == "" then return nil end
-    return name:gsub("^@", "")
-end
+    if not name or name == "" then return nil     return name:gsub("^@", "")
 
 function Modules.Utils.normalizeForCompare(name)
     if not name or name == "" then return "" end
@@ -236,8 +234,7 @@ function Modules.Detection.handle_kill_detection(killer_username, victim_usernam
         Modules.Commands.send_command("kill @" .. killer_username)
     end
 
-    -- Automated looping detection (24+ studs after grace period)
-    -- This section handles automatic looping of players who kill from a distance greater than Config.LOOP_KILL_DISTANCE
+    -- Automated looping detection (24+ studs after grace period)   -- This section handles automatic looping of players who kill from a distance greater than Config.LOOP_KILL_DISTANCE
     -- after the initial grace period has ended.
     if not Config.GracePeriodActive and distance >= Config.LOOP_KILL_DISTANCE then
         print(killer_username .. " killed " .. victim_username .. " from " .. math.floor(distance) .. " studs after grace period. Looping them.")
@@ -245,29 +242,8 @@ function Modules.Detection.handle_kill_detection(killer_username, victim_usernam
         Modules.Commands.send_command("inf^0.1^loopkill @" .. killer_username)
         Modules.Commands.send_command("inf^0.1^loopgoto @" .. killer_username .. " 0")
     end
-end
 
--- Placeholder for hooking into kill events
--- This would typically involve monitoring player health changes or specific game events
--- For example, if there's a 'PlayerDied' event, you'd connect to it and get killer/victim info.
--- game:GetService("Players").PlayerAdded:Connect(function(player)
---     player.CharacterAdded:Connect(function(character)
---         local humanoid = character:WaitForChild("Humanoid")
---         humanoid.Died:Connect(function()
---             -- Logic to determine killer and victim, and their positions
---             local killer = -- get killer player object
---             local victim = player
---             if killer and victim then
---                 local killer_char = killer.Character
---                 local victim_char = victim.Character
---                 local dist = get_distance_between_characters(killer_char, victim_char)
---                 handle_kill_detection(killer.Name, victim.Name, dist)
---             end
---         end)
---     end)
--- end
-end
-
+-- Placeholder for kill event handling (logic moved to Modules.Detection.handle_kill_detection)
 function Modules.Utils.get_account_age_in_days(player)
     -- Calculates the age of a Roblox player's account in days.
     -- This is useful for detecting potentially suspicious new accounts.
@@ -297,11 +273,7 @@ function Modules.Detection.handle_account_age_detection(player)
     end
 end
 
--- Placeholder for hooking into player added events to check account age
--- game:GetService("Players").PlayerAdded:Connect(function(player)
---     handle_account_age_detection(player)
--- end
-end
+-- Placeholder for account age detection (logic moved to Modules.Detection.handle_account_age_detection)
 
 function Modules.Chat.handle_chat_unloop(player_name, message)
     -- Handles the unloop chat command. When a player chats the Config.UNLOOP_PHRASE,
@@ -356,25 +328,10 @@ function Modules.Detection.handle_multiple_kills_detection(killer_name, victim_n
             Modules.Commands.send_command("inf^0.1^loopkill @" .. killer_name)
             Modules.Commands.send_command("inf^0.1^loopgoto @" .. killer_name .. " 0")
             Config.RecentKills[killer_name] = {} -- Reset kill count after looping
-        end
+  --     end
     end
-end
 
--- Placeholder for hooking into kill events to check for multiple kills
--- game:GetService("Players").PlayerAdded:Connect(function(player)
---     player.CharacterAdded:Connect(function(character)
---         character.Humanoid.Died:Connect(function()
---             local killer = character.Humanoid:FindFirstChildOfClass("ObjectValue") -- Assuming killer is stored here
---             if killer and killer.Value then
---                 local killer_char = killer.Value.Character
---                 if killer_char then
---                     local distance = get_distance_between_characters(killer_char, character)
---                     handle_multiple_kills_detection(killer.Value.Name, player.Name, distance)
---                 end
---             end
---         end)
---     end
-    end
+-- Placeholder for multiple kills detection (logic moved to Modules.Detection.handle_multiple_kills_detection)
 end
 
 function Modules.Detection.handle_fling_detection(player, character)
@@ -394,28 +351,7 @@ function Modules.Detection.handle_fling_detection(player, character)
         print(player.Name .. " detected flinging. Applying kill command.")
         Modules.Commands.send_command("kill @" .. player.Name)
     end
-end
-        end
-    end
-end
-
--- Placeholder for continuously monitoring player velocities for fling detection
--- game:GetService("Players").PlayerAdded:Connect(function(player)
---     player.CharacterAdded:Connect(function(character)
---         -- You would typically use a loop or a RunService.Heartbeat connection here
---         -- to continuously check character.HumanoidRootPart.Velocity.Magnitude
---         -- For example:
---         -- local connection
---         -- connection = game:GetService("RunService").Heartbeat:Connect(function()
---         --     if character and character:FindFirstChildOfClass("HumanoidRootPart") then
---         --         handle_fling_detection(character)
---         --     else
---         --         connection:Disconnect()
---         --     end
---         -- end)
---     end)
--- end
-end
+-- Placeholder for fling detection (logic moved to Modules.Detection.handle_fling_detection)
 
 function Modules.Chat.handle_chat_commands(player_name, message)
     -- Processes chat commands prefixed with "sentinel".
@@ -502,13 +438,7 @@ function Modules.Chat.handle_chat_commands(player_name, message)
     end
 end
 
--- Placeholder for hooking into chat events
--- game:GetService("Players").PlayerAdded:Connect(function(player)
---     player.Chatted:Connect(function(message)
---         handle_chat_commands(player.Name, message)
---     end)
--- end
-end
+-- Placeholder for chat command handling (logic moved to Modules.Chat.handle_chat_commands)
 
 -- Server hopping logic
 function Modules.Utils.should_server_hop()
