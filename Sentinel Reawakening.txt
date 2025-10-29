@@ -172,31 +172,108 @@ end
 -- Forward declaration for Persistent to avoid nil calls in early helpers.
 -- These stubs are overridden by the full implementation later in the file.
 local Persistent = { entries = {}, loaded = false }
-function Persistent.isActive(_)
-    -- Until real implementation loads, treat as not active
-    return false
-end
-function Persistent.add(_, _, _, _)
-    return false
-end
-function Persistent.remove(_)
-end
-function Persistent.save()
-    return false
-end
+
+-- Persistent storage for looped users (extends forward-declared table above)
+
 function Persistent.load()
+    if not hasFilesystem() then Persistent.loaded = true; return true end
+    local folder = Config.PERSIST_DATA_FOLDER
+    if type(isfolder) == "function" and not isfolder(folder) then pcall(function() makefolder(folder) end) end
+    local path = Config.PERSIST_JSON_PATH
+    local ok, data = pcall(function() return readfile(path) end)
+    if not ok or not data or data == "" then Persistent.loaded = true; return true end
+    local decoded = decodeData(data)
+    if type(decoded) == "table" and decoded.entries then
+        Persistent.entries = decoded.entries
+        Persistent.loaded = true
+        -- Optional prune expired
+        Persistent.pruneExpired()
+        return true
+    end
     Persistent.loaded = true
     return true
 end
-function Persistent.getActiveNames(_)
-    return {}
+
+function Persistent.save()
+    if not hasFilesystem() then return false end
+    local blob = { entries = Persistent.entries }
+    local payload = encodeData(blob)
+    if not payload then return false end
+    local ok = pcall(function() writefile(Config.PERSIST_JSON_PATH, payload) end)
+    if not ok then print("[WARN] Persistent save failed") end
+    return ok
 end
+
+function Persistent.add(name, kind, ttl_sec, source)
+    local n = normalizeForCompare(name)
+    if n == "" or isWhitelisted(name) then return false end
+    local now = tick()
+    Persistent.entries[n] = {
+        username = name:gsub("^@", ""),
+        kind = kind or "permanent",
+        added_at = now,
+        ttl_sec = tonumber(ttl_sec) or 0,
+        active = true,
+        source = source or "manual",
+        last_applied = 0
+    }
+    Persistent.save()
+    return true
+end
+
+function Persistent.remove(name)
+    local n = normalizeForCompare(name)
+    if Persistent.entries[n] then
+        Persistent.entries[n] = nil
+        Persistent.save()
+    end
+end
+
+function Persistent.isActive(name)
+    local n = normalizeForCompare(name)
+    local e = Persistent.entries[n]
+    if not e or not e.active then return false end
+    if e.ttl_sec and e.ttl_sec > 0 then
+        return (tick() - e.added_at) <= e.ttl_sec
+    end
+    return true
+end
+
+function Persistent.getActiveNames(permanentOnly)
+    local out = {}
+    for _, e in pairs(Persistent.entries) do
+        if e.active and (not permanentOnly or e.kind == "permanent") then
+            if Persistent.isActive(e.username) then table.insert(out, e.username) end
+        end
+    end
+    table.sort(out)
+    return out
+end
+
 function Persistent.pruneExpired()
+    local changed = false
+    for k, e in pairs(Persistent.entries) do
+        if e.active and e.ttl_sec and e.ttl_sec > 0 then
+            if (tick() - e.added_at) > e.ttl_sec then
+                changed = true
+                Persistent.entries[k] = nil
+            end
+        end
+    end
+    if changed then Persistent.save() end
 end
+
 function Persistent.export()
-    return nil
+    return encodeData({ entries = Persistent.entries })
 end
-function Persistent.import(_)
+
+function Persistent.import(payload)
+    local decoded = decodeData(payload)
+    if type(decoded) == "table" and decoded.entries then
+        Persistent.entries = decoded.entries
+        Persistent.save()
+        return true
+    end
     return false
 end
 
@@ -1636,107 +1713,7 @@ end
 
 -- Persistent storage for looped users (extends forward-declared table above)
 
-function Persistent.load()
-    if not hasFilesystem() then Persistent.loaded = true; return true end
-    local folder = Config.PERSIST_DATA_FOLDER
-    if type(isfolder) == "function" and not isfolder(folder) then pcall(function() makefolder(folder) end) end
-    local path = Config.PERSIST_JSON_PATH
-    local ok, data = pcall(function() return readfile(path) end)
-    if not ok or not data or data == "" then Persistent.loaded = true; return true end
-    local decoded = decodeData(data)
-    if type(decoded) == "table" and decoded.entries then
-        Persistent.entries = decoded.entries
-        Persistent.loaded = true
-        -- Optional prune expired
-        Persistent.pruneExpired()
-        return true
-    end
-    Persistent.loaded = true
-    return true
-end
 
-function Persistent.save()
-    if not hasFilesystem() then return false end
-    local blob = { entries = Persistent.entries }
-    local payload = encodeData(blob)
-    if not payload then return false end
-    local ok = pcall(function() writefile(Config.PERSIST_JSON_PATH, payload) end)
-    if not ok then print("[WARN] Persistent save failed") end
-    return ok
-end
-
-function Persistent.add(name, kind, ttl_sec, source)
-    local n = normalizeForCompare(name)
-    if n == "" or isWhitelisted(name) then return false end
-    local now = tick()
-    Persistent.entries[n] = {
-        username = name:gsub("^@", ""),
-        kind = kind or "permanent",
-        added_at = now,
-        ttl_sec = tonumber(ttl_sec) or 0,
-        active = true,
-        source = source or "manual",
-        last_applied = 0
-    }
-    Persistent.save()
-    return true
-end
-
-function Persistent.remove(name)
-    local n = normalizeForCompare(name)
-    if Persistent.entries[n] then
-        Persistent.entries[n] = nil
-        Persistent.save()
-    end
-end
-
-function Persistent.isActive(name)
-    local n = normalizeForCompare(name)
-    local e = Persistent.entries[n]
-    if not e or not e.active then return false end
-    if e.ttl_sec and e.ttl_sec > 0 then
-        return (tick() - e.added_at) <= e.ttl_sec
-    end
-    return true
-end
-
-function Persistent.getActiveNames(permanentOnly)
-    local out = {}
-    for _, e in pairs(Persistent.entries) do
-        if e.active and (not permanentOnly or e.kind == "permanent") then
-            if Persistent.isActive(e.username) then table.insert(out, e.username) end
-        end
-    end
-    table.sort(out)
-    return out
-end
-
-function Persistent.pruneExpired()
-    local changed = false
-    for k, e in pairs(Persistent.entries) do
-        if e.active and e.ttl_sec and e.ttl_sec > 0 then
-            if (tick() - e.added_at) > e.ttl_sec then
-                changed = true
-                Persistent.entries[k] = nil
-            end
-        end
-    end
-    if changed then Persistent.save() end
-end
-
-function Persistent.export()
-    return encodeData({ entries = Persistent.entries })
-end
-
-function Persistent.import(payload)
-    local decoded = decodeData(payload)
-    if type(decoded) == "table" and decoded.entries then
-        Persistent.entries = decoded.entries
-        Persistent.save()
-        return true
-    end
-    return false
-end
 -- Looplist UI (in-game, copiable/exportable)
 local function setclipboardSafe(text)
     local ok = pcall(function()
