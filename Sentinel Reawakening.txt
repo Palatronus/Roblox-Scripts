@@ -1,36 +1,3 @@
---[[ 
-    Sentinel AI - Advanced Anti-Exploit and Player Management System
-
-    This script provides a robust framework for detecting and managing exploiters
-    and problematic players within a Roblox game. It includes features such as:
-    - Automated detection for various exploits (e.g., fling, multiple kills, new accounts).
-    - Player looping and unlooping functionalities.
-    - Chat command processing for administrative actions.
-    - Server hopping utility.
-    - Whitelisting and permission management.
-    - Persistent looplist storage.
-
-    Key Modules:
-    - Modules.Config: Centralized configuration settings.
-    - Modules.Permissions: Manages player permissions (owner, mod, whitelisted).
-    - Modules.Detection: Contains logic for various exploit detections.
-    - Modules.Commands: Handles sending commands to the game executor.
-    - Modules.Looplist: Manages the persistent list of looped players.
-    - Modules.Utils: Provides utility functions like account age retrieval and server hopping.
-    - Modules.Chat: Processes chat messages for commands and unloop phrases.
-
-    Dependencies:
-    - Roblox HttpService for JSON encoding/decoding.
-    - Roblox TeleportService for server hopping.
-    - Executor-specific functions for file I/O (readfile, writefile) and command execution (send_command).
-
-    Usage:
-    This script is designed to be injected and run within a Roblox game environment
-    using a compatible executor. Configuration can be adjusted in Modules.Config.
-
-    Last Updated: 2024-05-15
-]]
-
 -- Global Configuration for Sentinel AI
 local Config = {
     -- Whitelist (using tables as sets for efficient lookups)
@@ -101,6 +68,7 @@ Modules.Utils = {}
 function Modules.Utils.normalizeName(name)
     if not name or name == "" then return nil end
     return name:gsub("^@", "")
+end
 
 function Modules.Utils.normalizeForCompare(name)
     if not name or name == "" then return "" end
