@@ -59,23 +59,192 @@ function Modules.Utils.normalizeForCompare(name)
     return name:lower()
 end
 
-local UserInputService = game:GetService("UserInputService")
+local State = {
+    commandBarFocused = false,
+    commandBarTextBox = nil,
+}
 
-function Modules.Commands.send_command(command)
-    -- In a real scenario, this would interface with an external command executor.
-    -- For now, we'll assume a global function provided by the executor.
-    if _G.game and _G.game.execute_command then
-        _G.game.execute_command(command)
-    else
-        print("EXECUTOR COMMAND (no _G.game.execute_command found): " .. command)
+local VirtualInputManager = game:GetService("VirtualInputManager")
+local CoreGui = game:GetService("CoreGui")
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+
+local function safeWait(t)
+    if t > 0 then
+        task.wait(t)
     end
 end
 
-function Modules.Commands.send_keypress_commands(commands)
-    for _, command_text in ipairs(commands) do
-        Modules.Commands.send_command(command_text)
-        task.wait(0.5) -- Cooldown after each command
+-- ========================================
+-- COMMAND EXECUTION SYSTEM
+-- ========================================
+
+local CommandSystem = {}
+
+function CommandSystem.findCommandBar()
+    -- Look for Infinite Yield command bar
+    local function searchForCommandBar(parent)
+        for _, child in pairs(parent:GetChildren()) do
+            if child:IsA("TextBox") then
+                local name = string.lower(child.Name)
+                if string.find(name, "command") or string.find(name, "cmd") or string.find(name, "bar") then
+                    return child
+                end
+            end
+            if child:IsA("GuiObject") and #child:GetChildren() > 0 then
+                local found = searchForCommandBar(child)
+                if found then return found end
+            end
+        end
+        return nil
     end
+    
+    -- Search in CoreGui first (where IY usually places its GUI)
+    local commandBar = searchForCommandBar(CoreGui)
+    if commandBar then
+        State.commandBarTextBox = commandBar
+        return commandBar
+    end
+    
+    -- Search in PlayerGui as fallback
+    if LocalPlayer.PlayerGui then
+        commandBar = searchForCommandBar(LocalPlayer.PlayerGui)
+        if commandBar then
+            State.commandBarTextBox = commandBar
+            return commandBar
+        end
+    end
+    
+    return nil
+end
+
+function CommandSystem.pressKey(keyCode)
+    local success = pcall(function()
+        VirtualInputManager:SendKeyEvent(true, keyCode, false, game)
+        safeWait(0.05)
+        VirtualInputManager:SendKeyEvent(false, keyCode, false, game)
+    end)
+    return success
+end
+
+function CommandSystem.typeText(text)
+    -- If we have a direct reference to the command bar, use it
+    if State.commandBarTextBox and State.commandBarTextBox.Parent then
+        local success = pcall(function()
+            State.commandBarTextBox.Text = text
+        end)
+        if success then return true end
+    end
+    
+    -- Fallback to virtual input
+    local success = pcall(function()
+        for i = 1, #text do
+            local char = text:sub(i, i)
+            VirtualInputManager:SendTextInputCharacterEvent(char, game)
+            safeWait(math.random(0.01 * 100, 0.05 * 100) / 100) -- Using SecurityBot's default CHAR_DELAY_MIN/MAX
+        end
+    end)
+    return success
+end
+
+function CommandSystem.openCommandBar()
+    -- First try to find the command bar
+    local commandBar = CommandSystem.findCommandBar()
+    if commandBar then
+        local success = pcall(function()
+            commandBar:CaptureFocus()
+        end)
+        if success then
+            State.commandBarFocused = true
+            return true
+        end
+    end
+    
+    -- Fallback to keypress method
+    local attempts = 0
+    local maxAttempts = 3
+    
+    while attempts < maxAttempts do
+        attempts = attempts + 1
+        
+        -- Try primary key (using RightShift as a common toggle)
+        if CommandSystem.pressKey(Enum.KeyCode.RightShift) then
+            safeWait(0.3)
+            -- Try to find command bar again after keypress
+            commandBar = CommandSystem.findCommandBar()
+            if commandBar then
+                State.commandBarTextBox = commandBar
+                State.commandBarFocused = true
+                return true
+            end
+        end
+        
+        -- Try fallback keys (using SecurityBot's default fallbacks)
+        for _, fallback in pairs({"Comma", "Backquote", "Quote", "Slash"}) do
+            local keyCode = Enum.KeyCode[fallback]
+            if keyCode and CommandSystem.pressKey(keyCode) then
+                safeWait(0.3)
+                commandBar = CommandSystem.findCommandBar()
+                if commandBar then
+                    State.commandBarTextBox = commandBar
+                    State.commandBarFocused = true
+                    return true
+                end
+            end
+        end
+        
+        safeWait(0.5)
+    end
+    
+    return false
+end
+
+function CommandSystem.executeCommand(command)
+    if not command or command == "" then return false end
+    
+    print("[CMD] Executing:", command)
+    
+    if not CommandSystem.openCommandBar() then
+        print("[ERROR] Failed to open command bar")
+        return false
+    end
+    
+    safeWait(0.1)
+    
+    if not CommandSystem.typeText(command) then
+        print("[ERROR] Failed to type command")
+        return false
+    end
+    
+    safeWait(0.1)
+    
+    if not CommandSystem.pressKey(Enum.KeyCode.Return) then
+        print("[ERROR] Failed to press Enter")
+        return false
+    end
+    
+    safeWait(0.1) -- Using SecurityBot's default COMMAND_DELAY
+    State.commandBarFocused = false
+    return true
+end
+
+function CommandSystem.executeSequence(commands)
+    for i, cmd in ipairs(commands) do
+        if not CommandSystem.executeCommand(cmd) then
+            print("[ERROR] Failed to execute command", i, ":", cmd)
+            return false
+        end
+    end
+    return true
+end
+
+function Modules.Commands.send_command(command)
+    -- Use the integrated CommandSystem to execute commands
+    CommandSystem.executeCommand(command)
+end
+
+function Modules.Commands.send_keypress_commands(commands)
+    CommandSystem.executeSequence(commands)
 end
 
 -- Looplist Management
@@ -438,7 +607,7 @@ function Modules.GUI.create_looplist_gui()
     local screen_gui = Instance.new("ScreenGui")
     screen_gui.Name = "LooplistScreenGui"
     screen_gui.Parent = player_gui
-    screen_gui.Enabled = false -- Start disabled
+    screen_gui.Enabled = true -- Start enabled by default
 
     toggle_gui_button.MouseButton1Click:Connect(function()
         screen_gui.Enabled = not screen_gui.Enabled
