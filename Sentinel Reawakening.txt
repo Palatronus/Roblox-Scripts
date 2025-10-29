@@ -99,7 +99,8 @@ Modules.Looplist = {}
 Modules.Utils = {}
 
 function Modules.Utils.normalizeName(name)
-    if not name or name == "" then return nil     return name:gsub("^@", "")
+    if not name or name == "" then return nil end
+    return name:gsub("^@", "")
 
 function Modules.Utils.normalizeForCompare(name)
     if not name or name == "" then return "" end
