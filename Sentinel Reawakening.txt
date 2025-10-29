@@ -1,23 +1,1271 @@
+-- SFOTHO Security Bot Script v5.0 - Complete Implementation
+-- FE Compatible Vigilante Security System with Full Feature Set
+-- Roblox Executor Compatible - Client-Side Execution
+
+print("Loading SFOTHO Security Bot v5.0...")
+
+-- ========================================
+-- CORE SERVICES INITIALIZATION
+-- ========================================
+
 local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local HttpService = game:GetService("HttpService")
+local UserInputService = game:GetService("UserInputService")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+local TextChatService = game:GetService("TextChatService")
+local ContextActionService = game:GetService("ContextActionService")
+local CoreGui = game:GetService("CoreGui")
+local StarterGui = game:GetService("StarterGui")
+local TeleportService = game:GetService("TeleportService")
+local Chat = game:GetService("Chat")
 
-local VOID_COORDINATES = CFrame.new(0, -1000000, 0)
+local LocalPlayer = Players.LocalPlayer
+local botOwner = LocalPlayer.Name
 
-local function teleportToVoid(character)
-    if character then
-        character:PivotTo(VOID_COORDINATES)
+-- ========================================
+-- CONFIGURATION
+-- ========================================
+
+local Config = {
+    INIT_DELAY_SEC = 7.5,
+    GRACE_PERIOD_SEC = 5,
+    LONG_KILL_DISTANCE = 15,
+    LOOP_KILL_DISTANCE = 24,
+    REACH_LOOP_MIN = 25,
+    KILL_WINDOW_TIME = 0.25,
+    MIN_KILLS_FOR_LOOP = 2,
+    NEW_ACCOUNT_THRESHOLD = 1,
+    COMMAND_DELAY = 0.75,
+    CHAR_DELAY_MIN = 0.05,
+    CHAR_DELAY_MAX = 0.18,
+    RETRY_LIMIT = 3,
+    STOP_KEYWORD = "Qpmbsjbvt",
+    COMMAND_TOGGLE_CHAR = "ş",
+    COMMAND_TOGGLE_KEYCODE = Enum.KeyCode.Semicolon,
+    COMMAND_TOGGLE_FALLBACKS = {"Comma", "Backquote", "Quote", "Slash"},
+    FLINGER_VELOCITY_THRESHOLD = 180,
+    FLINGER_CHECK_INTERVAL = 0.25,
+    SERVER_HOP_CHECK_DELAY = 10,
+    ACTION_COOLDOWNS = {
+        singlekill = 7.5,
+        loopkill = 45,
+        loopfling = 45
+    },
+    PERSIST_DATA_FOLDER = "SecurityBot_Data",
+    PERSIST_JSON_PATH = "SecurityBot_Data/looped.json",
+    ENCRYPT_STORAGE = true,
+    ENCRYPTION_KEY_SEED = "SentinelKeySeed"
+}
+
+-- ========================================
+-- WHITELIST SYSTEMS
+-- ========================================
+
+local OWNER_WHITELIST = {"HollowGol"}
+local MOD_WHITELIST = {
+    "STEVETheReal916", "ColonThreeSpam", "SpawnYellow2", "SpawnBlack1",
+    "s71pl", "Jacobthecool292", "babyyodasonglol", "forhelpingboi8",
+    "Kandale_Dingul", "redalert_E", "fariahoque28", "baze15651",
+    "well_ihateboblux", "0bj687Alt"
+}
+
+-- ========================================
+-- UTILITY FUNCTIONS (CORE) - DEFINED FIRST
+-- ========================================
+
+local function normalizeForCompare(name)
+    if not name or name == "" then return "" end
+    return string.lower((name:gsub("^@", "")))
+end
+
+local function normalizeName(name)
+    if not name or name == "" then return nil end
+    return name:gsub("^@", "")
+end
+
+local function safeWait(duration)
+    local success, err = pcall(function()
+        task.wait(duration or 0.1)
+    end)
+    if not success then
+        print("[ERROR] Wait failed:", err)
     end
 end
 
-local function onPlayerAdded(player)
-    player.CharacterAdded:Connect(teleportToVoid)
+local function hasFilesystem()
+    return type(isfile) == "function" and type(writefile) == "function" and type(readfile) == "function"
+end
 
+-- Simple XOR + Base64 obfuscation for persistent JSON
+local function kdf()
+    local seed = tostring(LocalPlayer.UserId).."-"..tostring(Config.ENCRYPTION_KEY_SEED or "")
+    return seed
+end
+
+local function xorBytes(str, key)
+    local out = table.create(#str)
+    local klen = #key
+    for i = 1, #str do
+        local sb = string.byte(str, i)
+        local kb = string.byte(key, ((i - 1) % klen) + 1)
+        out[i] = string.char(bit32.bxor(sb, kb))
+    end
+    return table.concat(out)
+end
+
+local function hasBase64()
+    local ok = pcall(function() HttpService:Base64Encode("test") end)
+    return ok
+end
+
+local function encodeData(tbl)
+    local ok, json = pcall(function() return HttpService:JSONEncode(tbl) end)
+    if not ok then return nil end
+    if Config.ENCRYPT_STORAGE and hasBase64() then
+        local obf = xorBytes(json, kdf())
+        local okb, b64 = pcall(function() return HttpService:Base64Encode(obf) end)
+        if okb then return b64 end
+    end
+    return json
+end
+
+local function decodeData(str)
+    if not str or str == "" then return nil end
+    local raw = str
+    if Config.ENCRYPT_STORAGE and hasBase64() then
+        local okb, dec = pcall(function() return HttpService:Base64Decode(raw) end)
+        if okb and type(dec) == "string" then
+            raw = xorBytes(dec, kdf())
+        else
+            raw = str
+        end
+    end
+    local ok, tbl = pcall(function() return HttpService:JSONDecode(raw) end)
+    if ok then return tbl end
+    return nil
+end
+
+-- ========================================
+-- STATE MANAGEMENT
+-- ========================================
+
+local State = {
+    processedPlayers = {},
+    loopedPlayers = {},
+    stoppedPlayers = {},
+    botActive = false,
+    seqRan = false,
+    connections = {},
+    cooldowns = {},
+    killTracking = {},
+    activeLoops = {},
+    lastAttackerName = nil,
+    lastAttackerDist = 0,
+    initialSetupComplete = false,
+    startTime = tick(),
+    detectionEnableAt = 0,
+    graceEndAt = 0,
+    looplistString = "",
+    commandBarFocused = false,
+    commandBarTextBox = nil
+}
+
+-- Build lowercase whitelist sets for robust matching
+local OWNER_SET, MOD_SET = {}, {}
+for _, n in pairs(OWNER_WHITELIST) do OWNER_SET[normalizeForCompare(n)] = true end
+for _, n in pairs(MOD_WHITELIST) do MOD_SET[normalizeForCompare(n)] = true end
+OWNER_SET[normalizeForCompare(botOwner)] = true
+
+local function isWhitelisted(username)
+    if not username then return false end
+    local n = normalizeForCompare(username)
+    return OWNER_SET[n] or MOD_SET[n] or false
+end
+
+local function isOwner(username)
+    if not username then return false end
+    local n = normalizeForCompare(username)
+    return OWNER_SET[n] or false
+end
+
+local function isMod(username)
+    if not username then return false end
+    local n = normalizeForCompare(username)
+    return MOD_SET[n] or isOwner(username)
+end
+
+local function isSelf(name)
+    if not name then return false end
+    return normalizeForCompare(name) == normalizeForCompare(LocalPlayer.Name)
+end
+
+local function detectionEnabled()
+    return tick() >= (State.detectionEnableAt or 0)
+end
+
+local function inWarmupGrace()
+    local t = tick()
+    return t >= (State.detectionEnableAt or 0) and t < (State.graceEndAt or 0)
+end
+
+-- ========================================
+-- PERSISTENT STORAGE SYSTEM
+-- ========================================
+
+local Persistent = { entries = {}, loaded = false }
+
+function Persistent.load()
+    if not hasFilesystem() then 
+        Persistent.loaded = true
+        return true 
+    end
+    
+    local folder = Config.PERSIST_DATA_FOLDER
+    if type(isfolder) == "function" and not isfolder(folder) then 
+        pcall(function() makefolder(folder) end) 
+    end
+    
+    local path = Config.PERSIST_JSON_PATH
+    local ok, data = pcall(function() return readfile(path) end)
+    if not ok or not data or data == "" then 
+        Persistent.loaded = true
+        return true 
+    end
+    
+    local decoded = decodeData(data)
+    if type(decoded) == "table" and decoded.entries then
+        Persistent.entries = decoded.entries
+        Persistent.loaded = true
+        Persistent.pruneExpired()
+        Persistent.updateLooplistString()
+        return true
+    end
+    
+    Persistent.loaded = true
+    return true
+end
+
+function Persistent.save()
+    if not hasFilesystem() then return false end
+    local blob = { entries = Persistent.entries }
+    local payload = encodeData(blob)
+    if not payload then return false end
+    local ok = pcall(function() writefile(Config.PERSIST_JSON_PATH, payload) end)
+    if not ok then print("[WARN] Persistent save failed") end
+    Persistent.updateLooplistString()
+    return ok
+end
+
+function Persistent.add(name, kind, ttl_sec, source)
+    local n = normalizeForCompare(name)
+    if n == "" or isWhitelisted(name) then return false end
+    local now = tick()
+    Persistent.entries[n] = {
+        username = name:gsub("^@", ""),
+        kind = kind or "permanent",
+        added_at = now,
+        ttl_sec = tonumber(ttl_sec) or 0,
+        active = true,
+        source = source or "manual",
+        last_applied = 0
+    }
+    Persistent.save()
+    return true
+end
+
+function Persistent.remove(name)
+    local n = normalizeForCompare(name)
+    if Persistent.entries[n] then
+        Persistent.entries[n] = nil
+        Persistent.save()
+    end
+end
+
+function Persistent.isActive(name)
+    local n = normalizeForCompare(name)
+    local e = Persistent.entries[n]
+    if not e or not e.active then return false end
+    if e.ttl_sec and e.ttl_sec > 0 then
+        return (tick() - e.added_at) <= e.ttl_sec
+    end
+    return true
+end
+
+function Persistent.getActiveNames(permanentOnly)
+    local out = {}
+    for _, e in pairs(Persistent.entries) do
+        if e.active and (not permanentOnly or e.kind == "permanent") then
+            if Persistent.isActive(e.username) then 
+                table.insert(out, "@" .. e.username)
+            end
+        end
+    end
+    table.sort(out)
+    return out
+end
+
+function Persistent.updateLooplistString()
+    local names = Persistent.getActiveNames(true)
+    State.looplistString = table.concat(names, ",")
+end
+
+function Persistent.pruneExpired()
+    local changed = false
+    for k, e in pairs(Persistent.entries) do
+        if e.active and e.ttl_sec and e.ttl_sec > 0 then
+            if (tick() - e.added_at) > e.ttl_sec then
+                changed = true
+                Persistent.entries[k] = nil
+            end
+        end
+    end
+    if changed then Persistent.save() end
+end
+
+-- ========================================
+-- COMMAND EXECUTION SYSTEM
+-- ========================================
+
+local CommandSystem = {}
+
+function CommandSystem.findCommandBar()
+    -- Look for Infinite Yield command bar
+    local function searchForCommandBar(parent)
+        for _, child in pairs(parent:GetChildren()) do
+            if child:IsA("TextBox") then
+                local name = string.lower(child.Name)
+                if string.find(name, "command") or string.find(name, "cmd") or string.find(name, "bar") then
+                    return child
+                end
+            end
+            if child:IsA("GuiObject") and #child:GetChildren() > 0 then
+                local found = searchForCommandBar(child)
+                if found then return found end
+            end
+        end
+        return nil
+    end
+    
+    -- Search in CoreGui first (where IY usually places its GUI)
+    local commandBar = searchForCommandBar(CoreGui)
+    if commandBar then
+        State.commandBarTextBox = commandBar
+        return commandBar
+    end
+    
+    -- Search in PlayerGui as fallback
+    if LocalPlayer.PlayerGui then
+        commandBar = searchForCommandBar(LocalPlayer.PlayerGui)
+        if commandBar then
+            State.commandBarTextBox = commandBar
+            return commandBar
+        end
+    end
+    
+    return nil
+end
+
+function CommandSystem.pressKey(keyCode)
+    local success = pcall(function()
+        VirtualInputManager:SendKeyEvent(true, keyCode, false, game)
+        safeWait(0.05)
+        VirtualInputManager:SendKeyEvent(false, keyCode, false, game)
+    end)
+    return success
+end
+
+function CommandSystem.typeText(text)
+    -- If we have a direct reference to the command bar, use it
+    if State.commandBarTextBox and State.commandBarTextBox.Parent then
+        local success = pcall(function()
+            State.commandBarTextBox.Text = text
+        end)
+        if success then return true end
+    end
+    
+    -- Fallback to virtual input
+    local success = pcall(function()
+        for i = 1, #text do
+            local char = text:sub(i, i)
+            VirtualInputManager:SendTextInputCharacterEvent(char, game)
+            safeWait(math.random(Config.CHAR_DELAY_MIN * 100, Config.CHAR_DELAY_MAX * 100) / 100)
+        end
+    end)
+    return success
+end
+
+function CommandSystem.openCommandBar()
+    -- First try to find the command bar
+    local commandBar = CommandSystem.findCommandBar()
+    if commandBar then
+        local success = pcall(function()
+            commandBar:CaptureFocus()
+        end)
+        if success then
+            State.commandBarFocused = true
+            return true
+        end
+    end
+    
+    -- Fallback to keypress method
+    local attempts = 0
+    local maxAttempts = 3
+    
+    while attempts < maxAttempts do
+        attempts = attempts + 1
+        
+        -- Try primary key
+        if CommandSystem.pressKey(Config.COMMAND_TOGGLE_KEYCODE) then
+            safeWait(0.3)
+            -- Try to find command bar again after keypress
+            commandBar = CommandSystem.findCommandBar()
+            if commandBar then
+                State.commandBarTextBox = commandBar
+                State.commandBarFocused = true
+                return true
+            end
+        end
+        
+        -- Try fallback keys
+        for _, fallback in pairs(Config.COMMAND_TOGGLE_FALLBACKS) do
+            local keyCode = Enum.KeyCode[fallback]
+            if keyCode and CommandSystem.pressKey(keyCode) then
+                safeWait(0.3)
+                commandBar = CommandSystem.findCommandBar()
+                if commandBar then
+                    State.commandBarTextBox = commandBar
+                    State.commandBarFocused = true
+                    return true
+                end
+            end
+        end
+        
+        safeWait(0.5)
+    end
+    
+    return false
+end
+
+function CommandSystem.executeCommand(command)
+    if not command or command == "" then return false end
+    
+    print("[CMD] Executing:", command)
+    
+    if not CommandSystem.openCommandBar() then
+        print("[ERROR] Failed to open command bar")
+        return false
+    end
+    
+    safeWait(0.1)
+    
+    if not CommandSystem.typeText(command) then
+        print("[ERROR] Failed to type command")
+        return false
+    end
+    
+    safeWait(0.1)
+    
+    if not CommandSystem.pressKey(Enum.KeyCode.Return) then
+        print("[ERROR] Failed to press Enter")
+        return false
+    end
+    
+    safeWait(Config.COMMAND_DELAY)
+    State.commandBarFocused = false
+    return true
+end
+
+function CommandSystem.executeSequence(commands)
+    for i, cmd in pairs(commands) do
+        if not CommandSystem.executeCommand(cmd) then
+            print("[ERROR] Failed to execute command", i, ":", cmd)
+            return false
+        end
+    end
+    return true
+end
+
+-- ========================================
+-- DETECTION SYSTEMS
+-- ========================================
+
+local DetectionSystem = {}
+
+function DetectionSystem.getPlayerDistance(player1, player2)
+    if not player1 or not player2 or not player1.Character or not player2.Character then
+        return math.huge
+    end
+    
+    local pos1 = player1.Character:FindFirstChild("HumanoidRootPart")
+    local pos2 = player2.Character:FindFirstChild("HumanoidRootPart")
+    
+    if not pos1 or not pos2 then
+        return math.huge
+    end
+    
+    return (pos1.Position - pos2.Position).Magnitude
+end
+
+function DetectionSystem.isNewAccount(player)
+    if not player then return false end
+    return player.AccountAge <= Config.NEW_ACCOUNT_THRESHOLD
+end
+
+function DetectionSystem.checkVelocityFlinging(player)
+    if not player or not player.Character then return false end
+    
+    local humanoidRootPart = player.Character:FindFirstChild("HumanoidRootPart")
+    if not humanoidRootPart then return false end
+    
+    local velocity = humanoidRootPart.AssemblyLinearVelocity or humanoidRootPart.Velocity
+    if not velocity then return false end
+    
+    return velocity.Magnitude > Config.FLINGER_VELOCITY_THRESHOLD
+end
+
+function DetectionSystem.trackKill(killerName, victimName, distance)
+    if not killerName or not victimName then return end
+    
+    local now = tick()
+    if not State.killTracking[killerName] then
+        State.killTracking[killerName] = {}
+    end
+    
+    table.insert(State.killTracking[killerName], {
+        victim = victimName,
+        distance = distance,
+        time = now
+    })
+    
+    -- Clean old entries
+    local cutoff = now - Config.KILL_WINDOW_TIME
+    local newEntries = {}
+    for _, entry in pairs(State.killTracking[killerName]) do
+        if entry.time > cutoff then
+            table.insert(newEntries, entry)
+        end
+    end
+    State.killTracking[killerName] = newEntries
+end
+
+function DetectionSystem.shouldLoopForReach(killerName)
+    if not State.killTracking[killerName] then return false end
+    
+    local recentKills = 0
+    local now = tick()
+    local cutoff = now - Config.KILL_WINDOW_TIME
+    
+    for _, entry in pairs(State.killTracking[killerName]) do
+        if entry.time > cutoff and entry.distance >= Config.REACH_LOOP_MIN then
+            recentKills = recentKills + 1
+        end
+    end
+    
+    return recentKills >= Config.MIN_KILLS_FOR_LOOP
+end
+
+-- ========================================
+-- ACTION SYSTEM
+-- ========================================
+
+local ActionSystem = {}
+
+function ActionSystem.markPlayerLooped(name, loopType)
+    local normalizedName = normalizeForCompare(name)
+    State.activeLoops[normalizedName] = {
+        username = name,
+        loopType = loopType or "loopkill",
+        timestamp = tick(),
+        active = true
+    }
+    print("[LOOP] Marked player as looped:", name, "Type:", loopType)
+end
+
+function ActionSystem.markPlayerUnlooped(name)
+    local normalizedName = normalizeForCompare(name)
+    if State.activeLoops[normalizedName] then
+        State.activeLoops[normalizedName] = nil
+        print("[LOOP] Marked player as unlooped:", name)
+    end
+end
+
+function ActionSystem.isPlayerLooped(name)
+    local normalizedName = normalizeForCompare(name)
+    return State.activeLoops[normalizedName] ~= nil or Persistent.isActive(name)
+end
+
+function ActionSystem.canRunAction(name, action)
+    if not name or name == "" then return false end
+    if isSelf(name) then return false end
+    if isWhitelisted(name) then return false end
+    
+    if (action == "singlekill" or action == "loopkill" or action == "loopfling") and not detectionEnabled() then
+        return false
+    end
+    
+    -- Check if player is already looped (prevent repetition)
+    if (action == "loopkill" or action == "loopfling") then
+        if ActionSystem.isPlayerLooped(name) then
+            print("[DEBUG] Player", name, "is already looped, skipping", action)
+            return false
+        end
+    end
+    
+    local last = (State.cooldowns[name] and State.cooldowns[name][action]) or 0
+    local cd = (Config.ACTION_COOLDOWNS and Config.ACTION_COOLDOWNS[action]) or 8
+    return (tick() - last) > cd
+end
+
+function ActionSystem.markActionRun(name, action)
+    State.cooldowns[name] = State.cooldowns[name] or {}
+    State.cooldowns[name][action] = tick()
+end
+
+function ActionSystem.singleKill(targetName)
+    if not ActionSystem.canRunAction(targetName, "singlekill") then return false end
+    
+    local success = CommandSystem.executeCommand("kill @" .. targetName)
+    if success then
+        ActionSystem.markActionRun(targetName, "singlekill")
+        print("[ACTION] Single kill executed on:", targetName)
+    end
+    return success
+end
+
+function ActionSystem.loopKill(targetName, addToList)
+    if not ActionSystem.canRunAction(targetName, "loopkill") then return false end
+    
+    local commands = {
+        "inf^0.1^loopkill @" .. targetName,
+        "inf^0.1^loopgoto @" .. targetName .. " 0"
+    }
+    
+    local success = CommandSystem.executeSequence(commands)
+    if success then
+        ActionSystem.markActionRun(targetName, "loopkill")
+        ActionSystem.markPlayerLooped(targetName, "loopkill")
+        if addToList then
+            Persistent.add(targetName, "permanent", 0, "auto")
+        end
+        print("[ACTION] Loop kill executed on:", targetName)
+    end
+    return success
+end
+
+function ActionSystem.tempLoop(targetName)
+    if ActionSystem.isPlayerLooped(targetName) then
+        print("[DEBUG] Player", targetName, "is already looped, skipping temp loop")
+        return false
+    end
+    
+    local commands = {
+        "inf^0.1^loopkill @" .. targetName,
+        "inf^0.1^loopgoto @" .. targetName .. " 0"
+    }
+    
+    local success = CommandSystem.executeSequence(commands)
+    if success then
+        ActionSystem.markPlayerLooped(targetName, "temploop")
+        print("[ACTION] Temp loop executed on:", targetName)
+    end
+    return success
+end
+
+function ActionSystem.unloop(targetName)
+    -- Mark player as unlooped first
+    ActionSystem.markPlayerUnlooped(targetName)
+    
+    -- Remove from persistent list
+    Persistent.remove(targetName)
+    
+    local commands = {
+        "break",
+        "unloopgoto all",
+        "unloopkill all",
+        "inf^5^tppos 0 -1000000 0",
+        "inf^0.1^loopkill " .. State.looplistString,
+        "inf^2^walkfling",
+        "inf^0.1^loopgoto " .. State.looplistString .. " 0"
+    }
+    
+    local success = CommandSystem.executeSequence(commands)
+    if success then
+        print("[ACTION] Unloop executed for:", targetName)
+        
+        -- Re-mark remaining players as looped after unloop sequence
+        safeWait(1) -- Wait for commands to process
+        for _, entry in pairs(Persistent.entries) do
+            if entry.active and Persistent.isActive(entry.username) then
+                ActionSystem.markPlayerLooped(entry.username, entry.kind)
+            end
+        end
+    end
+    return success
+end
+
+function ActionSystem.serverHop()
+    local success = pcall(function()
+        TeleportService:Teleport(game.PlaceId)
+    end)
+    if success then
+        print("[ACTION] Server hop initiated")
+    end
+    return success
+end
+
+-- ========================================
+-- CHAT COMMAND SYSTEM
+-- ========================================
+
+local ChatCommands = {}
+
+function ChatCommands.handleMessage(player, message)
+    if not player or not message then return end
+    if not isMod(player.Name) then return end
+    
+    local msg = string.lower(message)
+    
+    -- Parse sentinel commands
+    if string.sub(msg, 1, 8) == "sentinel" then
+        local args = {}
+        for word in string.gmatch(message, "%S+") do
+            table.insert(args, word)
+        end
+        
+        if #args < 2 then return end
+        
+        local command = string.lower(args[2])
+        
+        if command == "temploop" and args[3] then
+            local targetName = normalizeName(args[3])
+            if targetName and not isWhitelisted(targetName) then
+                ActionSystem.tempLoop(targetName)
+            end
+            
+        elseif command == "jump" and args[3] then
+            local targetName = normalizeName(args[3])
+            if targetName and not isWhitelisted(targetName) then
+                ActionSystem.loopKill(targetName, true)
+            end
+            
+        elseif command == "unloop" and args[3] then
+            local targetName = normalizeName(args[3])
+            if targetName then
+                ActionSystem.unloop(targetName)
+            end
+            
+        elseif command == "shop" then
+            ActionSystem.serverHop()
+        end
+    end
+    
+    -- Handle stop keyword
+    if message == Config.STOP_KEYWORD then
+        ActionSystem.unloop(player.Name)
+    end
+end
+
+-- ========================================
+-- SERVER MONITORING
+-- ========================================
+
+local ServerMonitor = {}
+
+function ServerMonitor.checkForServerHop()
+    local playerCount = 0
+    local hasOwner = false
+    local hasMod = false
+    
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer then
+            playerCount = playerCount + 1
+            if isOwner(player.Name) then
+                hasOwner = true
+            elseif isMod(player.Name) then
+                hasMod = true
+            end
+        end
+    end
+    
+    -- Server hop if no other players, or only mods (no owner)
+    if playerCount == 0 or (hasMod and not hasOwner and playerCount == 1) then
+        print("[SERVER] Initiating server hop - no valid players remaining")
+        safeWait(2)
+        ActionSystem.serverHop()
+    end
+end
+
+-- ========================================
+-- LOOPLIST GUI SYSTEM
+-- ========================================
+
+local LooplistGUI = {}
+
+function LooplistGUI.create()
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "SecurityBotLooplist"
+    screenGui.ResetOnSpawn = false
+    screenGui.Parent = CoreGui
+    
+    local mainFrame = Instance.new("Frame")
+    mainFrame.Name = "MainFrame"
+    mainFrame.Size = UDim2.new(0, 400, 0, 500)
+    mainFrame.Position = UDim2.new(0.5, -200, 0.5, -250)
+    mainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+    mainFrame.BorderSizePixel = 0
+    mainFrame.Active = true
+    mainFrame.Draggable = true
+    mainFrame.Parent = screenGui
+    
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 8)
+    corner.Parent = mainFrame
+    
+    local titleBar = Instance.new("Frame")
+    titleBar.Name = "TitleBar"
+    titleBar.Size = UDim2.new(1, 0, 0, 30)
+    titleBar.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+    titleBar.BorderSizePixel = 0
+    titleBar.Parent = mainFrame
+    
+    local titleCorner = Instance.new("UICorner")
+    titleCorner.CornerRadius = UDim.new(0, 8)
+    titleCorner.Parent = titleBar
+    
+    local titleLabel = Instance.new("TextLabel")
+    titleLabel.Name = "Title"
+    titleLabel.Size = UDim2.new(1, -60, 1, 0)
+    titleLabel.Position = UDim2.new(0, 10, 0, 0)
+    titleLabel.BackgroundTransparency = 1
+    titleLabel.Text = "SecurityBot Looplist"
+    titleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    titleLabel.TextScaled = true
+    titleLabel.Font = Enum.Font.GothamBold
+    titleLabel.Parent = titleBar
+    
+    local minimizeButton = Instance.new("TextButton")
+    minimizeButton.Name = "MinimizeButton"
+    minimizeButton.Size = UDim2.new(0, 25, 0, 25)
+    minimizeButton.Position = UDim2.new(1, -30, 0, 2.5)
+    minimizeButton.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+    minimizeButton.Text = "-"
+    minimizeButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+    minimizeButton.TextScaled = true
+    minimizeButton.Font = Enum.Font.GothamBold
+    minimizeButton.BorderSizePixel = 0
+    minimizeButton.Parent = titleBar
+    
+    local minCorner = Instance.new("UICorner")
+    minCorner.CornerRadius = UDim.new(0, 4)
+    minCorner.Parent = minimizeButton
+    
+    local searchFrame = Instance.new("Frame")
+    searchFrame.Name = "SearchFrame"
+    searchFrame.Size = UDim2.new(1, -20, 0, 30)
+    searchFrame.Position = UDim2.new(0, 10, 0, 40)
+    searchFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+    searchFrame.BorderSizePixel = 0
+    searchFrame.Parent = mainFrame
+    
+    local searchCorner = Instance.new("UICorner")
+    searchCorner.CornerRadius = UDim.new(0, 4)
+    searchCorner.Parent = searchFrame
+    
+    local searchBox = Instance.new("TextBox")
+    searchBox.Name = "SearchBox"
+    searchBox.Size = UDim2.new(1, -10, 1, 0)
+    searchBox.Position = UDim2.new(0, 5, 0, 0)
+    searchBox.BackgroundTransparency = 1
+    searchBox.PlaceholderText = "Search usernames..."
+    searchBox.Text = ""
+    searchBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+    searchBox.TextScaled = true
+    searchBox.Font = Enum.Font.Gotham
+    searchBox.Parent = searchFrame
+    
+    local looplistFrame = Instance.new("ScrollingFrame")
+    looplistFrame.Name = "LooplistFrame"
+    looplistFrame.Size = UDim2.new(1, -20, 1, -120)
+    looplistFrame.Position = UDim2.new(0, 10, 0, 80)
+    looplistFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+    looplistFrame.BorderSizePixel = 0
+    looplistFrame.ScrollBarThickness = 8
+    looplistFrame.Parent = mainFrame
+    
+    local loopCorner = Instance.new("UICorner")
+    loopCorner.CornerRadius = UDim.new(0, 4)
+    loopCorner.Parent = looplistFrame
+    
+    local looplistBox = Instance.new("TextBox")
+    looplistBox.Name = "LooplistBox"
+    looplistBox.Size = UDim2.new(1, -10, 1, 0)
+    looplistBox.Position = UDim2.new(0, 5, 0, 0)
+    looplistBox.BackgroundTransparency = 1
+    looplistBox.Text = State.looplistString
+    looplistBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+    looplistBox.TextSize = 14
+    looplistBox.Font = Enum.Font.Code
+    looplistBox.TextXAlignment = Enum.TextXAlignment.Left
+    looplistBox.TextYAlignment = Enum.TextYAlignment.Top
+    looplistBox.MultiLine = true
+    looplistBox.ClearTextOnFocus = false
+    looplistBox.Parent = looplistFrame
+    
+    local buttonFrame = Instance.new("Frame")
+    buttonFrame.Name = "ButtonFrame"
+    buttonFrame.Size = UDim2.new(1, -20, 0, 30)
+    buttonFrame.Position = UDim2.new(0, 10, 1, -40)
+    buttonFrame.BackgroundTransparency = 1
+    buttonFrame.Parent = mainFrame
+    
+    local saveButton = Instance.new("TextButton")
+    saveButton.Name = "SaveButton"
+    saveButton.Size = UDim2.new(0.48, 0, 1, 0)
+    saveButton.Position = UDim2.new(0, 0, 0, 0)
+    saveButton.BackgroundColor3 = Color3.fromRGB(0, 120, 0)
+    saveButton.Text = "Save"
+    saveButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+    saveButton.TextScaled = true
+    saveButton.Font = Enum.Font.GothamBold
+    saveButton.BorderSizePixel = 0
+    saveButton.Parent = buttonFrame
+    
+    local saveCorner = Instance.new("UICorner")
+    saveCorner.CornerRadius = UDim.new(0, 4)
+    saveCorner.Parent = saveButton
+    
+    local clearButton = Instance.new("TextButton")
+    clearButton.Name = "ClearButton"
+    clearButton.Size = UDim2.new(0.48, 0, 1, 0)
+    clearButton.Position = UDim2.new(0.52, 0, 0, 0)
+    clearButton.BackgroundColor3 = Color3.fromRGB(120, 0, 0)
+    clearButton.Text = "Clear"
+    clearButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+    clearButton.TextScaled = true
+    clearButton.Font = Enum.Font.GothamBold
+    clearButton.BorderSizePixel = 0
+    clearButton.Parent = buttonFrame
+    
+    local clearCorner = Instance.new("UICorner")
+    clearCorner.CornerRadius = UDim.new(0, 4)
+    clearCorner.Parent = clearButton
+    
+    -- Event handlers
+    local minimized = false
+    minimizeButton.MouseButton1Click:Connect(function()
+        minimized = not minimized
+        if minimized then
+            mainFrame:TweenSize(UDim2.new(0, 400, 0, 30), "Out", "Quad", 0.3, true)
+            minimizeButton.Text = "+"
+        else
+            mainFrame:TweenSize(UDim2.new(0, 400, 0, 500), "Out", "Quad", 0.3, true)
+            minimizeButton.Text = "-"
+        end
+    end)
+    
+    saveButton.MouseButton1Click:Connect(function()
+        LooplistGUI.saveFromText(looplistBox.Text)
+    end)
+    
+    clearButton.MouseButton1Click:Connect(function()
+        looplistBox.Text = ""
+        Persistent.entries = {}
+        Persistent.save()
+    end)
+    
+    searchBox.Changed:Connect(function()
+        LooplistGUI.filterLooplist(searchBox.Text, looplistBox)
+    end)
+    
+    -- Update looplist display
+    LooplistGUI.updateDisplay = function()
+        looplistBox.Text = State.looplistString
+    end
+    
+    return screenGui
+end
+
+function LooplistGUI.saveFromText(text)
+    if not text or text == "" then return end
+    
+    -- Clear existing entries
+    Persistent.entries = {}
+    
+    -- Parse usernames from text
+    for username in string.gmatch(text, "@([^,]+)") do
+        username = string.gsub(username, "%s+", "")
+        if username ~= "" and not isWhitelisted(username) then
+            Persistent.add(username, "permanent", 0, "manual")
+        end
+    end
+    
+    print("[GUI] Looplist saved with", #Persistent.getActiveNames(), "entries")
+end
+
+function LooplistGUI.filterLooplist(searchTerm, textBox)
+    if not searchTerm or searchTerm == "" then
+        textBox.Text = State.looplistString
+        return
+    end
+    
+    local filtered = {}
+    local names = Persistent.getActiveNames()
+    
+    for _, name in pairs(names) do
+        if string.find(string.lower(name), string.lower(searchTerm)) then
+            table.insert(filtered, name)
+        end
+    end
+    
+    textBox.Text = table.concat(filtered, ",")
+end
+
+-- ========================================
+-- EVENT HANDLERS
+-- ========================================
+
+local EventHandlers = {}
+
+function EventHandlers.onPlayerDied(player)
+    if not player or not player.Character then return end
+    
+    local humanoid = player.Character:FindFirstChild("Humanoid")
+    if not humanoid then return end
+    
+    humanoid.Died:Connect(function()
+        if player == LocalPlayer then
+            -- Bot was killed
+            local killer = humanoid:FindFirstChild("creator")
+            if killer and killer.Value then
+                local killerName = killer.Value.Name
+                local distance = DetectionSystem.getPlayerDistance(killer.Value, LocalPlayer)
+                
+                if not inWarmupGrace() and distance > Config.LOOP_KILL_DISTANCE then
+                    if not isWhitelisted(killerName) then
+                        ActionSystem.loopKill(killerName, true)
+                        print("[DETECTION] Bot killed from distance:", distance, "by", killerName)
+                    end
+                end
+            end
+        else
+            -- Another player was killed
+            local killer = humanoid:FindFirstChild("creator")
+            if killer and killer.Value and killer.Value ~= LocalPlayer then
+                local killerName = killer.Value.Name
+                local victimName = player.Name
+                local distance = DetectionSystem.getPlayerDistance(killer.Value, player)
+                
+                if not isWhitelisted(killerName) and detectionEnabled() then
+                    DetectionSystem.trackKill(killerName, victimName, distance)
+                    
+                    -- Check for long distance kill
+                    if distance >= Config.LONG_KILL_DISTANCE then
+                        ActionSystem.singleKill(killerName)
+                        print("[DETECTION] Long distance kill:", distance, "by", killerName)
+                    end
+                    
+                    -- Check for reach hacking
+                    if DetectionSystem.shouldLoopForReach(killerName) then
+                        ActionSystem.loopKill(killerName, true)
+                        print("[DETECTION] Reach hacking detected:", killerName)
+                    end
+                end
+            end
+        end
+    end)
+end
+
+function EventHandlers.onPlayerAdded(player)
+    if player == LocalPlayer then return end
+    
+    -- Check account age
+    if DetectionSystem.isNewAccount(player) and detectionEnabled() then
+        if not isWhitelisted(player.Name) then
+            ActionSystem.loopKill(player.Name, true)
+            print("[DETECTION] New account detected:", player.Name, "Age:", player.AccountAge)
+        end
+    end
+    
+    -- Set up death detection
+    player.CharacterAdded:Connect(function()
+        safeWait(1)
+        EventHandlers.onPlayerDied(player)
+    end)
+    
     if player.Character then
-        teleportToVoid(player.Character)
+        EventHandlers.onPlayerDied(player)
     end
 end
 
-for _, player in ipairs(Players:GetPlayers()) do
-    onPlayerAdded(player)
+function EventHandlers.onPlayerRemoving(player)
+    if State.killTracking[player.Name] then
+        State.killTracking[player.Name] = nil
+    end
+    
+    -- Clean up loop tracking when player leaves
+    if State.activeLoops[player.Name] then
+        State.activeLoops[player.Name] = nil
+        print("[CLEANUP] Removed loop tracking for", player.Name, "(player left)")
+    end
 end
 
-Players.PlayerAdded:Connect(onPlayerAdded)
+-- ========================================
+-- STARTUP SEQUENCE
+-- ========================================
+
+local StartupSystem = {}
+
+function StartupSystem.executeInitialSequence()
+    print("[STARTUP] Executing initial command sequence...")
+    
+    local commands = {
+        "inf^5^tppos 0 -1000000 0",
+        "spawn",
+        "inf^0.1^loopkill " .. State.looplistString,
+        "inf^2^walkfling",
+        "inf^0.1^loopgoto " .. State.looplistString .. " 0",
+        "instarespawn",
+        "novoid",
+        "antiban",
+        "lessfilter 1"
+    }
+    
+    local success = CommandSystem.executeSequence(commands)
+    if success then
+        print("[STARTUP] Initial sequence completed successfully")
+        State.seqRan = true
+    else
+        print("[ERROR] Initial sequence failed")
+    end
+    
+    return success
+end
+
+function StartupSystem.initialize()
+    print("[STARTUP] Initializing SecurityBot v5.0...")
+    
+    -- Load persistent data
+    Persistent.load()
+    
+    -- Set timing
+    local now = tick()
+    State.startTime = now
+    State.detectionEnableAt = now + Config.INIT_DELAY_SEC
+    State.graceEndAt = State.detectionEnableAt + Config.GRACE_PERIOD_SEC
+    
+    print("[STARTUP] Detection will be enabled in", Config.INIT_DELAY_SEC, "seconds")
+    print("[STARTUP] Grace period will end in", Config.INIT_DELAY_SEC + Config.GRACE_PERIOD_SEC, "seconds")
+    
+    -- Wait for initialization delay
+    safeWait(Config.INIT_DELAY_SEC)
+    
+    -- Execute startup sequence
+    StartupSystem.executeInitialSequence()
+    
+    -- Create GUI
+    LooplistGUI.create()
+    
+    -- Set up event handlers
+    Players.PlayerAdded:Connect(EventHandlers.onPlayerAdded)
+    Players.PlayerRemoving:Connect(EventHandlers.onPlayerRemoving)
+    
+    -- Set up existing players
+    for _, player in pairs(Players:GetPlayers()) do
+        EventHandlers.onPlayerAdded(player)
+    end
+    
+    -- Set up chat monitoring
+    if TextChatService.ChatInputBarConfiguration then
+        TextChatService.MessageReceived:Connect(function(message)
+            if message.TextSource then
+                local player = Players:GetPlayerByUserId(message.TextSource.UserId)
+                if player then
+                    ChatCommands.handleMessage(player, message.Text)
+                end
+            end
+        end)
+    else
+        -- Legacy chat system
+        for _, player in pairs(Players:GetPlayers()) do
+            if player.Chatted then
+                player.Chatted:Connect(function(message)
+                    ChatCommands.handleMessage(player, message)
+                end)
+            end
+        end
+        
+        Players.PlayerAdded:Connect(function(player)
+            player.Chatted:Connect(function(message)
+                ChatCommands.handleMessage(player, message)
+            end)
+        end)
+    end
+    
+    -- Set up velocity monitoring
+    RunService.Heartbeat:Connect(function()
+        if not detectionEnabled() then return end
+        
+        for _, player in pairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer and not isWhitelisted(player.Name) then
+                if DetectionSystem.checkVelocityFlinging(player) then
+                    if ActionSystem.canRunAction(player.Name, "singlekill") then
+                        ActionSystem.singleKill(player.Name)
+                        print("[DETECTION] Velocity flinging detected:", player.Name)
+                    end
+                end
+            end
+        end
+    end)
+    
+    -- Set up server monitoring
+    task.spawn(function()
+        while State.botActive do
+            safeWait(Config.SERVER_HOP_CHECK_DELAY)
+            ServerMonitor.checkForServerHop()
+        end
+    end)
+    
+    -- Set up command bar focus detection
+    UserInputService.TextBoxFocused:Connect(function(textBox)
+        if textBox and textBox.Name and string.find(string.lower(textBox.Name), "command") then
+            State.commandBarFocused = true
+        end
+    end)
+    
+    UserInputService.TextBoxFocusReleased:Connect(function(textBox)
+        if textBox and textBox.Name and string.find(string.lower(textBox.Name), "command") then
+            State.commandBarFocused = false
+        end
+    end)
+    
+    State.botActive = true
+    State.initialSetupComplete = true
+    
+    print("[STARTUP] SecurityBot v5.0 initialization complete!")
+    print("[STATUS] Bot is now active and monitoring")
+end
+
+-- ========================================
+-- MAIN EXECUTION
+-- ========================================
+
+print("SecurityBot v5.0 loaded successfully!")
+print("Initializing in", Config.INIT_DELAY_SEC, "seconds...")
+
+-- Start the bot
+task.spawn(StartupSystem.initialize)
+
+-- Keep the script running
+while true do
+    safeWait(1)
+    if State.botActive then
+        -- Periodic maintenance
+        Persistent.pruneExpired()
+        
+        -- Update GUI if it exists
+        if LooplistGUI.updateDisplay then
+            LooplistGUI.updateDisplay()
+        end
+    end
+end
