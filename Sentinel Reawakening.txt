@@ -567,7 +567,7 @@ function Modules.GUI.create_looplist_gui()
     update_looplist_display("")
 
     -- Connect looplist changes to GUI update
-    Modules.Looplist.looplist_changed:Connect(function()
+    Modules.Looplist.looplist_changed.Event:Connect(function()
         update_looplist_display(search_bar.Text)
     end)
 
