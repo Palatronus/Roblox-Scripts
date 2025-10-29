@@ -150,12 +150,35 @@ local function safeWait(duration)
     end
 end
 
--- ========================================
--- FILESYSTEM HELPERS (optional, executor-dependent)
--- ========================================
-
 local function hasFilesystem()
     return type(isfile) == "function" and type(writefile) == "function" and type(readfile) == "function"
+end
+
+local function encodeData(tbl)
+    local ok, json = pcall(function() return HttpService:JSONEncode(tbl) end)
+    if not ok then return nil end
+    if Config.ENCRYPT_STORAGE and hasBase64() then
+        local obf = xorBytes(json, kdf())
+        local okb, b64 = pcall(function() return HttpService:Base64Encode(obf) end)
+        if okb then return b64 end
+    end
+    return json
+end
+local function decodeData(str)
+    if not str or str == "" then return nil end
+    local raw = str
+    if Config.ENCRYPT_STORAGE and hasBase64() then
+        local okb, dec = pcall(function() return HttpService:Base64Decode(raw) end)
+        if okb and type(dec) == "string" then
+            raw = xorBytes(dec, kdf())
+        else
+            -- Fallback: treat as plain JSON if Base64 fails
+            raw = str
+        end
+    end
+    local ok, tbl = pcall(function() return HttpService:JSONDecode(raw) end)
+    if ok then return tbl end
+    return nil
 end
 
 local function normalizeName(name)
@@ -1684,32 +1707,7 @@ local function hasBase64()
     local ok = pcall(function() HttpService:Base64Encode("test") end)
     return ok
 end
-local function encodeData(tbl)
-    local ok, json = pcall(function() return HttpService:JSONEncode(tbl) end)
-    if not ok then return nil end
-    if Config.ENCRYPT_STORAGE and hasBase64() then
-        local obf = xorBytes(json, kdf())
-        local okb, b64 = pcall(function() return HttpService:Base64Encode(obf) end)
-        if okb then return b64 end
-    end
-    return json
-end
-local function decodeData(str)
-    if not str or str == "" then return nil end
-    local raw = str
-    if Config.ENCRYPT_STORAGE and hasBase64() then
-        local okb, dec = pcall(function() return HttpService:Base64Decode(raw) end)
-        if okb and type(dec) == "string" then
-            raw = xorBytes(dec, kdf())
-        else
-            -- Fallback: treat as plain JSON if Base64 fails
-            raw = str
-        end
-    end
-    local ok, tbl = pcall(function() return HttpService:JSONDecode(raw) end)
-    if ok then return tbl end
-    return nil
-end
+
 
 -- Persistent storage for looped users (extends forward-declared table above)
 
