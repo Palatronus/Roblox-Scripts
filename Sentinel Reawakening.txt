@@ -1,155 +1,249 @@
--- Global Variables and Constants for Sentinel AI
+--[[ 
+    Sentinel AI - Advanced Anti-Exploit and Player Management System
 
--- Whitelist
-local OWNERS = {
-    "HollowGol",
+    This script provides a robust framework for detecting and managing exploiters
+    and problematic players within a Roblox game. It includes features such as:
+    - Automated detection for various exploits (e.g., fling, multiple kills, new accounts).
+    - Player looping and unlooping functionalities.
+    - Chat command processing for administrative actions.
+    - Server hopping utility.
+    - Whitelisting and permission management.
+    - Persistent looplist storage.
+
+    Key Modules:
+    - Modules.Config: Centralized configuration settings.
+    - Modules.Permissions: Manages player permissions (owner, mod, whitelisted).
+    - Modules.Detection: Contains logic for various exploit detections.
+    - Modules.Commands: Handles sending commands to the game executor.
+    - Modules.Looplist: Manages the persistent list of looped players.
+    - Modules.Utils: Provides utility functions like account age retrieval and server hopping.
+    - Modules.Chat: Processes chat messages for commands and unloop phrases.
+
+    Dependencies:
+    - Roblox HttpService for JSON encoding/decoding.
+    - Roblox TeleportService for server hopping.
+    - Executor-specific functions for file I/O (readfile, writefile) and command execution (send_command).
+
+    Usage:
+    This script is designed to be injected and run within a Roblox game environment
+    using a compatible executor. Configuration can be adjusted in Modules.Config.
+
+    Last Updated: 2024-05-15
+]]
+
+-- Global Configuration for Sentinel AI
+local Config = {
+    -- Whitelist (using tables as sets for efficient lookups)
+    -- List of Roblox usernames who are considered owners. Owners have full administrative privileges.
+    OWNERS = {
+        ["HollowGol"] = true,
+    },
+    -- List of Roblox usernames who are considered moderators. Moderators have elevated privileges for managing players.
+    MODS = {
+        ["STEVETheReal916"] = true,
+        ["ColonThreeSpam"] = true,
+        ["SpawnYellow2"] = true,
+        ["SpawnBlack1"] = true,
+        ["s71pl"] = true,
+        ["Jacobthecool292"] = true,
+        ["babyyodasonglol"] = true,
+        ["forhelpingboi8"] = true,
+        ["Kandale_Dingul"] = true,
+        ["redalert_E"] = true,
+        ["fariahoque28"] = true,
+        ["baze15651"] = true,
+        ["well_ihateboblux"] = true,
+        ["0bj687Alt"] = true,
+    },
+
+    -- Looplist (will be loaded from JSON)
+    -- Stores a list of players currently being looped. This table is populated dynamically from a file.
+    Looplist = {}, -- This will be populated dynamically
+
+    -- Other configurations
+    -- Initial wait time before the system starts monitoring, allowing players to load in.
+    INITIAL_WAIT_TIME = 7.5, -- seconds
+    -- Grace period during which certain detections (e.g., automated looping) are inactive.
+    GRACE_PERIOD_TIME = 5, -- seconds
+    -- Flag indicating if the grace period is currently active.
+    GracePeriodActive = true, -- New global variable
+    -- Table to track recent kills by players for multi-kill detection.
+    RecentKills = {}, -- This will be populated dynamically
+    -- Brief delay between consecutive command keypresses to prevent spamming the executor.
+    COMMAND_COOLDOWN = 0.1, -- seconds
+    -- Maximum distance (in studs) for applying loop kill commands to a player.
+    LOOP_KILL_DISTANCE = 24, -- studs
+    -- Maximum distance (in studs) for applying standard kill commands to a player.
+    KILL_DISTANCE = 15, -- studs
+    -- Minimum distance (in studs) for a kill to count toward multi-kill detection.
+    MULTI_KILL_DISTANCE = 25, -- studs
+    -- Time window (in seconds) during which multiple kills from the same player trigger detection.
+    MULTI_KILL_WINDOW = 0.25, -- seconds
+    -- Minimum velocity (in studs per second) to trigger fling detection for a player.
+    FLING_VELOCITY_THRESHOLD = 100, -- Adjust based on game's movement mechanics
+    -- Secret chat phrase required to initiate an unloop command for a player.
+    UNLOOP_PHRASE = "Qpmbsjbvt",
+
+    -- Executor-specific key used to trigger the execution of commands.
+    COMMAND_KEY = "ş",
+
+    -- Name of the JSON file where the looplist is saved and loaded from.
+    LOOPLIST_FILE_NAME = "Looplist.json",
 }
 
-local MODS = {
-    "STEVETheReal916",
-    "ColonThreeSpam",
-    "SpawnYellow2",
-    "SpawnBlack1",
-    "s71pl",
-    "Jacobthecool292",
-    "babyyodasonglol",
-    "forhelpingboi8",
-    "Kandale_Dingul",
-    "redalert_E",
-    "fariahoque28",
-    "baze15651",
-    "well_ihateboblux",
-    "0bj687Alt",
-}
+local Modules = {}
 
--- Looplist (will be loaded from JSON)
-local Looplist = {}
+Modules.Commands = {}
+Modules.Looplist = {}
 
--- Other configurations
-local INITIAL_WAIT_TIME = 7.5 -- seconds
-local GRACE_PERIOD_TIME = 5 -- seconds
-local GracePeriodActive = true -- New global variable
-local RecentKills = {}
-local COMMAND_COOLDOWN = 0.1 -- seconds (brief cooldown for keypresses)
-local LOOP_KILL_DISTANCE = 24 -- studs
-local KILL_DISTANCE = 15 -- studs
-local MULTI_KILL_DISTANCE = 25 -- studs
-local MULTI_KILL_WINDOW = 0.25 -- seconds
-local FLING_VELOCITY_THRESHOLD = 100 -- Adjust as needed
-local UNLOOP_PHRASE = "Qpmbsjbvt"
+Modules.Utils = {}
 
--- Infinite Yield command key
-local COMMAND_KEY = "ş"
-
--- Looplist file name
-local LOOPLIST_FILE_NAME = "Looplist.json"
-
--- Function to send a command to Infinite Yield Admin
-local function send_command(command_string)
-    -- This is a placeholder. Actual implementation will depend on the executor's API.
-    -- It should simulate pressing the COMMAND_KEY, typing the command_string, and then pressing ENTER.
-    -- For now, we'll just print the command and wait for the cooldown.
-    print("Sending command: " .. command_string)
-    -- Simulate keypress for COMMAND_KEY
-    -- Simulate typing command_string
-    -- Simulate keypress for ENTER
-    wait(COMMAND_COOLDOWN)
+function Modules.Utils.normalizeName(name)
+    if not name or name == "" then return nil end
+    return name:gsub("^@", "")
 end
 
--- Function to save the looplist to a JSON file
-local function save_looplist()
-    local json_data = game:GetService("HttpService"):JSONEncode(Looplist)
-    -- This is a placeholder for writing to a file.
-    -- In a real executor, you would use its file writing API.
-    -- For example: writefile(LOOPLIST_FILE_NAME, json_data)
-    print("Saving looplist to " .. LOOPLIST_FILE_NAME .. ": " .. json_data)
+function Modules.Utils.normalizeForCompare(name)
+    if not name or name == "" then return "" end
+    return string.lower((name:gsub("^@", "")))
+end
+Modules.Detection = {}
+Modules.Chat = {}
+function Modules.Commands.send_command(command_string)
+    -- This function is a placeholder for sending commands to the Roblox executor.
+    -- Its actual implementation will depend heavily on the specific executor being used.
+    -- Executors typically provide a global function (e.g., `game.Players.LocalPlayer.Chat:Chat()`, `execute`, `send_command`) 
+    -- or a specific API to send commands to the game.
+    print("Attempting to send command: " .. command_string)
+
+    -- Example of how an executor might send a command:
+    -- game:GetService("ReplicatedStorage").RemoteEvent:FireServer("execute", command_string)
+    -- _G.execute(command_string)
+
+    -- The keypress simulation below is a highly executor-dependent implementation.
+    -- It's intended for executors that might require a simulated keypress to activate a command bar
+    -- or similar input mechanism before the command string can be processed.
+    if Config.COMMAND_KEY and Config.COMMAND_COOLDOWN then
+        -- Uncomment and adapt the following lines based on your executor's capabilities:
+        -- local UserInputService = game:GetService("UserInputService")
+        -- UserInputService:SimulateKeyPress(Config.COMMAND_KEY, true) -- 'true' for release after press
+        wait(Config.COMMAND_COOLDOWN) -- Wait for the command to potentially register
+    end
 end
 
--- Function to load the looplist from a JSON file
-local function load_looplist()
-    local success, json_data = pcall(function()
-        -- This is a placeholder for reading from a file.
-        -- In a real executor, you would use its file reading API.
-        -- For example: return readfile(LOOPLIST_FILE_NAME)
-        return "" -- Simulate empty file for now
+Modules.Looplist = {}
+function Modules.Looplist.save_looplist()
+    -- This function relies on the executor's 'writefile' API.
+    -- Ensure your executor supports 'writefile' for persistent looplist storage.
+    local success, err = pcall(function()
+        local json_data = game:GetService("HttpService"):JSONEncode(Config.Looplist)
+        writefile(Config.LOOPLIST_FILE_NAME, json_data)
+    end)
+    if not success then
+        warn("Looplist Save Error: Failed to save looplist. This usually means the executor's 'writefile' function is not available or encountered an error: " .. err)
+    else
+        print("Looplist saved successfully to " .. Config.LOOPLIST_FILE_NAME)
+    end
+end
+
+function Modules.Looplist.load_looplist()
+    -- This function relies on the executor's 'readfile' API.
+    -- Ensure your executor supports 'readfile' for loading the looplist.
+    local file_content_success, file_content = pcall(function()
+        return readfile(Config.LOOPLIST_FILE_NAME)
     end)
 
-    if success and json_data and json_data ~= "" then
-        local decoded_data = game:GetService("HttpService"):JSONDecode(json_data)
-        if type(decoded_data) == "table" then
-            Looplist = decoded_data
-            print("Loaded looplist from " .. LOOPLIST_FILE_NAME)
-        else
-            print("Error: Decoded looplist data is not a table. Initializing empty looplist.")
-            Looplist = {}
-        end
-    else
-        print("No existing looplist found or error reading file. Initializing empty looplist.")
-        Looplist = {}
+    if not file_content_success then
+        warn("Looplist Load Error: Failed to read looplist file. This usually means the executor's 'readfile' function is not available or the file does not exist: " .. file_content)
+        Config.Looplist = {} -- Initialize an empty looplist if loading fails
+        return
     end
-end
 
--- Function to add a username to the looplist
-local function add_to_looplist(username)
-    if not table.find(Looplist, username) then
-        table.insert(Looplist, username)
-        save_looplist()
-        print(username .. " added to looplist.")
-    end
-end
+    if file_content and file_content ~= "" then
+        local decode_success, decoded_data = pcall(function()
+            return game:GetService("HttpService"):JSONDecode(file_content)
+        end)
 
--- Function to remove a username from the looplist
-local function remove_from_looplist(username)
-    for i, v in ipairs(Looplist) do
-        if v == username then
-            table.remove(Looplist, i)
-            save_looplist()
-            print(username .. " removed from looplist.")
+        if not decode_success then
+            warn("Looplist Load Error: Failed to decode looplist JSON. The file might be corrupted or not valid JSON: " .. decoded_data)
+            Config.Looplist = {} -- Initialize an empty looplist if decoding fails
             return
         end
+
+        if type(decoded_data) == "table" then
+            Config.Looplist = decoded_data
+            print("Looplist loaded successfully from " .. Config.LOOPLIST_FILE_NAME .. " with " .. #Config.Looplist .. " entries.")
+        else
+            warn("Looplist Load Warning: Loaded looplist data is not a table. Initializing an empty looplist.")
+            Config.Looplist = {}
+        end
+    else
+        print("Looplist file is empty or does not exist. Initializing a new empty looplist.")
+        Config.Looplist = {}
     end
 end
 
--- Helper function to check if a player is whitelisted
-local function is_whitelisted(username)
-    for _, owner_name in ipairs(OWNERS) do
-        if owner_name == username then
-            return true
-        end
+function Modules.Looplist.add_to_looplist(username)
+    -- Adds a username to the in-memory looplist and saves the updated list to file.
+    -- The username is normalized before being added to ensure consistency.
+    local normalized_username = Modules.Utils.normalizeName(username)
+    if normalized_username and not Config.Looplist[normalized_username] then
+        Config.Looplist[normalized_username] = true
+        Modules.Looplist.save_looplist()
+        print(normalized_username .. " added to looplist.")
     end
-    for _, mod_name in ipairs(MODS) do
-        if mod_name == username then
-            return true
-        end
-    end
-    return false
 end
 
--- Function to calculate distance between two characters
-local function get_distance_between_characters(char1, char2)
-    if char1 and char1.PrimaryPart and char2 and char2.PrimaryPart then
-        return (char1.PrimaryPart.Position - char2.PrimaryPart.Position).magnitude
+function Modules.Looplist.remove_from_looplist(username)
+    -- Removes a username from the in-memory looplist and saves the updated list to file.
+    -- The username is normalized before attempting to remove it.
+    local normalized_username = Modules.Utils.normalizeName(username)
+    if normalized_username and Config.Looplist[normalized_username] then
+        Config.Looplist[normalized_username] = nil
+        Modules.Looplist.save_looplist()
+        print(normalized_username .. " removed from looplist.")
+    end
+end
+
+function Modules.Permissions.is_whitelisted(username)
+    -- Checks if a given username is present in either the OWNERS or MODS configuration tables.
+    -- This function is used to determine if a player has elevated permissions.
+    -- The username should be normalized before being passed to this function for consistent checks.
+    return Config.OWNERS[username] or Config.MODS[username]
+end
+
+function Modules.Utils.get_distance_between_characters(char1, char2)
+    -- Calculates the distance between the PrimaryParts of two Roblox character models.
+    -- Returns math.huge if either character or their PrimaryPart is not found, 
+    -- indicating an immeasurable or infinite distance.
+    if char1 and char2 and char1.PrimaryPart and char2.PrimaryPart then
+        return (char1.PrimaryPart.Position - char2.PrimaryPart.Position).Magnitude
     end
     return math.huge -- Return a very large number if characters or primary parts are not found
 end
 
--- Automated kill detection (15+ studs)
-local function handle_kill_detection(killer_username, victim_username, distance)
-    if is_whitelisted(killer_username) or is_whitelisted(victim_username) then
+function Modules.Detection.handle_kill_detection(killer_username, victim_username, distance)
+    -- Detects suspicious kills based on distance and applies appropriate actions.
+    -- Ignores whitelisted players to prevent false positives.
+    -- If a kill occurs beyond Config.KILL_DISTANCE, a kill command is sent to the killer.
+    -- After the grace period, if a kill occurs beyond Config.LOOP_KILL_DISTANCE, the killer is added to the looplist.
+    if Modules.Permissions.is_whitelisted(killer_username) or Modules.Permissions.is_whitelisted(victim_username) then
         return -- Ignore whitelisted players
     end
 
-    if distance >= KILL_DISTANCE then
+    if distance >= Config.KILL_DISTANCE then
         print(killer_username .. " killed " .. victim_username .. " from " .. math.floor(distance) .. " studs. Applying kill command.")
-        send_command("kill @" .. killer_username)
+        Modules.Commands.send_command("kill @" .. killer_username)
     end
 
     -- Automated looping detection (24+ studs after grace period)
-    if not GracePeriodActive and distance >= LOOP_KILL_DISTANCE then
+    -- This section handles automatic looping of players who kill from a distance greater than Config.LOOP_KILL_DISTANCE
+    -- after the initial grace period has ended.
+    if not Config.GracePeriodActive and distance >= Config.LOOP_KILL_DISTANCE then
         print(killer_username .. " killed " .. victim_username .. " from " .. math.floor(distance) .. " studs after grace period. Looping them.")
-        add_to_looplist(killer_username)
-        send_command("inf^0.1^loopkill @" .. killer_username)
-        send_command("inf^0.1^loopgoto @" .. killer_username .. " 0")
+        Modules.Looplist.add_to_looplist(killer_username)
+        Modules.Commands.send_command("inf^0.1^loopkill @" .. killer_username)
+        Modules.Commands.send_command("inf^0.1^loopgoto @" .. killer_username .. " 0")
     end
 end
 
@@ -174,26 +268,32 @@ end
 -- end
 end
 
--- Function to get a player's account age in days
-local function get_account_age_in_days(player)
-    if player and player.AccountAge then
-        return player.AccountAge
-    end
-    return math.huge -- Return a very large number if player or AccountAge is not found
+function Modules.Utils.get_account_age_in_days(player)
+    -- Calculates the age of a Roblox player's account in days.
+    -- This is useful for detecting potentially suspicious new accounts.
+    -- 'player' is expected to be a Roblox Player object.
+    local now = os.time()
+    local created = player.AccountAge
+    local diff = now - created
+    return math.floor(diff / (60 * 60 * 24))
 end
 
--- Automated looping detection based on account age (1 day old)
-local function handle_account_age_detection(player)
-    if is_whitelisted(player.Name) then
+function Modules.Detection.handle_account_age_detection(player)
+    -- Detects and loops players with very new accounts (account age <= 1 day).
+    -- This helps in identifying and mitigating potential alt accounts or exploiters.
+    -- Ignores whitelisted players.
+    -- 'player' is expected to be a Roblox Player object.
+    if Modules.Permissions.is_whitelisted(player.Name) then
         return -- Ignore whitelisted players
     end
 
-    local account_age = get_account_age_in_days(player)
+    local account_age = Modules.Utils.get_account_age_in_days(player)
+    -- If account age is 1 day or less, consider them a new account and loop them.
     if account_age <= 1 then
         print(player.Name .. " has an account age of " .. account_age .. " days. Looping them.")
-        add_to_looplist(player.Name)
-        send_command("inf^0.1^loopkill @" .. player.Name)
-        send_command("inf^0.1^loopgoto @" .. player.Name .. " 0")
+        Modules.Looplist.add_to_looplist(player.Name)
+        Modules.Commands.send_command("inf^0.1^loopkill @" .. player.Name)
+        Modules.Commands.send_command("inf^0.1^loopgoto @" .. player.Name .. " 0")
     end
 end
 
@@ -203,47 +303,59 @@ end
 -- end
 end
 
--- Automated unlooping based on chat phrase
-local function handle_chat_unloop(player_name, message)
-    if message == UNLOOP_PHRASE then
+function Modules.Chat.handle_chat_unloop(player_name, message)
+    -- Handles the unloop chat command. When a player chats the Config.UNLOOP_PHRASE,
+    -- this function temporarily removes them from the looplist and sends a series of commands
+    -- to the executor to stop any active looping actions for that player.
+    -- 'player_name' is the name of the player who chatted, 'message' is the full chat message.
+    if message == Config.UNLOOP_PHRASE then
         print(player_name .. " chatted the unloop phrase. Temporarily unlooping them.")
-        remove_from_looplist(player_name)
-        send_command("break")
-        send_command("unloopgoto all")
-        send_command("unloopkill all")
-        send_command("inf^5^tppos 0 -1000000 0")
-        send_command("inf^0.1^loopkill [looplist]")
-        send_command("inf^2^walkfling")
-        send_command("inf^0.1^loopgoto [looplist] 0")
+        Modules.Looplist.remove_from_looplist(player_name)
+        Modules.Commands.send_command("break")
+        Modules.Commands.send_command("unloopgoto all")
+        Modules.Commands.send_command("unloopkill all")
+        Modules.Commands.send_command("inf^5^tppos 0 -1000000 0")
+        Modules.Commands.send_command("inf^0.1^loopkill [looplist]")
+        Modules.Commands.send_command("inf^2^walkfling")
+        Modules.Commands.send_command("inf^0.1^loopgoto [looplist] 0")
     end
 end
 
--- Automated detection for looping based on multiple kills
-local function handle_multiple_kills_detection(killer_name, victim_name, kill_distance)
-    if is_whitelisted(killer_name) then
-        return -- Ignore whitelisted players
+function Modules.Detection.handle_multiple_kills_detection(killer_name, victim_name, kill_distance)
+    -- Detects players who rapidly accumulate multiple kills within a defined time window and distance.
+    -- This helps identify potential exploiters or abusers.
+    -- Ignores whitelisted players.
+    -- 'killer_name' and 'victim_name' are strings, 'kill_distance' is a number.
+    -- Ignore whitelisted players to prevent false positives
+    if Modules.Permissions.is_whitelisted(killer_name) then
+        return
     end
 
-    if kill_distance >= 25 then
-        if not RecentKills[killer_name] then
-            RecentKills[killer_name] = {}
+    -- Check if the kill distance exceeds the configured threshold for multiple kills
+    if kill_distance >= Config.MULTI_KILL_DISTANCE then
+        -- Initialize RecentKills table for the killer if it doesn't exist
+        if not Config.RecentKills[killer_name] then
+            Config.RecentKills[killer_name] = {}
         end
 
-        table.insert(RecentKills[killer_name], os.time())
+        -- Record the current kill time
+        table.insert(Config.RecentKills[killer_name], os.time())
 
-        -- Remove kills older than 0.25 seconds
-        for i = #RecentKills[killer_name], 1, -1 do
-            if os.time() - RecentKills[killer_name][i] > 0.25 then
-                table.remove(RecentKills[killer_name], i)
+        -- Remove old kill entries that are outside the MULTI_KILL_WINDOW
+        local current_time = os.time()
+        for i = #Config.RecentKills[killer_name], 1, -1 do
+            if (current_time - Config.RecentKills[killer_name][i]) > Config.MULTI_KILL_WINDOW then
+                table.remove(Config.RecentKills[killer_name], i)
             end
         end
 
-        if #RecentKills[killer_name] >= 2 then
-            print(killer_name .. " has multiple kills from 25+ studs within 0.25 seconds. Looping them.")
-            add_to_looplist(killer_name)
-            send_command("inf^0.1^loopkill @" .. killer_name)
-            send_command("inf^0.1^loopgoto @" .. killer_name .. " 0")
-            RecentKills[killer_name] = {} -- Reset their kill count after looping
+        -- If the number of recent kills exceeds the threshold, loop the player
+        if #Config.RecentKills[killer_name] >= Config.MULTI_KILL_THRESHOLD then
+            print(killer_name .. " has accumulated " .. #Config.RecentKills[killer_name] .. " kills within " .. Config.MULTI_KILL_WINDOW .. " seconds. Looping them.")
+            Modules.Looplist.add_to_looplist(killer_name)
+            Modules.Commands.send_command("inf^0.1^loopkill @" .. killer_name)
+            Modules.Commands.send_command("inf^0.1^loopgoto @" .. killer_name .. " 0")
+            Config.RecentKills[killer_name] = {} -- Reset kill count after looping
         end
     end
 end
@@ -265,23 +377,24 @@ end
     end
 end
 
--- Automated detection for kills based on fling attempts
-local function handle_fling_detection(player_character)
-    if not player_character or not player_character:FindFirstChildOfClass("HumanoidRootPart") then
-        return
-    end
-
-    local player_name = player_character.Parent.Name
-    if is_whitelisted(player_name) then
+function Modules.Detection.handle_fling_detection(player, character)
+    -- Detects players who are potentially flinging others based on their character's velocity.
+    -- If a player's velocity exceeds Config.FLINGER_VELOCITY_THRESHOLD, a kill command is sent to them.
+    -- Ignores whitelisted players.
+    -- 'player' is a Roblox Player object, 'character' is the player's Character model.
+    if Modules.Permissions.is_whitelisted(player.Name) then
         return -- Ignore whitelisted players
     end
 
-    local humanoid_root_part = player_character:FindFirstChildOfClass("HumanoidRootPart")
-    if humanoid_root_part then
-        local velocity = humanoid_root_part.Velocity.Magnitude
-        if velocity > FLING_VELOCITY_THRESHOLD then
-            print(player_name .. " detected attempting to fling (velocity: " .. velocity .. "). Killing them.")
-            send_command("kill @" .. player_name)
+    local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
+    if not humanoidRootPart then return end
+
+    local velocity = humanoidRootPart.AssemblyLinearVelocity or humanoidRootPart.Velocity
+    if velocity and velocity.Magnitude > Config.FLINGER_VELOCITY_THRESHOLD then
+        print(player.Name .. " detected flinging. Applying kill command.")
+        Modules.Commands.send_command("kill @" .. player.Name)
+    end
+end
         end
     end
 end
@@ -304,8 +417,12 @@ end
 -- end
 end
 
--- Chat command parsing and execution
-local function handle_chat_commands(player_name, message)
+function Modules.Chat.handle_chat_commands(player_name, message)
+    -- Processes chat commands prefixed with "sentinel".
+    -- This function parses the message, validates the command and arguments,
+    -- and executes the corresponding action (e.g., temploop, jump, unloop).
+    -- Only whitelisted players can execute these commands.
+    -- 'player_name' is the name of the player who sent the command, 'message' is the full chat message.
     local args = {}
     for word in string.gmatch(message, "%S+") do
         table.insert(args, word)
@@ -316,57 +433,70 @@ local function handle_chat_commands(player_name, message)
     local command_prefix = args[1]:lower()
     if command_prefix ~= "sentinel" then return end
 
-    if not is_whitelisted(player_name) then
+    if not Modules.Permissions.is_whitelisted(player_name) then
         print(player_name .. " attempted to use a Sentinel command but is not whitelisted.")
         return
     end
 
+    if #args < 2 then
+        print("Usage: sentinel <command> [args]")
+        return
+    end
+
     local sub_command = args[2]:lower()
-    local target_username = args[3]
+    local target_username_raw = args[3]
+
+    if sub_command == "temploop" or sub_command == "jump" or sub_command == "unloop" then
+        if not target_username_raw or target_username_raw == "" then
+            print("Usage: sentinel " .. sub_command .. " <Username>")
+            return
+        end
+    end
+    local target_username = target_username_raw and Modules.Utils.normalizeName(target_username_raw) or nil
 
     if sub_command == "temploop" then
-        if target_username then
-            -- Check if the target is whitelisted
-            if is_whitelisted(target_username) then
-                print("Cannot temploop a whitelisted player: " .. target_username)
-                return
-            end
-            print(player_name .. " temporarily looping " .. target_username)
-            send_command("inf^0.1^loopkill @" .. target_username)
-            send_command("inf^0.1^loopgoto @" .. target_username .. " 0")
-            -- Note: Temploop does not add to the persistent looplist
-        else
-            print("Usage: sentinel temploop @Username")
+        if not target_username or target_username == "" then
+            print("Usage: sentinel temploop <Username>")
+            return
         end
+        -- Check if the target is whitelisted
+        if Modules.Permissions.is_whitelisted(target_username) then
+            print("Cannot temploop a whitelisted player: " .. target_username)
+            return
+        end
+        print(player_name .. " temporarily looping " .. target_username)
+        Modules.Commands.send_command("inf^0.1^loopkill @" .. target_username)
+        Modules.Commands.send_command("inf^0.1^loopgoto @" .. target_username .. " 0")
+        -- Note: Temploop does not add to the persistent looplist
     elseif sub_command == "jump" then
-        if target_username then
-            if is_whitelisted(target_username) then
-                print("Cannot jump-loop a whitelisted player: " .. target_username)
-                return
-            end
-            print(player_name .. " jump-looping and adding to looplist: " .. target_username)
-            add_to_looplist(target_username)
-            send_command("inf^0.1^loopkill @" .. target_username)
-            send_command("inf^0.1^loopgoto @" .. target_username .. " 0")
-        else
-            print("Usage: sentinel jump @Username")
+        if not target_username or target_username == "" then
+            print("Usage: sentinel jump <Username>")
+            return
         end
+        if Modules.Permissions.is_whitelisted(target_username) then
+            print("Cannot jump-loop a whitelisted player: " .. target_username)
+            return
+        end
+        print(player_name .. " jump-looping and adding to looplist: " .. target_username)
+        Modules.Looplist.add_to_looplist(target_username)
+        Modules.Commands.send_command("inf^0.1^loopkill @" .. target_username)
+        Modules.Commands.send_command("inf^0.1^loopgoto @" .. target_username .. " 0")
     elseif sub_command == "unloop" then
-        if target_username then
-            if is_whitelisted(target_username) then
-                print("Cannot unloop a whitelisted player: " .. target_username)
-                return
-            end
-            print(player_name .. " unlooping and removing from looplist: " .. target_username)
-            remove_from_looplist(target_username)
-            send_command("unloopkill @" .. target_username)
-            send_command("unloopgoto @" .. target_username)
-        else
-            print("Usage: sentinel unloop @Username")
+        if not target_username or target_username == "" then
+            print("Usage: sentinel unloop <Username>")
+            return
         end
+        if Modules.Permissions.is_whitelisted(target_username) then
+            print("Cannot unloop a whitelisted player: " .. target_username)
+            return
+        end
+        print(player_name .. " unlooping and removing from looplist: " .. target_username)
+        Modules.Looplist.remove_from_looplist(target_username)
+        Modules.Commands.send_command("unloopkill @" .. target_username)
+        Modules.Commands.send_command("unloopgoto @" .. target_username)
     elseif sub_command == "shop" then
         print(player_name .. " initiated a manual server hop.")
-        server_hop()
+        Modules.Utils.server_hop()
     else
         print("Unknown Sentinel command: " .. sub_command)
     end
@@ -381,29 +511,44 @@ end
 end
 
 -- Server hopping logic
-local function should_server_hop()
+function Modules.Utils.should_server_hop()
     local players = game:GetService("Players"):GetPlayers()
     local non_whitelisted_players = 0
 
     for _, player in ipairs(players) do
-        if player.Name ~= game:GetService("Players").LocalPlayer.Name and not is_whitelisted(player.Name) then
+        if player.Name ~= game:GetService("Players").LocalPlayer.Name and not Modules.Permissions.is_whitelisted(player.Name) then
             non_whitelisted_players = non_whitelisted_players + 1
         end
     end
 
     -- If there are no other players (excluding self and whitelisted players), server hop
-    return non_whitelisted_players == 0
+    return non_whitelisted_players >= Config.PLAYER_COUNT_THRESHOLD
 end
 
-local function server_hop()
-    print("Initiating server hop...")
-    -- Placeholder for actual server hopping using TeleportService
-    -- game:GetService("TeleportService"):Teleport(game.PlaceId)
+function Modules.Utils.server_hop()
+    local TeleportService = game:GetService("TeleportService")
+    local Players = game:GetService("Players")
+    local LocalPlayer = Players.LocalPlayer
+
+    -- Placeholder for actual server hopping logic
+    -- In a real scenario, you would find a new server to teleport to.
+    -- This might involve a pre-determined server ID, or logic to find a less populated server.
+    print("Attempting to server hop...")
+
+    -- Example: Teleport to a new, empty server of the current place
+    -- This requires the place to be set up for private servers or have available public servers.
+    -- For demonstration, we'll just print a message.
+    local success, err = pcall(function() TeleportService:Teleport(game.PlaceId) end)
+    if not success then
+        warn("Teleport failed: ", err)
+    else
+        print("Teleport initiated successfully.")
+    end
 end
 end
 
 -- Looplist GUI Implementation
-local function create_looplist_gui()
+function Modules.GUI.create_looplist_gui()
     local player = game:GetService("Players").LocalPlayer
     local player_gui = player:WaitForChild("PlayerGui")
 
@@ -504,7 +649,8 @@ local function create_looplist_gui()
         local current_y_offset = 0
         local item_height = 25
 
-        for _, username in ipairs(Looplist) do
+        -- Iterate over Config.Looplist (which is now a set)
+        for username, _ in pairs(Modules.Looplist.get_looplist()) do
             if filter_text == "" or string.find(username:lower(), filter_text:lower()) then
                 local item_frame = Instance.new("Frame")
                 item_frame.Name = username .. "_Item"
@@ -532,7 +678,7 @@ local function create_looplist_gui()
                 unloop_button.Name = "UnloopButton"
                 unloop_button.Size = UDim2.new(0, 50, 1, 0)
                 unloop_button.Position = UDim2.new(1, -50, 0, 0)
-                unloop_button.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+                unloop_button.BackgroundColor3 = Color3.fromRGB(180, 60, 60)
                 unloop_button.Text = "Unloop"
                 unloop_button.TextColor3 = Color3.fromRGB(255, 255, 255)
                 unloop_button.Font = Enum.Font.SourceSansBold
@@ -541,9 +687,9 @@ local function create_looplist_gui()
                 unloop_button.Parent = item_frame
 
                 unloop_button.MouseButton1Click:Connect(function()
-                    remove_from_looplist(username)
-                    send_command("unloopkill @" .. username)
-                    send_command("unloopgoto @" .. username)
+                    Modules.Looplist.remove_from_looplist(username)
+                    Modules.Commands.send_command("unloopkill @" .. username)
+                    Modules.Commands.send_command("unloopgoto @" .. username)
                     update_looplist_display(search_bar.Text)
                 end)
 
@@ -563,47 +709,22 @@ local function create_looplist_gui()
     update_looplist_display("")
 
     -- Connect looplist changes to GUI update
-    -- (This assumes add_to_looplist and remove_from_looplist will trigger an event or can be modified to do so)
-    -- For now, we'll just call update_looplist_display after any change to Looplist
-
-    -- Example of how to refresh the GUI after a looplist change
-    -- This would ideally be an event-driven update, but for now, direct calls will work.
-    local original_add = add_to_looplist
-    function add_to_looplist(username)
-        original_add(username)
+    Modules.Looplist.looplist_changed:Connect(function()
         update_looplist_display(search_bar.Text)
-    end
+    end)
 
-    local original_remove = remove_from_looplist
-    function remove_from_looplist(username)
-        original_remove(username)
-        update_looplist_display(search_bar.Text)
-    end
+    return screen_gui
 end
 
--- Call the GUI creation function after startup sequence
+local function startup_sequence()
+    Modules.Looplist.load_looplist()
+    print("Sentinel AI initializing...")
+    wait(Config.INITIAL_WAIT_TIME)
+    print("Grace period active for " .. Config.GRACE_PERIOD_TIME .. " seconds.")
+    wait(Config.GRACE_PERIOD_TIME)
+    Config.GracePeriodActive = false
+    print("Grace period ended. All automated detections are now active.")
     create_looplist_gui()
-
-    -- Initial startup sequence
-    local function startup_sequence()
-    load_looplist() -- Load looplist at startup
-    print("Waiting for " .. INITIAL_WAIT_TIME .. " seconds for bot script to initialize...")
-    wait(INITIAL_WAIT_TIME)
-    print("Bot script initialized. Grace period of " .. GRACE_PERIOD_TIME .. " seconds begins...")
-    wait(GRACE_PERIOD_TIME)
-    GracePeriodActive = false
-    print("Grace period ended.")
-
-    -- Send initial commands
-    send_command("inf^5^tppos 0 -1000000 0")
-    send_command("spawn")
-    send_command("inf^0.1^loopkill [looplist]")
-    send_command("inf^2^walkfling")
-    send_command("inf^0.1^loopgoto [looplist] 0")
-    send_command("instarespawn")
-    send_command("novoid")
-    send_command("antiban")
-    send_command("lessfilter 1")
 end
 
 -- Call the startup sequence when the script runs
