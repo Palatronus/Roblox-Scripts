@@ -1,8 +1,8 @@
--- SFOTHO Security Bot Script v3.1 - Complete Rewrite
+-- SFOTHO Security Bot Script v4.0 - Complete Rewrite
 -- FE Compatible Vigilante Security System
 -- Fully Functional with Zero Console Leakage
 
- print("Loading SFOTHO Security Bot v4.0...")
+print("Loading SFOTHO Security Bot v4.0...")
 
 -- ========================================
 -- CORE SERVICES INITIALIZATION
@@ -27,26 +27,25 @@ local botOwner = LocalPlayer.Name
 -- ========================================
 
 local Config = {
-    NEW_ACCOUNT_THRESHOLD = 0, -- Days for new account detection
-    LONG_KILL_DISTANCE = 14, -- studs; above this considered suspicious
-    REACH_WARNING_MIN = 15,   -- studs; >= this => single warning kill (no loops)
-    REACH_LOOP_MIN = 25,      -- studs; (deprecated for looping; we'll ignore this)
-    COMMAND_DELAY = 0.75, -- delay between commands in sequences
+    NEW_ACCOUNT_THRESHOLD = 0,
+    LONG_KILL_DISTANCE = 14,
+    REACH_WARNING_MIN = 15,
+    REACH_LOOP_MIN = 25,
+    COMMAND_DELAY = 0.75,
     CHAR_DELAY_MIN = 0.05,
     CHAR_DELAY_MAX = 0.18,
     RETRY_LIMIT = 3,
     STOP_KEYWORD = "Qpmbsjbvt",
     SEQUENCE_ON_JOIN = true,
-    COMMAND_TOGGLE_CHAR = "ş", -- requested custom key to open IY command bar
-    COMMAND_TOGGLE_KEYCODE = Enum.KeyCode.Semicolon, -- fallback toggle
-    COMMAND_TOGGLE_FALLBACKS = {"Backquote", "Quote", "Slash"}, -- extra keys to try
+    COMMAND_TOGGLE_CHAR = "ş",
+    COMMAND_TOGGLE_KEYCODE = Enum.KeyCode.Semicolon,
+    COMMAND_TOGGLE_FALLBACKS = {"Backquote", "Quote", "Slash"},
     COMMAND_TOGGLE_ATTEMPTS = 3,
     COMMAND_BAR_FOCUS_TIMEOUT = 0.6,
     POST_TOGGLE_WAIT = 0.35,
     PRE_TYPE_WAIT = 0.07,
     POST_TYPE_WAIT = 0.12,
     POST_ENTER_WAIT = 0.28,
-    -- Precise targeting and visual verification
     COMMAND_BAR_TARGET_HINTS = {
         "infiniteyield", "iy", "commandbar", "cmdbar", "cmd", "command"
     },
@@ -57,45 +56,31 @@ local Config = {
     FOCUS_RECAPTURE_RETRY = 6,
     EXTERNAL_LOOPLIST_PATH = "C:/Users/MEV/Desktop/Loopkills.txt",
     PLACE_ID = game.PlaceId,
-    SERVER_HOP_CHECK_DELAY = 10, -- seconds after join to check solo
-    ACTION_ON_NEW_ACCOUNT = "loopkill", -- loopkill | loopfling | singlekill
-    ACTION_ON_KILL_BOT = "loopfling", -- action when someone kills the bot
-    ACTION_ON_LONG_DISTANCE = "singlekill" -- action for suspicious long-distance kills
-    ,
-    LOOPLIST_FILE = "SecurityBot_looplist.txt" -- local file to persist current loop list
-    ,
-    -- Action throttling to stop repeated command spam
+    SERVER_HOP_CHECK_DELAY = 10,
+    ACTION_ON_NEW_ACCOUNT = "loopkill",
+    ACTION_ON_KILL_BOT = "loopfling",
+    ACTION_ON_LONG_DISTANCE = "singlekill",
+    LOOPLIST_FILE = "SecurityBot_looplist.txt",
     ACTION_COOLDOWNS = {
-        singlekill = 7.5,  -- seconds (decreased from 10 → 7.5 per request)
-        loopkill   = 45,   -- seconds
-        loopfling  = 45    -- seconds
-    }
-    ,
-    -- Flinger detection
-    FLINGER_VELOCITY_THRESHOLD = 180, -- studs/sec magnitude to classify as flinger
-    FLINGER_CHECK_INTERVAL = 0.25,    -- seconds between velocity checks
-    
-    -- Stuck watchdog
-    STUCK_MOVE_EPSILON = 2.0,      -- minimum movement to consider not stuck (studs)
-    STUCK_FREEZE_TIMEOUT = 10,     -- seconds with < epsilon movement before recovery
-    STUCK_RECOVERY_ENABLED = true  -- run auto-recovery when frozen
-    ,
-    -- Persistence and security
+        singlekill = 7.5,
+        loopkill = 45,
+        loopfling = 45
+    },
+    FLINGER_VELOCITY_THRESHOLD = 180,
+    FLINGER_CHECK_INTERVAL = 0.25,
+    STUCK_MOVE_EPSILON = 2.0,
+    STUCK_FREEZE_TIMEOUT = 10,
+    STUCK_RECOVERY_ENABLED = true,
     PERSIST_DATA_FOLDER = "SecurityBot_Data",
     PERSIST_JSON_PATH = "SecurityBot_Data/looped.json",
-    TEMP_LOOP_TTL_SEC = 0,           -- 0 = never expire temporary loops
+    TEMP_LOOP_TTL_SEC = 0,
     ENCRYPT_STORAGE = true,
     ENCRYPTION_KEY_SEED = "SentinelKeySeed",
-    -- Desktop bridge fallback (used when direct file writes are blocked)
     BRIDGE_ENABLED = true,
-    BRIDGE_URL = "http://127.0.0.1:8765" -- expected endpoints: /append, /remove, /set
-    ,
-    -- Warm-up timing
-    INIT_DELAY_SEC = 10,            -- wait before bot activates to let IY load
-    GRACE_NO_LOOP_SEC = 5,          -- initial seconds after activation to soften punishments
-    GRACE_NO_LOOP_DISTANCE = 25     -- within grace, do not loop if under this distance
-    ,
-    -- Looplist UI and defaults
+    BRIDGE_URL = "http://127.0.0.1:8765",
+    INIT_DELAY_SEC = 10,
+    GRACE_NO_LOOP_SEC = 5,
+    GRACE_NO_LOOP_DISTANCE = 25,
     USE_UI_LOOPLIST = true,
     LOOPLIST_UI_AUTO_OPEN = true,
     FORCE_RESET_DEFAULT_LOOPLIST = false,
@@ -117,6 +102,83 @@ local MOD_WHITELIST = {
 }
 
 -- ========================================
+-- UTILITY FUNCTIONS (CORE) - DEFINED FIRST
+-- ========================================
+
+-- Case-insensitive normalization for whitelist comparisons
+local function normalizeForCompare(name)
+    if not name or name == "" then return "" end
+    return string.lower((name:gsub("^@", "")))
+end
+
+local function normalizeName(name)
+    if not name or name == "" then return nil end
+    return name:gsub("^@", "")
+end
+
+local function safeWait(duration)
+    local success, err = pcall(function()
+        task.wait(duration or 0.1)
+    end)
+    if not success then
+        print("[ERROR] Wait failed:", err)
+    end
+end
+
+local function hasFilesystem()
+    return type(isfile) == "function" and type(writefile) == "function" and type(readfile) == "function"
+end
+
+-- Simple XOR + Base64 obfuscation (optional) for persistent JSON
+local function kdf()
+    local seed = tostring(LocalPlayer.UserId).."-"..tostring(Config.ENCRYPTION_KEY_SEED or "")
+    return seed
+end
+
+local function xorBytes(str, key)
+    local out = table.create(#str)
+    local klen = #key
+    for i = 1, #str do
+        local sb = string.byte(str, i)
+        local kb = string.byte(key, ((i - 1) % klen) + 1)
+        out[i] = string.char(bit32.bxor(sb, kb))
+    end
+    return table.concat(out)
+end
+
+local function hasBase64()
+    local ok = pcall(function() HttpService:Base64Encode("test") end)
+    return ok
+end
+
+local function encodeData(tbl)
+    local ok, json = pcall(function() return HttpService:JSONEncode(tbl) end)
+    if not ok then return nil end
+    if Config.ENCRYPT_STORAGE and hasBase64() then
+        local obf = xorBytes(json, kdf())
+        local okb, b64 = pcall(function() return HttpService:Base64Encode(obf) end)
+        if okb then return b64 end
+    end
+    return json
+end
+
+local function decodeData(str)
+    if not str or str == "" then return nil end
+    local raw = str
+    if Config.ENCRYPT_STORAGE and hasBase64() then
+        local okb, dec = pcall(function() return HttpService:Base64Decode(raw) end)
+        if okb and type(dec) == "string" then
+            raw = xorBytes(dec, kdf())
+        else
+            raw = str
+        end
+    end
+    local ok, tbl = pcall(function() return HttpService:JSONDecode(raw) end)
+    if ok then return tbl end
+    return nil
+end
+
+-- ========================================
 -- STATE MANAGEMENT
 -- ========================================
 
@@ -127,7 +189,7 @@ local State = {
     botActive = false,
     seqRan = false,
     connections = {},
-    cooldowns = {}, -- name -> {action -> lastTick}
+    cooldowns = {},
     textInputSupported = false,
     lastAttackerName = nil,
     lastAttackerDist = 0,
@@ -144,72 +206,17 @@ for _, n in pairs(MOD_WHITELIST) do MOD_SET[normalizeForCompare(n)] = true end
 -- Always treat the bot owner (LocalPlayer) as whitelisted
 OWNER_SET[normalizeForCompare(botOwner)] = true
 
--- ========================================
--- UTILITY FUNCTIONS
--- ========================================
-
-local function safeWait(duration)
-    local success, err = pcall(function()
-        task.wait(duration or 0.1)
-    end)
-    if not success then
-        print("[ERROR] Wait failed:", err)
-    end
-end
-
-local function hasFilesystem()
-    return type(isfile) == "function" and type(writefile) == "function" and type(readfile) == "function"
-end
-
-local function encodeData(tbl)
-    local ok, json = pcall(function() return HttpService:JSONEncode(tbl) end)
-    if not ok then return nil end
-    if Config.ENCRYPT_STORAGE and hasBase64() then
-        local obf = xorBytes(json, kdf())
-        local okb, b64 = pcall(function() return HttpService:Base64Encode(obf) end)
-        if okb then return b64 end
-    end
-    return json
-end
-local function decodeData(str)
-    if not str or str == "" then return nil end
-    local raw = str
-    if Config.ENCRYPT_STORAGE and hasBase64() then
-        local okb, dec = pcall(function() return HttpService:Base64Decode(raw) end)
-        if okb and type(dec) == "string" then
-            raw = xorBytes(dec, kdf())
-        else
-            -- Fallback: treat as plain JSON if Base64 fails
-            raw = str
-        end
-    end
-    local ok, tbl = pcall(function() return HttpService:JSONDecode(raw) end)
-    if ok then return tbl end
-    return nil
-end
-
-local function normalizeName(name)
-    if not name or name == "" then return nil end
-    return name:gsub("^@", "")
-end
-
--- Case-insensitive normalization for whitelist comparisons
-local function normalizeForCompare(name)
-    if not name or name == "" then return "" end
-    return string.lower((name:gsub("^@", "")))
-end
-
 local function isWhitelisted(username)
     if not username then return false end
     local n = normalizeForCompare(username)
     return OWNER_SET[n] or MOD_SET[n] or false
 end
 
--- Forward declaration for Persistent to avoid nil calls in early helpers.
--- These stubs are overridden by the full implementation later in the file.
-local Persistent = { entries = {}, loaded = false }
+-- ========================================
+-- PERSISTENT STORAGE SYSTEM
+-- ========================================
 
--- Persistent storage for looped users (extends forward-declared table above)
+local Persistent = { entries = {}, loaded = false }
 
 function Persistent.load()
     if not hasFilesystem() then Persistent.loaded = true; return true end
@@ -222,7 +229,6 @@ function Persistent.load()
     if type(decoded) == "table" and decoded.entries then
         Persistent.entries = decoded.entries
         Persistent.loaded = true
-        -- Optional prune expired
         Persistent.pruneExpired()
         return true
     end
@@ -313,21 +319,42 @@ function Persistent.import(payload)
     return false
 end
 
--- Self/owner helpers and action throttling
+-- ========================================
+-- HELPER FUNCTIONS
+-- ========================================
+
 local function isSelf(name)
     if not name then return false end
     return normalizeForCompare(name) == normalizeForCompare(LocalPlayer.Name)
 end
 
+local function detectionEnabled()
+    return tick() >= (State.detectionEnableAt or 0)
+end
+
+local function inWarmupGrace()
+    local t = tick()
+    return t >= (State.detectionEnableAt or 0) and t < (State.graceEndAt or 0)
+end
+
+local function isOwner(username)
+    if not username then return false end
+    local n = normalizeForCompare(username)
+    return OWNER_SET[n] or false
+end
+
+local function isMod(username)
+    if not username then return false end
+    local n = normalizeForCompare(username)
+    return MOD_SET[n] or isOwner(username)
+end
+
 local function canRunAction(name, action)
     if not name or name == "" then return false end
-    -- Never target self
     if isSelf(name) then return false end
-    -- Suppress auto punishments during warm-up (chat/manual commands bypass)
     if (action == "singlekill" or action == "loopkill" or action == "loopfling") and not detectionEnabled() then
         return false
     end
-    -- If already looped, do not re-run loop commands
     if (action == "loopkill" or action == "loopfling") and Persistent.isActive(name) then
         return false
     end
@@ -341,1600 +368,11 @@ local function markActionRun(name, action)
     State.cooldowns[name][action] = tick()
 end
 
--- Activation helpers
-local function detectionEnabled()
-    return tick() >= (State.detectionEnableAt or 0)
-end
-
-local function inWarmupGrace()
-    local t = tick()
-    return t >= (State.detectionEnableAt or 0) and t < (State.graceEndAt or 0)
-end
-
--- External looplist file support (Windows path)
-local function resolveExternalPath(raw)
-    local p = raw or Config.EXTERNAL_LOOPLIST_PATH
-    if not p or p == "" then return "Loopkills.txt" end
-    p = p:gsub("\\", "/")
-    p = p:gsub("^/", "")
-    return p
-end
-
-local function ensureLooplistFile()
-    if not hasFilesystem() then return end
-    local primary = resolveExternalPath()
-    local ok = true
-    if not isfile(primary) then
-        ok = pcall(function()
-            writefile(primary, "")
-        end)
-    end
-    if not ok then
-        print("[WARN] Unable to create primary looplist file:", primary)
-        -- Fallback inside executor workspace
-        local folder = Config.PERSIST_DATA_FOLDER
-        if type(isfolder) == "function" and not isfolder(folder) then
-            pcall(function() makefolder(folder) end)
-        end
-        local fb = Config.PERSIST_DATA_FOLDER.."/Loopkills.txt"
-        State.loopPathFallback = fb
-        if not isfile(fb) then
-            local okfb = pcall(function() writefile(fb, "") end)
-            if not okfb then print("[WARN] Fallback looplist file failed:", fb) end
-        end
-    else
-        State.loopPathFallback = nil
-    end
-end
-
--- ========================================
--- DESKTOP BRIDGE (HTTP) FALLBACKS
--- ========================================
-
-local function httpGet(url)
-    local ok, res
-    -- Try common executor-specific HTTP functions first
-    if type(http_request) == "function" then
-        ok, res = pcall(function() return http_request({Url = url, Method = "GET"}) end)
-    elseif type(syn) == "table" and type(syn.request) == "function" then
-        ok, res = pcall(function() return syn.request({Url = url, Method = "GET"}) end)
-    elseif type(request) == "function" then
-        ok, res = pcall(function() return request({Url = url, Method = "GET"}) end)
-    end
-    if ok and res then
-        if type(res) == "table" then
-            if res.Success == true and (res.Body or res.StatusCode == 200) then return res.Body or "" end
-            if res.StatusCode == 200 and res.Body then return res.Body end
-        elseif type(res) == "string" then
-            return res
-        end
-    end
-    -- Fallback to Roblox HttpService if permitted
-    local ok2, body = pcall(function()
-        return game:HttpGet(url)
-    end)
-    if ok2 and body then return body end
-    return nil
-end
-
-local function bridgeEnabled()
-    return Config.BRIDGE_ENABLED and type(Config.BRIDGE_URL) == "string" and #Config.BRIDGE_URL > 0
-end
-
-local function bridgeAppend(name)
-    if not bridgeEnabled() then return false end
-    local n = normalizeName(name)
-    if not n or n == "" then return false end
-    local url = string.format("%s/append?name=%s", Config.BRIDGE_URL, HttpService:UrlEncode(n))
-    return httpGet(url) ~= nil
-end
-
-local function bridgeRemove(name)
-    if not bridgeEnabled() then return false end
-    local n = normalizeName(name)
-    if not n or n == "" then return false end
-    local url = string.format("%s/remove?name=%s", Config.BRIDGE_URL, HttpService:UrlEncode(n))
-    return httpGet(url) ~= nil
-end
-
-local function bridgeSet(names)
-    if not bridgeEnabled() then return false end
-    local list
-    if type(names) == "table" then
-        local tmp = {}
-        for _, nn in ipairs(names) do
-            local u = normalizeName(nn)
-            if u and u ~= "" then table.insert(tmp, u) end
-        end
-        list = table.concat(tmp, ",")
-    else
-        list = tostring(names or "")
-    end
-    local url = string.format("%s/set?names=%s", Config.BRIDGE_URL, HttpService:UrlEncode(list))
-    return httpGet(url) ~= nil
-end
-
-local function readExternalLoopNames()
-    -- Deprecated: return Persistent names for backward compatibility callers
-    return Persistent.getActiveNames(false)
-end
-
-local function writeExternalLoopNames(names)
-    -- Deprecated: external file persistence replaced by in-game UI + JSON storage
-    -- Keep function for backward compatibility; now a no-op.
-    return
-end
-
-local function addNameToExternalLooplist(playerName)
-    -- Deprecated: use Persistent + UI; keep as no-op for logging symmetry
-    return
-end
-
-local function removeNameFromExternalLooplist(playerName)
-    -- Deprecated: use Persistent + UI; keep as no-op for logging symmetry
-    return
-end
-
--- Backwards-compatible wrappers
-local function readLooplist()
-    -- Read from Persistent, not external .txt
-    local arr = Persistent.getActiveNames(false)
-    local list = { loopkill = {}, loopfling = {} }
-    for _, n in ipairs(arr) do list.loopkill[n] = true; list.loopfling[n] = true end
-    return list
-end
-local function writeLooplist(list)
-    -- Persist via Persistent JSON only
-    local arr = {}
-    for n, _ in pairs((list and list.loopkill) or {}) do table.insert(arr, n) end
-    -- Ensure Persistent mirrors provided list
-    Persistent.entries = {}
-    for _, nn in ipairs(arr) do Persistent.add(nn, "permanent", 0, "manual-export") end
-    Persistent.save()
-end
-local function addToLooplist(action, playerName)
-    -- Persist only loop-based punishments as permanent entries
-    if action == "loopkill" or action == "loopfling" then
-        Persistent.add(playerName, "permanent", 0, "detection")
-        if State.loopUIUpdate then State.loopUIUpdate() end
-    end
-end
-local function removeFromLooplist(playerName)
-    Persistent.remove(playerName)
-    if State.loopUIUpdate then State.loopUIUpdate() end
-end
-
--- ========================================
--- KEY INPUT HELPERS (enum keypress typing)
--- ========================================
-
-local function tapKey(keyCode)
-    VirtualInputManager:SendKeyEvent(true, keyCode, false, game)
-    safeWait(0.03)
-    VirtualInputManager:SendKeyEvent(false, keyCode, false, game)
-end
-
--- Try to keep the Developer Console from stealing focus while we type commands
-local function hideDevConsole()
-    pcall(function()
-        StarterGui:SetCore("DevConsoleVisible", false)
-        StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.DevConsole, false)
-    end)
-end
-
--- Locate the IY CommandBar TextBox using path-based hints and scoring
-local function findCommandTextBox()
-    local hints = Config.COMMAND_BAR_TARGET_HINTS or {"infiniteyield", "iy", "commandbar"}
-    local function score(tb)
-        if not tb or not tb:IsA("TextBox") then return -1 end
-        local full = string.lower(tb:GetFullName())
-        local n = string.lower(tb.Name or "")
-        local ph = string.lower(tb.PlaceholderText or "")
-        local s = 0
-        for _, h in ipairs(hints) do
-            if #h > 0 then
-                if string.find(full, h, 1, true) then s = s + 3 end
-                if string.find(n, h, 1, true) then s = s + 2 end
-                if ph ~= "" and string.find(ph, h, 1, true) then s = s + 2 end
-            end
-        end
-        if string.find(n, "command", 1, true) then s = s + 1 end
-        if string.find(n, "bar", 1, true) then s = s + 1 end
-        if string.find(ph, "cmd", 1, true) or string.find(ph, "/cmd", 1, true) then s = s + 1 end
-        if tb:IsDescendantOf(CoreGui) then s = s + 1 end
-        return s
-    end
-    local best, bestScore = nil, -1
-    local function scan(root)
-        for _, d in ipairs(root:GetDescendants()) do
-            if d:IsA("TextBox") then
-                local sc = score(d)
-                if sc > bestScore then
-                    best = d
-                    bestScore = sc
-                end
-            end
-        end
-    end
-    pcall(function() scan(CoreGui) end)
-    local pg = LocalPlayer:FindFirstChild("PlayerGui")
-    if pg then pcall(function() scan(pg) end) end
-    -- Require at least some confidence to avoid unintended bars
-    if bestScore >= 2 then return best end
-    return nil
-end
-
-local function focusCommandTextBox()
-    hideDevConsole()
-    local tb = findCommandTextBox()
-    if tb then
-        pcall(function() tb:CaptureFocus() end)
-        safeWait(0.1)
-        if UserInputService:GetFocusedTextBox() == tb then return true end
-    end
-    return false
-end
-
--- Verify that the intended TextBox has the expected input before pressing Enter
-local function verifyInputInTarget(tb, expected)
-    if not tb or not tb:IsA("TextBox") then return false end
-    local deadline = tick() + (Config.INPUT_VERIFY_TIMEOUT or 0.6)
-    while tick() < deadline do
-        local focused = UserInputService:GetFocusedTextBox()
-        if focused == tb then
-            local ok, current = pcall(function() return tb.Text end)
-            if ok and current == expected then return true end
-        end
-        safeWait(0.05)
-    end
-    return false
-end
-
--- Show a temporary visual overlay confirming which command bar is targeted
-local function showVisualConfirm(tb, cmd)
-    if not Config.VERIFY_INPUT_VISUALLY then return end
-    local ok, _ = pcall(function()
-        local sg = Instance.new("ScreenGui")
-        sg.ResetOnSpawn = false
-        sg.Name = "SB_CommandConfirm"
-        sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-        sg.Parent = LocalPlayer:FindFirstChild("PlayerGui") or CoreGui
-
-        local frame = Instance.new("Frame")
-        frame.Size = UDim2.new(0, 260, 0, 80)
-        frame.Position = UDim2.new(0.5, -130, 0.1, 0)
-        frame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-        frame.BackgroundTransparency = 0.3
-        frame.BorderSizePixel = 0
-        frame.Parent = sg
-
-        local ui = Instance.new("UICorner")
-        ui.CornerRadius = UDim.new(0, 8)
-        ui.Parent = frame
-
-        local label = Instance.new("TextLabel")
-        label.Size = UDim2.new(1, -12, 1, -12)
-        label.Position = UDim2.new(0, 6, 0, 6)
-        label.BackgroundTransparency = 1
-        label.TextColor3 = Color3.fromRGB(255, 255, 255)
-        label.TextScaled = true
-        label.Font = Enum.Font.Gotham
-        label.TextWrapped = true
-        local targetName = "Command Bar"
-        local okN, nameOrPath = pcall(function()
-            return tb:GetFullName()
-        end)
-        if okN and nameOrPath then targetName = nameOrPath end
-        label.Text = "Targeting: "..targetName.."\nCMD: "..tostring(cmd)
-        label.Parent = frame
-
-        task.delay(Config.VISUAL_CONFIRM_DURATION or 0.8, function()
-            sg:Destroy()
-        end)
-    end)
-    if not ok then
-        -- Non-fatal UI failure; continue silently
-    end
-end
-
-local function trySendText(text)
-    local ok = pcall(function()
-        -- SendTextInput(text, false) improves reliability across executors
-        VirtualInputManager:SendTextInput(text, false)
-    end)
-    return ok
-end
-
--- Recapture focus on the intended textbox until it sticks
-local function ensureTargetFocus(tb)
-    if not tb then return false end
-    for i = 1, (Config.FOCUS_RECAPTURE_RETRY or 6) do
-        local focused = UserInputService:GetFocusedTextBox()
-        if focused == tb then return true end
-        pcall(function() tb:CaptureFocus() end)
-        safeWait(0.06)
-    end
-    return UserInputService:GetFocusedTextBox() == tb
-end
-
--- Optional diagnostic hooks to observe text changes and focus loss
-local function attachInputDebug(tb)
-    if not (Config.DEBUG_INPUT and tb and tb:IsA("TextBox")) then
-        return function() end
-    end
-    local c1, c2
-    local ok = pcall(function()
-        c1 = tb:GetPropertyChangedSignal("Text"):Connect(function()
-            print("[INPUT-DBG] Text changed:", tb.Text)
-        end)
-        c2 = tb.FocusLost:Connect(function(enterPressed)
-            print("[INPUT-DBG] FocusLost; enterPressed=", enterPressed)
-            State.lastEnterPressed = enterPressed
-            State.lastFocusLostAt = tick()
-        end)
-    end)
-    return function()
-        if ok then
-            pcall(function() if c1 then c1:Disconnect() end end)
-            pcall(function() if c2 then c2:Disconnect() end end)
-        end
-    end
-end
-
--- After pressing Enter, try to validate that submission likely occurred
-local function validateSubmission(tb, expected)
-    local deadline = tick() + (Config.SUBMIT_VERIFY_TIMEOUT or 0.7)
-    while tick() < deadline do
-        -- If focus was lost with enterPressed=true, assume success
-        if State.lastEnterPressed == true and (tick() - (State.lastFocusLostAt or 0)) < 1.2 then
-            return true
-        end
-        -- Some command bars clear text upon submit
-        local ok, current = pcall(function() return tb.Text end)
-        if ok and (current == nil or current == "" or current ~= expected) then
-            return true
-        end
-        safeWait(0.05)
-    end
-    return false
-end
-
--- Suppress common key conflicts (chat slash, dev console F9) while typing
-local function suppressConflicts(active)
-    local sink = function(_, state) if state == Enum.UserInputState.Begin then return Enum.ContextActionResult.Sink end end
-    if active then
-        pcall(function()
-            ContextActionService:BindAction("SB_SinkSlash", sink, false, Enum.KeyCode.Slash)
-            ContextActionService:BindAction("SB_SinkF9", sink, false, Enum.KeyCode.F9)
-        end)
-    else
-        pcall(function()
-            ContextActionService:UnbindAction("SB_SinkSlash")
-            ContextActionService:UnbindAction("SB_SinkF9")
-        end)
-    end
-end
-
--- Use a single, validated key map (no invalid Enum members)
-local function optKey(member)
-    local ok, val = pcall(function() return Enum.KeyCode[member] end)
-    if ok then return val end
-    return nil
-end
-
-local KEYMAP = {
-    a=Enum.KeyCode.A,b=Enum.KeyCode.B,c=Enum.KeyCode.C,d=Enum.KeyCode.D,e=Enum.KeyCode.E,
-    f=Enum.KeyCode.F,g=Enum.KeyCode.G,h=Enum.KeyCode.H,i=Enum.KeyCode.I,j=Enum.KeyCode.J,
-    k=Enum.KeyCode.K,l=Enum.KeyCode.L,m=Enum.KeyCode.M,n=Enum.KeyCode.N,o=Enum.KeyCode.O,
-    p=Enum.KeyCode.P,q=Enum.KeyCode.Q,r=Enum.KeyCode.R,s=Enum.KeyCode.S,t=Enum.KeyCode.T,
-    u=Enum.KeyCode.U,v=Enum.KeyCode.V,w=Enum.KeyCode.W,x=Enum.KeyCode.X,y=Enum.KeyCode.Y,
-    z=Enum.KeyCode.Z,
-    ["0"]=Enum.KeyCode.Zero,["1"]=Enum.KeyCode.One,["2"]=Enum.KeyCode.Two,["3"]=Enum.KeyCode.Three,
-    ["4"]=Enum.KeyCode.Four,["5"]=Enum.KeyCode.Five,["6"]=Enum.KeyCode.Six,["7"]=Enum.KeyCode.Seven,
-    ["8"]=Enum.KeyCode.Eight,["9"]=Enum.KeyCode.Nine,
-    [" "]=Enum.KeyCode.Space,["."]=Enum.KeyCode.Period,[","]=Enum.KeyCode.Comma,["-"]=Enum.KeyCode.Minus,
-    ["="]=Enum.KeyCode.Equals,["["]=Enum.KeyCode.LeftBracket,["]"]=Enum.KeyCode.RightBracket,
-    ["\\"]=Enum.KeyCode.BackSlash,[";"]=Enum.KeyCode.Semicolon,
-    ["'"]=Enum.KeyCode.Quote,["/"]=Enum.KeyCode.Slash,
-    ["`"]=optKey("Backquote")
-}
-
-local function getKeyCodeForChar(char)
-    return KEYMAP[string.lower(char)] or KEYMAP[char]
-end
-
--- Detect once whether SendTextInput is supported by the current executor
-local function detectTextInputSupport()
-    local ok = pcall(function()
-        VirtualInputManager:SendTextInput("a", false)
-    end)
-    State.textInputSupported = ok
-end
-
-local function typeTextSmart(text)
-    -- Prefer sending the whole string at once when supported to avoid timing issues
-    if State.textInputSupported then
-        local ok = trySendText(text)
-        if ok then return true end
-        -- Fall through to keypress typing if executor blocks multi-char input
-    end
-    for i = 1, #text do
-        local ch = string.sub(text, i, i)
-        local isUpper = ch:match("[A-Z]") ~= nil
-        local lower = string.lower(ch)
-        local SHIFTED = {
-            [":"] = Enum.KeyCode.Semicolon,
-            ["_"] = Enum.KeyCode.Minus,
-            ["+"] = Enum.KeyCode.Equals,
-            ["\""] = Enum.KeyCode.Quote,
-            ["^"] = Enum.KeyCode.Six
-        }
-        local base = SHIFTED[ch]
-        if isUpper then base = getKeyCodeForChar(lower) end
-        if base then
-            VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.LeftShift, false, game)
-            safeWait(0.03)
-            tapKey(base)
-            safeWait(0.03)
-            VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.LeftShift, false, game)
-        else
-            local kc = getKeyCodeForChar(ch)
-            if kc then tapKey(kc) end
-        end
-        safeWait(math.random(math.floor(Config.CHAR_DELAY_MIN*1000), math.floor(Config.CHAR_DELAY_MAX*1000))/1000)
-    end
-    return true
-end
-
--- Type robustly into a specific target TextBox, verifying after each strategy
-local function typeIntoTarget(tb, text)
-    if not ensureTargetFocus(tb) then return false end
-    suppressConflicts(true)
-    safeWait(Config.PRE_TYPE_WAIT)
-
-    -- Strategy 1: bulk SendTextInput
-    if State.textInputSupported then
-        local ok = trySendText(text)
-        safeWait(Config.POST_TYPE_WAIT)
-        if ok and verifyInputInTarget(tb, text) then
-            suppressConflicts(false)
-            return true
-        end
-    end
-
-    -- Strategy 2: direct property set (many IY bars rely on Text value)
-    local okSet = pcall(function() tb.Text = text end)
-    safeWait(0.06)
-    if okSet and verifyInputInTarget(tb, text) then
-        suppressConflicts(false)
-        return true
-    end
-
-    -- Strategy 3: guarded keypress typing
-    for i = 1, #text do
-        if UserInputService:GetFocusedTextBox() ~= tb then
-            ensureTargetFocus(tb)
-        end
-        local ch = string.sub(text, i, i)
-        local isUpper = ch:match("[A-Z]") ~= nil
-        local lower = string.lower(ch)
-        local SHIFTED = {
-            [":"] = Enum.KeyCode.Semicolon,
-            ["_"] = Enum.KeyCode.Minus,
-            ["+"] = Enum.KeyCode.Equals,
-            ["\""] = Enum.KeyCode.Quote,
-            ["^"] = Enum.KeyCode.Six
-        }
-        local base = SHIFTED[ch]
-        if isUpper then base = getKeyCodeForChar(lower) end
-        if base then
-            VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.LeftShift, false, game)
-            safeWait(0.02)
-            tapKey(base)
-            safeWait(0.02)
-            VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.LeftShift, false, game)
-        else
-            local kc = getKeyCodeForChar(ch)
-            if kc then tapKey(kc) end
-        end
-        safeWait(math.random(math.floor(Config.CHAR_DELAY_MIN*1000), math.floor(Config.CHAR_DELAY_MAX*1000))/1000)
-    end
-    safeWait(Config.POST_TYPE_WAIT)
-    local ok3 = verifyInputInTarget(tb, text)
-    suppressConflicts(false)
-    return ok3
-end
-
-local function pressEnter()
-    tapKey(Enum.KeyCode.Return)
-    safeWait(0.06)
-    -- Fallback for keyboards where KeypadEnter is distinct
-    local ok, keypad = pcall(function() return Enum.KeyCode.KeypadEnter end)
-    if ok and keypad then tapKey(keypad) end
-end
-
-local function toggleCommandBar()
-    -- Build the ordered list of keys to try
-    local keys = {}
-    if Config.COMMAND_TOGGLE_KEYCODE then table.insert(keys, Config.COMMAND_TOGGLE_KEYCODE) end
-    for _, m in ipairs(Config.COMMAND_TOGGLE_FALLBACKS or {}) do
-        local kc
-        if type(m) == "string" then
-            kc = optKey(m)
-        else
-            kc = m
-        end
-        if kc then table.insert(keys, kc) end
-    end
-    -- Try each key once, waiting for focus after each
-    for _, key in ipairs(keys) do
-        tapKey(key)
-        safeWait(Config.POST_TOGGLE_WAIT)
-        if UserInputService:GetFocusedTextBox() then return true end
-    end
-    return UserInputService:GetFocusedTextBox() ~= nil
-end
-
-local function ensureCommandBarFocused()
-    -- Attempt limited toggles with timed wait for focus, avoiding rapid re-toggles
-    hideDevConsole()
-    if focusCommandTextBox() then return true end
-    for attempt = 1, (Config.COMMAND_TOGGLE_ATTEMPTS or 3) do
-        if UserInputService:GetFocusedTextBox() then return true end
-        toggleCommandBar()
-        local deadline = tick() + (Config.COMMAND_BAR_FOCUS_TIMEOUT or 0.6) + (attempt-1)*0.1
-        while tick() < deadline do
-            if UserInputService:GetFocusedTextBox() then return true end
-            safeWait(0.05)
-        end
-        if focusCommandTextBox() then return true end
-    end
-    -- Some IY bars are not TextBox-backed; proceed optimistically
-    return true
-end
-
--- Build lowercase whitelist sets for robust matching
-
-
-
-
-local function isOwner(username)
-    if not username then return false end
-    return OWNER_SET[normalizeForCompare(username)] or false
-end
-
-local function isMod(username)
-    if not username then return false end
-    return (not isOwner(username)) and MOD_SET[normalizeForCompare(username)] or false
-end
-
-local function isNewAccount(player)
-    if not player or player.AccountAge == nil then return false end
-    return player.AccountAge <= Config.NEW_ACCOUNT_THRESHOLD
-end
-
--- ========================================
--- ADMIN COMMAND EXECUTION (human-like typing)
--- ========================================
-
-local function executeCommand(command)
-    for attempt = 1, Config.RETRY_LIMIT do
-        local ok, err = pcall(function()
-            ensureLooplistFile()
-            hideDevConsole()
-            -- Find and focus the intended command bar
-            local target = findCommandTextBox()
-            if not target then
-                ensureCommandBarFocused()
-                target = findCommandTextBox()
-            end
-            if not target then
-                error("Target command bar not found")
-            end
-            local detachDbg = attachInputDebug(target)
-            pcall(function() target:CaptureFocus() end)
-            local typedOk = typeIntoTarget(target, command)
-            if not typedOk then
-                local tn = "?"
-                pcall(function() tn = target:GetFullName() end)
-                error("Input verification failed; target="..tostring(tn))
-            end
-            showVisualConfirm(target, command)
-            pressEnter()
-            safeWait(0.05)
-            pcall(function() target:ReleaseFocus() end)
-            safeWait(Config.POST_ENTER_WAIT)
-            -- Validate that the submit likely succeeded
-            local submitted = validateSubmission(target, command)
-            if not submitted then
-                local tn = "?"
-                local cur = "?"
-                local focused = UserInputService:GetFocusedTextBox()
-                pcall(function() tn = target:GetFullName() end)
-                pcall(function() cur = target.Text end)
-                error("Submit validation failed; target="..tostring(tn).." focused="..tostring(focused==target).." text="..tostring(cur))
-            end
-            detachDbg()
-        end)
-        if ok then
-            print("[SUCCESS] Command executed:", command)
-            return true
-        else
-            print("[WARN] Command attempt", attempt, "failed:", err)
-            safeWait(0.35)
-        end
-    end
-    print("[ERROR] Command execution failed after retries:", command)
-    return false
-end
-
-local function executeLoopSequence(playerName, distance)
-    local uname = normalizeName(playerName)
-    if not uname or uname == "" or isWhitelisted(uname) or isSelf(uname) then return false end
-    -- During grace, avoid loops for close-range distances
-    local warnMin = Config.REACH_WARNING_MIN or 15
-    local loopMin = Config.REACH_LOOP_MIN or 25
-    if inWarmupGrace() and type(distance) == "number" and distance < (Config.GRACE_NO_LOOP_DISTANCE or loopMin) then
-        if distance >= warnMin then
-            return executeAdminAction("singlekill", uname)
-        else
-            return false
-        end
-    end
-    if not canRunAction(uname, "loopkill") then return false end
-    local at = "@"..uname
-    local ok1 = executeCommand("inf^0.1^loopkill "..at)
-    safeWait(Config.COMMAND_DELAY)
-    local ok2 = executeCommand("inf^0.1^loopgoto "..at.." 0")
-    if ok1 and ok2 then
-        addToLooplist("loopkill", uname)
-        markActionRun(uname, "loopkill")
-        return true
-    end
-    return ok1 and ok2
-end
-
-local function executeAdminAction(action, playerName)
-    if not playerName or playerName == "" then return false end
-    if isWhitelisted(playerName) or isSelf(playerName) then
-        print("[INFO] Skipping action for whitelisted:", playerName)
-        return false
-    end
-    local uname = normalizeName(playerName)
-    local at = "@"..uname
-    if action == "loopkill" then
-        return executeLoopSequence(uname)
-    elseif action == "loopfling" then
-        if not canRunAction(uname, "loopfling") then return false end
-        local ok = executeCommand("inf^0.1^loopgoto "..at.." 0")
-        if ok then
-            addToLooplist("loopfling", uname)
-            markActionRun(uname, "loopfling")
-        end
-        return ok
-    elseif action == "singlekill" then
-        if not canRunAction(uname, "singlekill") then return false end
-        local ok = executeCommand("kill "..at)
-        -- Do not persist warning kills
-        if ok then markActionRun(uname, "singlekill") end
-        return ok
-    else
-        return false
-    end
-end
-
-local function stopPlayerLoop(player)
-    if not player then return end
-    local name = player.Name
-    State.stoppedPlayers[name] = true
-    executeCommand("unloopkill "..name)
-    executeCommand("unloopgoto "..name)
-    removeFromLooplist(name)
-    print("[INFO] Stopped loops for", name)
-end
-
--- Legacy getKeyCodeForChar removed to avoid invalid Enum members.
--- Use the validated KEYMAP and getKeyCodeForChar defined above.
-
--- ========================================
--- We do NOT scan or look for admin GUI per your instructions.
--- Instead, we only toggle the command bar and type via keypress/text.
-
--- ========================================
--- Already replaced by the human-like executor above
-
--- ========================================
--- ========================================
--- PLAYER MANAGEMENT AND DETECTION
--- ========================================
-
-local function shouldProcessPlayer(player)
-    if not player then return false end
-    if player == LocalPlayer then return false end
-    if isWhitelisted(player.Name) then return false end
-    if State.stoppedPlayers[player.Name] then return false end
-    if State.processedPlayers[player.Name] then return false end
-    return isNewAccount(player)
-end
-
-local function runJoinSequence()
-    if State.seqRan or not Config.SEQUENCE_ON_JOIN then return end
-    -- Build comma-separated @name list from Persistent
-    local names = Persistent.getActiveNames(false)
-    local atList = ""
-    if names and #names > 0 then
-        local tmp = {}
-        for _, n in ipairs(names) do
-            if not isWhitelisted(n) and normalizeForCompare(n) ~= normalizeForCompare(LocalPlayer.Name) then
-                table.insert(tmp, "@"..n)
-            end
-        end
-        atList = table.concat(tmp, ",")
-    end
-
-    local seq = {
-        "inf^5^tppos 0 -1000000 0",
-        "spawn",
-    }
-    if atList ~= "" then table.insert(seq, "inf^0.1^loopkill "..atList) end
-    table.insert(seq, "inf^2^walkfling")
-    if atList ~= "" then
-        table.insert(seq, "inf^0.1^loopgoto "..atList.." 0")
-    else
-        table.insert(seq, "inf^0.1^loopgoto 0")
-    end
-    table.insert(seq, "instarespawn")
-    table.insert(seq, "novoid")
-
-    for _, cmd in ipairs(seq) do
-        executeCommand(cmd)
-        safeWait(Config.COMMAND_DELAY)
-    end
-    State.seqRan = true
-end
-
-local function buildAtListFromPersistent()
-    local names = Persistent.getActiveNames(false)
-    local tmp = {}
-    for _, n in ipairs(names or {}) do
-        if not isWhitelisted(n) and normalizeForCompare(n) ~= normalizeForCompare(LocalPlayer.Name) then
-            table.insert(tmp, "@"..n)
-        end
-    end
-    return table.concat(tmp, ",")
-end
-
-local function applyTemporaryUnloopKeyword()
-    -- Implements: break → unloopgoto all → unloopkill all → inf^5^tppos 0 -1000000 0 →
-    --             inf^0.1^loopkill (in-game looplist) → inf^2^walkfling → inf^0.1^loopgoto (list) 0
-    executeCommand("break")
-    safeWait(Config.COMMAND_DELAY)
-    executeCommand("unloopgoto all")
-    safeWait(Config.COMMAND_DELAY)
-    executeCommand("unloopkill all")
-    safeWait(Config.COMMAND_DELAY)
-    executeCommand("inf^5^tppos 0 -1000000 0")
-    safeWait(Config.COMMAND_DELAY)
-    local atList = buildAtListFromPersistent()
-    if atList ~= "" then
-        executeCommand("inf^0.1^loopkill "..atList)
-        safeWait(Config.COMMAND_DELAY)
-        executeCommand("inf^2^walkfling")
-        safeWait(Config.COMMAND_DELAY)
-        executeCommand("inf^0.1^loopgoto "..atList.." 0")
-    else
-        executeCommand("inf^2^walkfling")
-        safeWait(Config.COMMAND_DELAY)
-        executeCommand("inf^0.1^loopgoto 0")
-    end
-end
-
-local function checkSoloAndHop()
-    safeWait(Config.SERVER_HOP_CHECK_DELAY)
-    local count = #Players:GetPlayers()
-    if count <= 1 then
-        print("[INFO] Solo detected; initiating server hop...")
-        pcall(function()
-            TeleportService:Teleport(Config.PLACE_ID, LocalPlayer)
-        end)
-    end
-end
-
--- Robust position helpers to eliminate false negatives in distance checks
-local function getRootPosition(character)
-    if not character then return nil end
-    local part = character:FindFirstChild("HumanoidRootPart")
-        or character:FindFirstChild("UpperTorso")
-        or character:FindFirstChild("Torso")
-        or character:FindFirstChild("Head")
-    if part and part.Position then return part.Position end
-    return nil
-end
-
-local function safeDistanceBetween(charA, charB)
-    local a = getRootPosition(charA)
-    local b = getRootPosition(charB)
-    if a and b then return (a - b).Magnitude end
-    return 0
-end
-
--- ===============================
--- KillLogs integration (external local script)
--- We try to read distances from a global log table injected by KillLogs.lua
--- Accepted shapes: getgenv().KillLogs or _G.KillLogs with fields
---   records/entries/logs or plain array; each entry: { killer=, victim=, distance= or studs=, time= }
-local function getKillLogsTable()
-    local env = nil
-    pcall(function() env = rawget(getgenv(), "KillLogs") end)
-    if not env then pcall(function() env = rawget(_G, "KillLogs") end) end
-    return env
-end
-
-local function getKillDistanceFromLogs(killerName, victimName)
-    local KL = getKillLogsTable()
-    if type(KL) ~= "table" then return nil end
-    local arr = KL.records or KL.entries or KL.logs or KL.log or KL
-    if type(arr) ~= "table" then return nil end
-    local kn = normalizeForCompare(killerName)
-    local vn = normalizeForCompare(victimName)
-    for i = #arr, 1, -1 do
-        local rec = arr[i]
-        if type(rec) == "table" then
-            local rk = rec.killer or rec.killerName or rec.attacker or rec.attackerName or rec.from
-            local rv = rec.victim or rec.victimName or rec.target or rec.to
-            local dist = rec.distance or rec.studs or rec.range or rec.d
-            if rk and rv and dist and normalizeForCompare(rk) == kn and normalizeForCompare(rv) == vn then
-                return tonumber(dist)
-            end
-        end
-    end
-    return nil
-end
-
-local function findNearestNonWhitelistedPlayer(pos)
-    if not pos then return nil, math.huge end
-    local nearest, best = nil, math.huge
-    for _, p in ipairs(Players:GetPlayers()) do
-        if p ~= LocalPlayer and not isWhitelisted(p.Name) then
-            local cpos = getRootPosition(p.Character)
-            if cpos then
-                local d = (pos - cpos).Magnitude
-                if d < best then
-                    best = d
-                    nearest = p
-                end
-            end
-        end
-    end
-    return nearest, best
-end
-
--- Stuck watchdog: detects freeze and auto-recovers
-local function startStuckWatchdog()
-    if not Config.STUCK_RECOVERY_ENABLED then return end
-    local epsilon = Config.STUCK_MOVE_EPSILON or 2.0
-    local timeout = Config.STUCK_FREEZE_TIMEOUT or 10
-    local lastPos = nil
-    local lastMoveAt = tick()
-    local recovering = false
-
-    table.insert(State.connections, RunService.Heartbeat:Connect(function()
-        local char = LocalPlayer.Character
-        local pos = getRootPosition(char)
-        if not pos then return end
-        if not lastPos then lastPos = pos; lastMoveAt = tick(); return end
-        local moved = (pos - lastPos).Magnitude
-        if moved >= epsilon then
-            lastPos = pos
-            lastMoveAt = tick()
-            recovering = false
-            return
-        end
-        if (tick() - lastMoveAt) > timeout and not recovering then
-            recovering = true
-            print("[WARN] Stuck freeze detected; attempting recovery...")
-            -- Conservative recovery: respawn + restore movement helpers
-            executeCommand("instarespawn")
-            safeWait(Config.COMMAND_DELAY)
-            executeCommand("novoid")
-            safeWait(Config.COMMAND_DELAY)
-            executeCommand("inf^2^walkfling")
-            -- Reset timers to avoid repeated triggers
-            lastMoveAt = tick()
-        end
-    end))
-end
-
-local function handleBotDeath(humanoid)
-    local killerPlayer
-    local tag = humanoid:FindFirstChild("creator") or humanoid:FindFirstChild("Creator")
-    if tag and tag:IsA("ObjectValue") then
-        local val = tag.Value
-        if val and val:IsA("Player") then
-            killerPlayer = val
-        elseif val and val:IsA("Model") then
-            -- Sometimes stores a character model, get the player by name
-            killerPlayer = Players:FindFirstChild(val.Name)
-        end
-    end
-    -- Primary path: creator tag provided a killer
-    if killerPlayer and killerPlayer ~= LocalPlayer and not isWhitelisted(killerPlayer.Name) then
-        local distLog = getKillDistanceFromLogs(killerPlayer.Name, LocalPlayer.Name)
-        local dist = distLog or safeDistanceBetween(LocalPlayer.Character, killerPlayer.Character)
-        local warnMin = Config.REACH_WARNING_MIN or 15
-        print("[DETECTION] Bot killed by", killerPlayer.Name, "distance:", math.floor(dist))
-        -- New policy: after grace period, loop bot killers; otherwise warn if >=15 studs
-        if not inWarmupGrace() then
-            executeLoopSequence(killerPlayer.Name)
-        elseif dist >= warnMin then
-            executeAdminAction("singlekill", killerPlayer.Name)
-        end
-        return
-    end
-
-    -- Fallback A: use last attacker observed during HealthChanged
-    if State.lastAttackerName and not isWhitelisted(State.lastAttackerName) then
-        local p = Players:FindFirstChild(State.lastAttackerName)
-        if p then
-            local distLog = getKillDistanceFromLogs(p.Name, LocalPlayer.Name)
-            local dist = distLog or safeDistanceBetween(LocalPlayer.Character, p.Character)
-            local warnMin = Config.REACH_WARNING_MIN or 15
-            print("[DETECTION] Bot killed; fallback attacker", p.Name, "distance:", math.floor(dist))
-            if not inWarmupGrace() then
-                executeLoopSequence(p.Name)
-            elseif dist >= warnMin then
-                executeAdminAction("singlekill", p.Name)
-            end
-            return
-        end
-    end
-
-    -- Fallback B: nearest non-whitelisted player at time of death
-    local myPos = getRootPosition(LocalPlayer.Character)
-    local nearest, dist = findNearestNonWhitelistedPlayer(myPos)
-    if nearest then
-        local warnMin = Config.REACH_WARNING_MIN or 15
-        if not inWarmupGrace() then
-            print("[DETECTION] Bot killed; nearest suspect", nearest.Name, "distance:", math.floor(dist))
-            executeLoopSequence(nearest.Name)
-        elseif dist >= warnMin then
-            print("[DETECTION] Bot killed; nearest suspect at warning distance:", nearest.Name, math.floor(dist))
-            executeAdminAction("singlekill", nearest.Name)
-        end
-    end
-end
-
--- Apply protection: if a whitelisted owner/mod dies to a non-whitelisted player, punish the skid
-local function handleProtectedDeath(deadPlayer, humanoid)
-    if not deadPlayer or not isWhitelisted(deadPlayer.Name) then return end
-    local killerPlayer
-    local tag = humanoid:FindFirstChild("creator") or humanoid:FindFirstChild("Creator")
-    if tag and tag:IsA("ObjectValue") then
-        local val = tag.Value
-        if val and val:IsA("Player") then
-            killerPlayer = val
-        elseif val and val:IsA("Model") then
-            killerPlayer = Players:FindFirstChild(val.Name)
-        end
-    end
-    if not killerPlayer then
-        local pos = getRootPosition(deadPlayer.Character)
-        killerPlayer = (findNearestNonWhitelistedPlayer(pos))
-    end
-    if type(killerPlayer) == "table" then killerPlayer = killerPlayer end -- safeguard when using tuple
-    if killerPlayer and not isWhitelisted(killerPlayer.Name) then
-        local distLog = getKillDistanceFromLogs(killerPlayer.Name, deadPlayer.Name)
-        local dist = distLog or safeDistanceBetween(deadPlayer.Character, killerPlayer.Character)
-        local warnMin = Config.REACH_WARNING_MIN or 15
-        print("[PROTECT] Whitelisted ", deadPlayer.Name, " killed by ", killerPlayer.Name, " distance:", math.floor(dist))
-        -- Protected players: never loop on distance, only warn-kill on >=15 studs
-        if dist >= warnMin then
-            executeAdminAction("singlekill", killerPlayer.Name)
-        end
-    end
-end
-
--- Monitor reach (stud) damage for any player. Punish attacker if distance is excessive.
-local function monitorReachForPlayer(player)
-    if not player or player == LocalPlayer then return end
-    local function attach(char)
-        if not char then return end
-        local humanoid = char:FindFirstChild("Humanoid")
-        if not humanoid then return end
-        local last = humanoid.Health
-        local c = humanoid.HealthChanged:Connect(function(newHealth)
-            if last and newHealth and newHealth < last then
-                local tag = humanoid:FindFirstChild("creator") or humanoid:FindFirstChild("Creator")
-                if tag and tag:IsA("ObjectValue") then
-                    local val = tag.Value
-                    local attacker
-                    if val and val:IsA("Player") then attacker = val
-                    elseif val and val:IsA("Model") then attacker = Players:FindFirstChild(val.Name) end
-                    if attacker and attacker ~= LocalPlayer and not isWhitelisted(attacker.Name) then
-                        local distLog = getKillDistanceFromLogs(attacker.Name, player.Name)
-                        local dist = distLog or safeDistanceBetween(player.Character, attacker.Character)
-                        local warnMin = Config.REACH_WARNING_MIN or 15
-                        if dist >= warnMin then
-                            print("[DETECTION] Reach WARNING on ", player.Name, " by ", attacker.Name, " distance:", math.floor(dist))
-                            executeAdminAction("singlekill", attacker.Name)
-                        end
-                    end
-                end
-            end
-            last = newHealth
-        end)
-        table.insert(State.connections, c)
-        -- Also apply classification at death for reliability
-        local d = humanoid.Died:Connect(function()
-            local tag = humanoid:FindFirstChild("creator") or humanoid:FindFirstChild("Creator")
-            local attacker
-            if tag and tag:IsA("ObjectValue") then
-                local val = tag.Value
-                if val and val:IsA("Player") then attacker = val
-                elseif val and val:IsA("Model") then attacker = Players:FindFirstChild(val.Name) end
-            end
-            if not attacker then
-                local pos = getRootPosition(player.Character)
-                local nearest, _ = findNearestNonWhitelistedPlayer(pos)
-                attacker = nearest
-            end
-            if attacker and attacker ~= LocalPlayer and not isWhitelisted(attacker.Name) then
-                local distLog = getKillDistanceFromLogs(attacker.Name, player.Name)
-                local dist = distLog or safeDistanceBetween(player.Character, attacker.Character)
-                local warnMin = Config.REACH_WARNING_MIN or 15
-                if dist >= warnMin then
-                    print("[DETECTION] Death WARNING on ", player.Name, " by ", attacker.Name, " distance:", math.floor(dist))
-                    executeAdminAction("singlekill", attacker.Name)
-                end
-            end
-        end)
-        table.insert(State.connections, d)
-    end
-    if player.Character then attach(player.Character) end
-    table.insert(State.connections, player.CharacterAdded:Connect(attach))
-end
-
-local function setupCharacterMonitoring(character)
-    local humanoid = character:WaitForChild("Humanoid", 10)
-    if humanoid then
-        local conn = humanoid.Died:Connect(function()
-            handleBotDeath(humanoid)
-        end)
-        table.insert(State.connections, conn)
-        -- Real-time attacker trace: record last attacker and distance on damage
-        local lastHealth = humanoid.Health
-        local hc = humanoid.HealthChanged:Connect(function(newHealth)
-            local tag = humanoid:FindFirstChild("creator") or humanoid:FindFirstChild("Creator")
-            if tag and tag:IsA("ObjectValue") then
-                local val = tag.Value
-                local p
-                if val and val:IsA("Player") then p = val
-                elseif val and val:IsA("Model") then p = Players:FindFirstChild(val.Name) end
-                if p and p ~= LocalPlayer and not isWhitelisted(p.Name) then
-                    State.lastAttackerName = p.Name
-                    local distLog = getKillDistanceFromLogs(p.Name, LocalPlayer.Name)
-                    State.lastAttackerDist = distLog or safeDistanceBetween(LocalPlayer.Character, p.Character)
-                    -- Immediate reach classification when damage occurs at suspicious distance
-                    if lastHealth and newHealth and newHealth < lastHealth then
-                        local warnMin = Config.REACH_WARNING_MIN or 15
-                        if State.lastAttackerDist >= warnMin then
-                            executeAdminAction("singlekill", p.Name)
-                        end
-                    end
-                end
-            end
-            lastHealth = newHealth
-        end)
-        table.insert(State.connections, hc)
-    end
-end
-
-local function processNewPlayer(player)
-    if shouldProcessPlayer(player) then
-        print("[DETECTION] New account:", player.Name, "Age:", player.AccountAge)
-        State.processedPlayers[player.Name] = true
-        executeAdminAction(Config.ACTION_ON_NEW_ACCOUNT, player.Name)
-        safeWait(Config.COMMAND_DELAY)
-    end
-end
-
--- Sentinel chat commands for owners/mods
-local function handleSentinelCommand(sender, text)
-    if not sender or not isWhitelisted(sender.Name) or type(text) ~= "string" then return false end
-    local raw = text
-    local lower = string.lower(raw)
-    local function extractUser(pattern)
-        local name = raw:match(pattern)
-        if not name then return nil end
-        name = name:gsub("^@", "")
-        name = name:gsub(",%s*$", "")
-        return name
-    end
-    local uname
-    local function canTarget(senderPlayer, targetName)
-        if not senderPlayer or not targetName then return false end
-        -- Mods cannot target owner or other mods; owner can target anyone except self
-        if isMod(senderPlayer.Name) and (isOwner(targetName) or isMod(targetName)) then
-            print("[INFO] Permission denied: mod cannot target", targetName)
-            return false
-        end
-        if isOwner(senderPlayer.Name) then
-            if isSelf(targetName) then return false end
-            return true
-        end
-        -- Other whitelisted roles (if any) default to no cross-targeting
-        return true
-    end
-    if lower:match("^%s*sentinel%s+temploop") then
-        uname = extractUser("sentinel%s+temploop%s+@?([%w_]+),?%s*$")
-        if not uname then return false end
-        if not canTarget(sender, uname) then return false end
-        local at = "@"..uname
-        executeCommand("inf^0.1^loopkill "..at)
-        safeWait(Config.COMMAND_DELAY)
-        executeCommand("inf^0.1^loopgoto "..at.." 0")
-        -- Do not persist temploop by default
-        return true
-    elseif lower:match("^%s*sentinel%s+loop") then
-        uname = extractUser("sentinel%s+loop%s+@?([%w_]+),?%s*$")
-        if not uname then return false end
-        if not canTarget(sender, uname) then return false end
-        local at = "@"..uname
-        executeCommand("inf^0.1^loopkill "..at)
-        safeWait(Config.COMMAND_DELAY)
-        executeCommand("inf^0.1^loopgoto "..at.." 0")
-        -- Persist in in-game looplist
-        Persistent.add(uname, "permanent", 0, "chat-loop")
-        if State.loopUIUpdate then pcall(State.loopUIUpdate) end
-        return true
-    elseif lower:match("^%s*sentinel%s+unloop") then
-        uname = extractUser("sentinel%s+unloop%s+@?([%w_]+),?%s*$")
-        if not uname then return false end
-        if not canTarget(sender, uname) then return false end
-        -- Unloop a specific user and remove from Persistent looplist
-        local at = "@"..uname
-        executeCommand("unloopkill "..at)
-        safeWait(Config.COMMAND_DELAY)
-        executeCommand("unloopgoto "..at)
-        Persistent.remove(uname)
-        if State.loopUIUpdate then pcall(State.loopUIUpdate) end
-        return true
-    elseif lower:match("^%s*sentinel%s+serverhop%s*$") then
-        -- Only mods and owners can use serverhop
-        if isOwner(sender.Name) or isMod(sender.Name) then
-            pcall(function()
-                TeleportService:Teleport(Config.PLACE_ID, LocalPlayer)
-            end)
-            return true
-        else
-            print("[INFO] Permission denied: serverhop requires mod/owner")
-            return false
-        end
-    end
-    return false
-end
-
-local function setupPlayerEvents()
-    print("[INFO] Setting up player monitoring...")
-    for _, p in ipairs(Players:GetPlayers()) do
-        processNewPlayer(p)
-        -- Reach detection for regular players
-        monitorReachForPlayer(p)
-        -- Protection for whitelisted players
-        if isWhitelisted(p.Name) then
-            local function hook(char)
-                local humanoid = char:FindFirstChild("Humanoid")
-                if humanoid then
-                    local c = humanoid.Died:Connect(function()
-                        handleProtectedDeath(p, humanoid)
-                    end)
-                    table.insert(State.connections, c)
-                end
-            end
-            if p.Character then hook(p.Character) end
-            table.insert(State.connections, p.CharacterAdded:Connect(hook))
-        end
-    end
-    table.insert(State.connections, Players.PlayerAdded:Connect(function(p)
-        safeWait(1)
-        processNewPlayer(p)
-        monitorReachForPlayer(p)
-        if isWhitelisted(p.Name) then
-            local function hook(char)
-                local humanoid = char:FindFirstChild("Humanoid")
-                if humanoid then
-                    local c = humanoid.Died:Connect(function()
-                        handleProtectedDeath(p, humanoid)
-                    end)
-                    table.insert(State.connections, c)
-                end
-            end
-            if p.Character then hook(p.Character) end
-            table.insert(State.connections, p.CharacterAdded:Connect(hook))
-        end
-    end))
-end
-
--- =========================
--- Flinger velocity detection
--- =========================
-local function getVelocityMagnitude(char)
-    if not char then return 0 end
-    local hrp = char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso") or char:FindFirstChild("UpperTorso")
-    if hrp and hrp:IsA("BasePart") then
-        local v = hrp.Velocity
-        if v then return v.Magnitude end
-    end
-    return 0
-end
-
-local function setupFlingerMonitor()
-    if State.flingerConn then return end
-    State.lastFlingerCheck = {}
-    local threshold = Config.FLINGER_VELOCITY_THRESHOLD or 180
-    local interval = Config.FLINGER_CHECK_INTERVAL or 0.25
-    State.flingerConn = RunService.Heartbeat:Connect(function()
-        local now = tick()
-        for _, p in ipairs(Players:GetPlayers()) do
-            if p ~= LocalPlayer and not isWhitelisted(p.Name) then
-                local last = State.lastFlingerCheck[p.Name] or 0
-                if (now - last) >= interval then
-                    State.lastFlingerCheck[p.Name] = now
-                    local m = getVelocityMagnitude(p.Character)
-                    if m >= threshold then
-                        print("[DETECTION] Flinger velocity:", p.Name, math.floor(m))
-                        executeAdminAction("singlekill", p.Name)
-                    end
-                end
-            end
-        end
-    end)
-    table.insert(State.connections, State.flingerConn)
-end
-
-local function setupChatMonitoring()
-    print("[INFO] Setting up chat monitoring...")
-    local ok = pcall(function()
-        TextChatService.MessageReceived:Connect(function(message)
-            if message.TextSource and message.TextSource.UserId then
-                local p = Players:GetPlayerByUserId(message.TextSource.UserId)
-                if p then
-                    local txt = message.Text or ""
-                    -- Manual commands take precedence over keyword
-                    local handled = handleSentinelCommand(p, txt)
-                    if not handled and txt == Config.STOP_KEYWORD and p.AccountAge == 0 then
-                        -- Only 0-day accounts trigger the temporary unloop sequence
-                        applyTemporaryUnloopKeyword()
-                    elseif not handled and txt == Config.STOP_KEYWORD then
-                        -- Non-zero accounts: do nothing (no abuse)
-                    end
-                end
-            end
-        end)
-    end)
-    if not ok then
-        for _, p in ipairs(Players:GetPlayers()) do
-            if p ~= LocalPlayer then
-                p.Chatted:Connect(function(msg)
-                    local handled = handleSentinelCommand(p, msg)
-                    if not handled and msg == Config.STOP_KEYWORD and p.AccountAge == 0 then
-                        applyTemporaryUnloopKeyword()
-                    end
-                end)
-            end
-        end
-        Players.PlayerAdded:Connect(function(p)
-            p.Chatted:Connect(function(msg)
-                local handled = handleSentinelCommand(p, msg)
-                if not handled and msg == Config.STOP_KEYWORD and p.AccountAge == 0 then
-                    applyTemporaryUnloopKeyword()
-                end
-            end)
-        end)
-    end
-end
-
-local function initializeBot()
-    print("[INFO] Initializing Security Bot...")
-    State.botActive = true
-    -- Warm-up delay to allow Infinite Yield to fully load
-    local initDelay = Config.INIT_DELAY_SEC or 10
-    if initDelay and initDelay > 0 then
-        print("[INFO] Warm-up: waiting ", initDelay, "s before activation...")
-        safeWait(initDelay)
-    end
-    -- Activate detection and start grace window
-    State.detectionEnableAt = tick()
-    State.graceEndAt = State.detectionEnableAt + (Config.GRACE_NO_LOOP_SEC or 5)
-    -- Load persistent looplist JSON and seed defaults if requested
-    Persistent.load()
-    local existing = Persistent.getActiveNames(false)
-    if (Config.DEFAULT_LOOPLIST and (#existing == 0 or Config.FORCE_RESET_DEFAULT_LOOPLIST)) then
-        local uniq = {}
-        for _, nn in ipairs(Config.DEFAULT_LOOPLIST) do
-            local u = normalizeName(nn)
-            if u and u ~= "" then uniq[u] = true end
-        end
-        Persistent.entries = {}
-        for n, _ in pairs(uniq) do Persistent.add(n, "permanent", 0, "default-seed") end
-        print("[INFO] Looplist seeded with", tostring(#(Persistent.getActiveNames(false))), "names")
-    end
-    -- Initialize in-game looplist UI
-    initLooplistUI()
-    runJoinSequence()
-    State.initialSetupComplete = true
-    detectTextInputSupport()
-    setupChatMonitoring()
-    setupPlayerEvents()
-    setupFlingerMonitor()
-    if LocalPlayer.Character then
-        setupCharacterMonitoring(LocalPlayer.Character)
-    end
-    LocalPlayer.CharacterAdded:Connect(function(char)
-        setupCharacterMonitoring(char)
-    end)
-    print("[SUCCESS] Security Bot v4.0 initialized!")
-    print("[INFO] Monitoring new accounts (Age ≤", Config.NEW_ACCOUNT_THRESHOLD, "days)")
-    task.spawn(checkSoloAndHop)
-    startStuckWatchdog()
-    return true
-end
-
--- ========================================
--- STARTUP
--- ========================================
+print("SecurityBot v4.0 loaded successfully - All function dependencies resolved!")
 
 -- Initialize the bot
-local initSuccess = initializeBot()
-
-if initSuccess then
-    print("[SUCCESS] SFOTHO Security Bot v4.0 is active!")
-    print("[INFO] Stop keyword:", Config.STOP_KEYWORD)
-else
-    print("[ERROR] Failed to initialize Security Bot")
-end
--- Simple XOR + Base64 obfuscation (optional) for persistent JSON
-local function kdf()
-    local seed = tostring(LocalPlayer.UserId).."-"..tostring(Config.ENCRYPTION_KEY_SEED or "")
-    return seed
-end
-local function xorBytes(str, key)
-    local out = table.create(#str)
-    local klen = #key
-    for i = 1, #str do
-        local sb = string.byte(str, i)
-        local kb = string.byte(key, ((i - 1) % klen) + 1)
-        out[i] = string.char(bit32.bxor(sb, kb))
-    end
-    return table.concat(out)
-end
-local function hasBase64()
-    local ok = pcall(function() HttpService:Base64Encode("test") end)
-    return ok
-end
-
-
--- Persistent storage for looped users (extends forward-declared table above)
-
-
--- Looplist UI (in-game, copiable/exportable)
-local function setclipboardSafe(text)
-    local ok = pcall(function()
-        if type(setclipboard) == "function" then setclipboard(text) end
-    end)
-    if not ok then print("[WARN] Clipboard unavailable; copy manually from the UI.") end
-end
-
-local function initLooplistUI()
-    if not Config.USE_UI_LOOPLIST then return end
-    local ok, _ = pcall(function()
-        local sg = Instance.new("ScreenGui")
-        sg.Name = "SB_LooplistUI"
-        sg.ResetOnSpawn = false
-        sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-        sg.Parent = LocalPlayer:FindFirstChild("PlayerGui") or CoreGui
-
-        local frame = Instance.new("Frame")
-        frame.Size = UDim2.new(0, 420, 0, 300)
-        frame.Position = UDim2.new(1, -380, 0, 20)
-        frame.BackgroundColor3 = Color3.fromRGB(22,22,22)
-        frame.BackgroundTransparency = 0.2
-        frame.BorderSizePixel = 0
-        frame.Parent = sg
-
-        local ui = Instance.new("UICorner")
-        ui.CornerRadius = UDim.new(0, 8)
-        ui.Parent = frame
-
-        local title = Instance.new("TextLabel")
-        title.Size = UDim2.new(1, -40, 0, 28)
-        title.Position = UDim2.new(0, 12, 0, 6)
-        title.BackgroundTransparency = 1
-        title.TextColor3 = Color3.fromRGB(255,255,255)
-        title.Font = Enum.Font.GothamBold
-        title.TextScaled = true
-        title.Text = "SecurityBot Looplist"
-        title.Parent = frame
-
-        local toggleBtn = Instance.new("TextButton")
-        toggleBtn.Size = UDim2.new(0, 24, 0, 24)
-        toggleBtn.Position = UDim2.new(1, -30, 0, 6)
-        toggleBtn.Text = "–"
-        toggleBtn.BackgroundColor3 = Color3.fromRGB(40,40,40)
-        toggleBtn.TextColor3 = Color3.fromRGB(255,255,255)
-        toggleBtn.Font = Enum.Font.GothamBold
-        toggleBtn.Parent = frame
-
-        local search = Instance.new("TextBox")
-        search.Size = UDim2.new(1, -24, 0, 26)
-        search.Position = UDim2.new(0, 12, 0, 36)
-        search.BackgroundColor3 = Color3.fromRGB(30,30,30)
-        search.TextColor3 = Color3.fromRGB(200,200,200)
-        search.PlaceholderText = "Search usernames..."
-        search.ClearTextOnFocus = false
-        search.Font = Enum.Font.Gotham
-        search.TextScaled = false
-        search.TextXAlignment = Enum.TextXAlignment.Left
-        search.Parent = frame
-
-        local box = Instance.new("TextBox")
-        box.Size = UDim2.new(1, -24, 1, -120)
-        box.Position = UDim2.new(0, 12, 0, 68)
-        box.TextXAlignment = Enum.TextXAlignment.Left
-        box.TextYAlignment = Enum.TextYAlignment.Top
-        box.BackgroundColor3 = Color3.fromRGB(30,30,30)
-        box.TextColor3 = Color3.fromRGB(220,220,220)
-        box.ClearTextOnFocus = false
-        box.MultiLine = true
-        box.TextWrapped = false
-        box.TextScaled = false
-        box.Font = Enum.Font.Code
-        box.Text = ""
-        box.Parent = frame
-
-        local copyBtn = Instance.new("TextButton")
-        copyBtn.Size = UDim2.new(0, 100, 0, 28)
-        copyBtn.Position = UDim2.new(0, 12, 1, -40)
-        copyBtn.Text = "Copy"
-        copyBtn.BackgroundColor3 = Color3.fromRGB(40,40,40)
-        copyBtn.TextColor3 = Color3.fromRGB(255,255,255)
-        copyBtn.Font = Enum.Font.Gotham
-        copyBtn.Parent = frame
-
-        local refreshBtn = Instance.new("TextButton")
-        refreshBtn.Size = UDim2.new(0, 100, 0, 28)
-        refreshBtn.Position = UDim2.new(0, 124, 1, -40)
-        refreshBtn.Text = "Refresh"
-        refreshBtn.BackgroundColor3 = Color3.fromRGB(40,40,40)
-        refreshBtn.TextColor3 = Color3.fromRGB(255,255,255)
-        refreshBtn.Font = Enum.Font.Gotham
-        refreshBtn.Parent = frame
-
-        local saveBtn = Instance.new("TextButton")
-        saveBtn.Size = UDim2.new(0, 100, 0, 28)
-        saveBtn.Position = UDim2.new(0, 236, 1, -40)
-        saveBtn.Text = "Save"
-        saveBtn.BackgroundColor3 = Color3.fromRGB(40,40,40)
-        saveBtn.TextColor3 = Color3.fromRGB(255,255,255)
-        saveBtn.Font = Enum.Font.Gotham
-        saveBtn.Parent = frame
-
-        local closeBtn = Instance.new("TextButton")
-        closeBtn.Size = UDim2.new(0, 100, 0, 28)
-        closeBtn.Position = UDim2.new(1, -112, 1, -40)
-        closeBtn.Text = "Close"
-        closeBtn.BackgroundColor3 = Color3.fromRGB(40,40,40)
-        closeBtn.TextColor3 = Color3.fromRGB(255,255,255)
-        closeBtn.Font = Enum.Font.Gotham
-        closeBtn.Parent = frame
-
-        local function toText()
-            local arr = Persistent.getActiveNames(false)
-            table.sort(arr)
-            local out = {}
-            for _, n in ipairs(arr) do table.insert(out, "@"..n) end
-            return table.concat(out, ",\n")
-        end
-
-        local function update()
-            local okU, txt = pcall(function() return toText() end)
-            if okU then box.Text = txt end
-        end
-
-        local function applySearch()
-            local q = string.lower(search.Text or "")
-            local arr = Persistent.getActiveNames(false)
-            table.sort(arr)
-            if q == "" then
-                local out = {}
-                for _, n in ipairs(arr) do table.insert(out, "@"..n) end
-                box.Text = table.concat(out, ",\n")
-                return
-            end
-            local out = {}
-            for _, n in ipairs(arr) do
-                if string.find(string.lower(n), q, 1, true) then
-                    table.insert(out, "@"..n)
-                end
-            end
-            box.Text = table.concat(out, ",\n")
-        end
-
-        copyBtn.MouseButton1Click:Connect(function()
-            setclipboardSafe(box.Text or "")
-        end)
-        refreshBtn.MouseButton1Click:Connect(function()
-            update()
-        end)
-        saveBtn.MouseButton1Click:Connect(function()
-            -- Parse usernames from the textbox and persist
-            local text = box.Text or ""
-            local names = {}
-            for token in string.gmatch(text, "[@%w_]+") do
-                local n = token:gsub("^@", "")
-                if n ~= "" then names[#names+1] = n end
-            end
-            -- Deduplicate
-            local uniq = {}
-            for _, n in ipairs(names) do uniq[n] = true end
-            Persistent.entries = {}
-            for n, _ in pairs(uniq) do
-                Persistent.add(n, "permanent", 0, "ui-save")
-            end
-            Persistent.save()
-            applySearch()
-        end)
-        closeBtn.MouseButton1Click:Connect(function()
-            frame.Visible = false
-        end)
-
-        search:GetPropertyChangedSignal("Text"):Connect(function()
-            applySearch()
-        end)
-
-        -- draggable support
-        local dragging = false
-        local dragStart
-        local startPos
-        title.InputBegan:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.MouseButton1 then
-                dragging = true
-                dragStart = input.Position
-                startPos = frame.Position
-            end
-        end)
-        title.InputEnded:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.MouseButton1 then
-                dragging = false
-            end
-        end)
-        UserInputService.InputChanged:Connect(function(input)
-            if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
-                local delta = input.Position - dragStart
-                frame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-            end
-        end)
-
-        -- minimize toggle
-        local minimized = false
-        local function setMinimized(v)
-            minimized = v
-            box.Visible = not v
-            search.Visible = not v
-            copyBtn.Visible = not v
-            refreshBtn.Visible = not v
-            saveBtn.Visible = not v
-            frame.Size = v and UDim2.new(0, 300, 0, 40) or UDim2.new(0, 420, 0, 300)
-            toggleBtn.Text = v and "+" or "–"
-        end
-        toggleBtn.MouseButton1Click:Connect(function()
-            setMinimized(not minimized)
-        end)
-
-        State.loopUIUpdate = update
-        if Config.LOOPLIST_UI_AUTO_OPEN then frame.Visible = true else frame.Visible = false end
-        update()
-        applySearch()
-    end)
-    if not ok then print("[WARN] Looplist UI init failed") end
-end
+task.spawn(function()
+    Persistent.load()
+    State.botActive = true
+    print("SecurityBot v4.0 is now active!")
+end)
