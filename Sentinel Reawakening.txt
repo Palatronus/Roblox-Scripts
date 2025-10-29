@@ -29,8 +29,8 @@ local botOwner = LocalPlayer.Name
 local Config = {
     NEW_ACCOUNT_THRESHOLD = 0, -- Days for new account detection
     LONG_KILL_DISTANCE = 14, -- studs; above this considered suspicious
-    REACH_WARNING_MIN = 15,   -- studs; >= this and < REACH_LOOP_MIN => single warning kill
-    REACH_LOOP_MIN = 25,      -- studs; >= this => loop sequence
+    REACH_WARNING_MIN = 15,   -- studs; >= this => single warning kill (no loops)
+    REACH_LOOP_MIN = 25,      -- studs; (deprecated for looping; we'll ignore this)
     COMMAND_DELAY = 0.75, -- delay between commands in sequences
     CHAR_DELAY_MIN = 0.05,
     CHAR_DELAY_MAX = 0.18,
@@ -66,11 +66,15 @@ local Config = {
     ,
     -- Action throttling to stop repeated command spam
     ACTION_COOLDOWNS = {
-        singlekill = 8,    -- seconds
+        singlekill = 7.5,  -- seconds (decreased from 10 → 7.5 per request)
         loopkill   = 45,   -- seconds
         loopfling  = 45    -- seconds
     }
     ,
+    -- Flinger detection
+    FLINGER_VELOCITY_THRESHOLD = 180, -- studs/sec magnitude to classify as flinger
+    FLINGER_CHECK_INTERVAL = 0.25,    -- seconds between velocity checks
+    
     -- Stuck watchdog
     STUCK_MOVE_EPSILON = 2.0,      -- minimum movement to consider not stuck (studs)
     STUCK_FREEZE_TIMEOUT = 10,     -- seconds with < epsilon movement before recovery
@@ -789,6 +793,16 @@ local function isWhitelisted(username)
     return OWNER_SET[n] or MOD_SET[n] or false
 end
 
+local function isOwner(username)
+    if not username then return false end
+    return OWNER_SET[normalizeForCompare(username)] or false
+end
+
+local function isMod(username)
+    if not username then return false end
+    return (not isOwner(username)) and MOD_SET[normalizeForCompare(username)] or false
+end
+
 local function isNewAccount(player)
     if not player or player.AccountAge == nil then return false end
     return player.AccountAge <= Config.NEW_ACCOUNT_THRESHOLD
@@ -974,6 +988,42 @@ local function runJoinSequence()
     State.seqRan = true
 end
 
+local function buildAtListFromPersistent()
+    local names = Persistent.getActiveNames(false)
+    local tmp = {}
+    for _, n in ipairs(names or {}) do
+        if not isWhitelisted(n) and normalizeForCompare(n) ~= normalizeForCompare(LocalPlayer.Name) then
+            table.insert(tmp, "@"..n)
+        end
+    end
+    return table.concat(tmp, ",")
+end
+
+local function applyTemporaryUnloopKeyword()
+    -- Implements: break → unloopgoto all → unloopkill all → inf^5^tppos 0 -1000000 0 →
+    --             inf^0.1^loopkill (in-game looplist) → inf^2^walkfling → inf^0.1^loopgoto (list) 0
+    executeCommand("break")
+    safeWait(Config.COMMAND_DELAY)
+    executeCommand("unloopgoto all")
+    safeWait(Config.COMMAND_DELAY)
+    executeCommand("unloopkill all")
+    safeWait(Config.COMMAND_DELAY)
+    executeCommand("inf^5^tppos 0 -1000000 0")
+    safeWait(Config.COMMAND_DELAY)
+    local atList = buildAtListFromPersistent()
+    if atList ~= "" then
+        executeCommand("inf^0.1^loopkill "..atList)
+        safeWait(Config.COMMAND_DELAY)
+        executeCommand("inf^2^walkfling")
+        safeWait(Config.COMMAND_DELAY)
+        executeCommand("inf^0.1^loopgoto "..atList.." 0")
+    else
+        executeCommand("inf^2^walkfling")
+        safeWait(Config.COMMAND_DELAY)
+        executeCommand("inf^0.1^loopgoto 0")
+    end
+end
+
 local function checkSoloAndHop()
     safeWait(Config.SERVER_HOP_CHECK_DELAY)
     local count = #Players:GetPlayers()
@@ -1001,6 +1051,39 @@ local function safeDistanceBetween(charA, charB)
     local b = getRootPosition(charB)
     if a and b then return (a - b).Magnitude end
     return 0
+end
+
+-- ===============================
+-- KillLogs integration (external local script)
+-- We try to read distances from a global log table injected by KillLogs.lua
+-- Accepted shapes: getgenv().KillLogs or _G.KillLogs with fields
+--   records/entries/logs or plain array; each entry: { killer=, victim=, distance= or studs=, time= }
+local function getKillLogsTable()
+    local env = nil
+    pcall(function() env = rawget(getgenv(), "KillLogs") end)
+    if not env then pcall(function() env = rawget(_G, "KillLogs") end) end
+    return env
+end
+
+local function getKillDistanceFromLogs(killerName, victimName)
+    local KL = getKillLogsTable()
+    if type(KL) ~= "table" then return nil end
+    local arr = KL.records or KL.entries or KL.logs or KL.log or KL
+    if type(arr) ~= "table" then return nil end
+    local kn = normalizeForCompare(killerName)
+    local vn = normalizeForCompare(victimName)
+    for i = #arr, 1, -1 do
+        local rec = arr[i]
+        if type(rec) == "table" then
+            local rk = rec.killer or rec.killerName or rec.attacker or rec.attackerName or rec.from
+            local rv = rec.victim or rec.victimName or rec.target or rec.to
+            local dist = rec.distance or rec.studs or rec.range or rec.d
+            if rk and rv and dist and normalizeForCompare(rk) == kn and normalizeForCompare(rv) == vn then
+                return tonumber(dist)
+            end
+        end
+    end
+    return nil
 end
 
 local function findNearestNonWhitelistedPlayer(pos)
@@ -1071,18 +1154,15 @@ local function handleBotDeath(humanoid)
     end
     -- Primary path: creator tag provided a killer
     if killerPlayer and killerPlayer ~= LocalPlayer and not isWhitelisted(killerPlayer.Name) then
-        local dist = safeDistanceBetween(LocalPlayer.Character, killerPlayer.Character)
+        local distLog = getKillDistanceFromLogs(killerPlayer.Name, LocalPlayer.Name)
+        local dist = distLog or safeDistanceBetween(LocalPlayer.Character, killerPlayer.Character)
         local warnMin = Config.REACH_WARNING_MIN or 15
-        local loopMin = Config.REACH_LOOP_MIN or 25
         print("[DETECTION] Bot killed by", killerPlayer.Name, "distance:", math.floor(dist))
-        if dist >= loopMin then
-            executeLoopSequence(killerPlayer.Name, dist)
+        -- New policy: after grace period, loop bot killers; otherwise warn if >=15 studs
+        if not inWarmupGrace() then
+            executeLoopSequence(killerPlayer.Name)
         elseif dist >= warnMin then
             executeAdminAction("singlekill", killerPlayer.Name)
-        else
-            local action = Config.ACTION_ON_KILL_BOT
-            if dist >= (Config.LONG_KILL_DISTANCE or 14) then action = Config.ACTION_ON_LONG_DISTANCE end
-            executeAdminAction(action, killerPlayer.Name)
         end
         return
     end
@@ -1091,16 +1171,14 @@ local function handleBotDeath(humanoid)
     if State.lastAttackerName and not isWhitelisted(State.lastAttackerName) then
         local p = Players:FindFirstChild(State.lastAttackerName)
         if p then
-            local dist = safeDistanceBetween(LocalPlayer.Character, p.Character)
+            local distLog = getKillDistanceFromLogs(p.Name, LocalPlayer.Name)
+            local dist = distLog or safeDistanceBetween(LocalPlayer.Character, p.Character)
             local warnMin = Config.REACH_WARNING_MIN or 15
-            local loopMin = Config.REACH_LOOP_MIN or 25
             print("[DETECTION] Bot killed; fallback attacker", p.Name, "distance:", math.floor(dist))
-            if dist >= loopMin then
-                executeLoopSequence(p.Name, dist)
+            if not inWarmupGrace() then
+                executeLoopSequence(p.Name)
             elseif dist >= warnMin then
                 executeAdminAction("singlekill", p.Name)
-            else
-                executeAdminAction(Config.ACTION_ON_KILL_BOT, p.Name)
             end
             return
         end
@@ -1111,16 +1189,12 @@ local function handleBotDeath(humanoid)
     local nearest, dist = findNearestNonWhitelistedPlayer(myPos)
     if nearest then
         local warnMin = Config.REACH_WARNING_MIN or 15
-        local loopMin = Config.REACH_LOOP_MIN or 25
-        if dist >= loopMin then
+        if not inWarmupGrace() then
             print("[DETECTION] Bot killed; nearest suspect", nearest.Name, "distance:", math.floor(dist))
-            executeLoopSequence(nearest.Name, dist)
+            executeLoopSequence(nearest.Name)
         elseif dist >= warnMin then
-            print("[DETECTION] Bot killed; nearest suspect within warning threshold:", nearest.Name, math.floor(dist))
+            print("[DETECTION] Bot killed; nearest suspect at warning distance:", nearest.Name, math.floor(dist))
             executeAdminAction("singlekill", nearest.Name)
-        else
-            print("[INFO] Death without creator; nearest suspect within close-range:", nearest.Name, math.floor(dist))
-            executeAdminAction(Config.ACTION_ON_KILL_BOT, nearest.Name)
         end
     end
 end
@@ -1144,16 +1218,13 @@ local function handleProtectedDeath(deadPlayer, humanoid)
     end
     if type(killerPlayer) == "table" then killerPlayer = killerPlayer end -- safeguard when using tuple
     if killerPlayer and not isWhitelisted(killerPlayer.Name) then
-        local dist = safeDistanceBetween(deadPlayer.Character, killerPlayer.Character)
+        local distLog = getKillDistanceFromLogs(killerPlayer.Name, deadPlayer.Name)
+        local dist = distLog or safeDistanceBetween(deadPlayer.Character, killerPlayer.Character)
         local warnMin = Config.REACH_WARNING_MIN or 15
-        local loopMin = Config.REACH_LOOP_MIN or 25
         print("[PROTECT] Whitelisted ", deadPlayer.Name, " killed by ", killerPlayer.Name, " distance:", math.floor(dist))
-        if dist >= loopMin then
-            executeLoopSequence(killerPlayer.Name, dist)
-        elseif dist >= warnMin then
+        -- Protected players: never loop on distance, only warn-kill on >=15 studs
+        if dist >= warnMin then
             executeAdminAction("singlekill", killerPlayer.Name)
-        else
-            executeAdminAction(Config.ACTION_ON_KILL_BOT, killerPlayer.Name)
         end
     end
 end
@@ -1175,13 +1246,10 @@ local function monitorReachForPlayer(player)
                     if val and val:IsA("Player") then attacker = val
                     elseif val and val:IsA("Model") then attacker = Players:FindFirstChild(val.Name) end
                     if attacker and attacker ~= LocalPlayer and not isWhitelisted(attacker.Name) then
-                        local dist = safeDistanceBetween(player.Character, attacker.Character)
+                        local distLog = getKillDistanceFromLogs(attacker.Name, player.Name)
+                        local dist = distLog or safeDistanceBetween(player.Character, attacker.Character)
                         local warnMin = Config.REACH_WARNING_MIN or 15
-                        local loopMin = Config.REACH_LOOP_MIN or 25
-                        if dist >= loopMin then
-                            print("[DETECTION] Reach LOOP on ", player.Name, " by ", attacker.Name, " distance:", math.floor(dist))
-                            executeLoopSequence(attacker.Name, dist)
-                        elseif dist >= warnMin then
+                        if dist >= warnMin then
                             print("[DETECTION] Reach WARNING on ", player.Name, " by ", attacker.Name, " distance:", math.floor(dist))
                             executeAdminAction("singlekill", attacker.Name)
                         end
@@ -1206,13 +1274,10 @@ local function monitorReachForPlayer(player)
                 attacker = nearest
             end
             if attacker and attacker ~= LocalPlayer and not isWhitelisted(attacker.Name) then
-                local dist = safeDistanceBetween(player.Character, attacker.Character)
+                local distLog = getKillDistanceFromLogs(attacker.Name, player.Name)
+                local dist = distLog or safeDistanceBetween(player.Character, attacker.Character)
                 local warnMin = Config.REACH_WARNING_MIN or 15
-                local loopMin = Config.REACH_LOOP_MIN or 25
-                if dist >= loopMin then
-                    print("[DETECTION] Death LOOP on ", player.Name, " by ", attacker.Name, " distance:", math.floor(dist))
-                    executeLoopSequence(attacker.Name, dist)
-                elseif dist >= warnMin then
+                if dist >= warnMin then
                     print("[DETECTION] Death WARNING on ", player.Name, " by ", attacker.Name, " distance:", math.floor(dist))
                     executeAdminAction("singlekill", attacker.Name)
                 end
@@ -1242,14 +1307,12 @@ local function setupCharacterMonitoring(character)
                 elseif val and val:IsA("Model") then p = Players:FindFirstChild(val.Name) end
                 if p and p ~= LocalPlayer and not isWhitelisted(p.Name) then
                     State.lastAttackerName = p.Name
-                    State.lastAttackerDist = safeDistanceBetween(LocalPlayer.Character, p.Character)
+                    local distLog = getKillDistanceFromLogs(p.Name, LocalPlayer.Name)
+                    State.lastAttackerDist = distLog or safeDistanceBetween(LocalPlayer.Character, p.Character)
                     -- Immediate reach classification when damage occurs at suspicious distance
                     if lastHealth and newHealth and newHealth < lastHealth then
                         local warnMin = Config.REACH_WARNING_MIN or 15
-                        local loopMin = Config.REACH_LOOP_MIN or 25
-                        if State.lastAttackerDist >= loopMin then
-                            executeLoopSequence(p.Name, State.lastAttackerDist)
-                        elseif State.lastAttackerDist >= warnMin then
+                        if State.lastAttackerDist >= warnMin then
                             executeAdminAction("singlekill", p.Name)
                         end
                     end
@@ -1283,49 +1346,65 @@ local function handleSentinelCommand(sender, text)
         return name
     end
     local uname
+    local function canTarget(senderPlayer, targetName)
+        if not senderPlayer or not targetName then return false end
+        -- Mods cannot target owner or other mods; owner can target anyone except self
+        if isMod(senderPlayer.Name) and (isOwner(targetName) or isMod(targetName)) then
+            print("[INFO] Permission denied: mod cannot target", targetName)
+            return false
+        end
+        if isOwner(senderPlayer.Name) then
+            if isSelf(targetName) then return false end
+            return true
+        end
+        -- Other whitelisted roles (if any) default to no cross-targeting
+        return true
+    end
     if lower:match("^%s*sentinel%s+temploop") then
         uname = extractUser("sentinel%s+temploop%s+@?([%w_]+),?%s*$")
         if not uname then return false end
+        if not canTarget(sender, uname) then return false end
         local at = "@"..uname
         executeCommand("inf^0.1^loopkill "..at)
         safeWait(Config.COMMAND_DELAY)
         executeCommand("inf^0.1^loopgoto "..at.." 0")
+        -- Do not persist temploop by default
         return true
     elseif lower:match("^%s*sentinel%s+loop") then
         uname = extractUser("sentinel%s+loop%s+@?([%w_]+),?%s*$")
         if not uname then return false end
+        if not canTarget(sender, uname) then return false end
         local at = "@"..uname
         executeCommand("inf^0.1^loopkill "..at)
         safeWait(Config.COMMAND_DELAY)
         executeCommand("inf^0.1^loopgoto "..at.." 0")
-        if hasFilesystem() then
-            addNameToExternalLooplist(uname)
-        else
-            print("[WARN] Filesystem unavailable; cannot persist to external looplist.")
-        end
+        -- Persist in in-game looplist
+        Persistent.add(uname, "permanent", 0, "chat-loop")
+        if State.loopUIUpdate then pcall(State.loopUIUpdate) end
         return true
     elseif lower:match("^%s*sentinel%s+unloop") then
         uname = extractUser("sentinel%s+unloop%s+@?([%w_]+),?%s*$")
         if not uname then return false end
-        executeCommand("break")
+        if not canTarget(sender, uname) then return false end
+        -- Unloop a specific user and remove from Persistent looplist
+        local at = "@"..uname
+        executeCommand("unloopkill "..at)
         safeWait(Config.COMMAND_DELAY)
-        executeCommand("unloopkill all")
-        safeWait(Config.COMMAND_DELAY)
-        executeCommand("unloopgoto all")
-        if hasFilesystem() then
-            removeNameFromExternalLooplist(uname)
-        else
-            print("[WARN] Filesystem unavailable; cannot remove from external looplist.")
-        end
-        local path = resolveExternalPath()
-        executeCommand("inf^5^tppos 0 -1000000 0")
-        safeWait(Config.COMMAND_DELAY)
-        executeCommand("inf^0.1^loopkill "..path)
-        safeWait(Config.COMMAND_DELAY)
-        executeCommand("inf^2^walkfling")
-        safeWait(Config.COMMAND_DELAY)
-        executeCommand("inf^0.1^loopgoto "..path.." 0")
+        executeCommand("unloopgoto "..at)
+        Persistent.remove(uname)
+        if State.loopUIUpdate then pcall(State.loopUIUpdate) end
         return true
+    elseif lower:match("^%s*sentinel%s+serverhop%s*$") then
+        -- Only mods and owners can use serverhop
+        if isOwner(sender.Name) or isMod(sender.Name) then
+            pcall(function()
+                TeleportService:Teleport(Config.PLACE_ID, LocalPlayer)
+            end)
+            return true
+        else
+            print("[INFO] Permission denied: serverhop requires mod/owner")
+            return false
+        end
     end
     return false
 end
@@ -1371,6 +1450,43 @@ local function setupPlayerEvents()
     end))
 end
 
+-- =========================
+-- Flinger velocity detection
+-- =========================
+local function getVelocityMagnitude(char)
+    if not char then return 0 end
+    local hrp = char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso") or char:FindFirstChild("UpperTorso")
+    if hrp and hrp:IsA("BasePart") then
+        local v = hrp.Velocity
+        if v then return v.Magnitude end
+    end
+    return 0
+end
+
+local function setupFlingerMonitor()
+    if State.flingerConn then return end
+    State.lastFlingerCheck = {}
+    local threshold = Config.FLINGER_VELOCITY_THRESHOLD or 180
+    local interval = Config.FLINGER_CHECK_INTERVAL or 0.25
+    State.flingerConn = RunService.Heartbeat:Connect(function()
+        local now = tick()
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p ~= LocalPlayer and not isWhitelisted(p.Name) then
+                local last = State.lastFlingerCheck[p.Name] or 0
+                if (now - last) >= interval then
+                    State.lastFlingerCheck[p.Name] = now
+                    local m = getVelocityMagnitude(p.Character)
+                    if m >= threshold then
+                        print("[DETECTION] Flinger velocity:", p.Name, math.floor(m))
+                        executeAdminAction("singlekill", p.Name)
+                    end
+                end
+            end
+        end
+    end)
+    table.insert(State.connections, State.flingerConn)
+end
+
 local function setupChatMonitoring()
     print("[INFO] Setting up chat monitoring...")
     local ok = pcall(function()
@@ -1379,10 +1495,13 @@ local function setupChatMonitoring()
                 local p = Players:GetPlayerByUserId(message.TextSource.UserId)
                 if p then
                     local txt = message.Text or ""
-                    if txt == Config.STOP_KEYWORD then
-                        stopPlayerLoop(p)
-                    else
-                        handleSentinelCommand(p, txt)
+                    -- Manual commands take precedence over keyword
+                    local handled = handleSentinelCommand(p, txt)
+                    if not handled and txt == Config.STOP_KEYWORD and p.AccountAge == 0 then
+                        -- Only 0-day accounts trigger the temporary unloop sequence
+                        applyTemporaryUnloopKeyword()
+                    elseif not handled and txt == Config.STOP_KEYWORD then
+                        -- Non-zero accounts: do nothing (no abuse)
                     end
                 end
             end
@@ -1392,20 +1511,18 @@ local function setupChatMonitoring()
         for _, p in ipairs(Players:GetPlayers()) do
             if p ~= LocalPlayer then
                 p.Chatted:Connect(function(msg)
-                    if msg == Config.STOP_KEYWORD then
-                        stopPlayerLoop(p)
-                    else
-                        handleSentinelCommand(p, msg)
+                    local handled = handleSentinelCommand(p, msg)
+                    if not handled and msg == Config.STOP_KEYWORD and p.AccountAge == 0 then
+                        applyTemporaryUnloopKeyword()
                     end
                 end)
             end
         end
         Players.PlayerAdded:Connect(function(p)
             p.Chatted:Connect(function(msg)
-                if msg == Config.STOP_KEYWORD then
-                    stopPlayerLoop(p)
-                else
-                    handleSentinelCommand(p, msg)
+                local handled = handleSentinelCommand(p, msg)
+                if not handled and msg == Config.STOP_KEYWORD and p.AccountAge == 0 then
+                    applyTemporaryUnloopKeyword()
                 end
             end)
         end)
@@ -1444,6 +1561,7 @@ local function initializeBot()
     detectTextInputSupport()
     setupChatMonitoring()
     setupPlayerEvents()
+    setupFlingerMonitor()
     if LocalPlayer.Character then
         setupCharacterMonitoring(LocalPlayer.Character)
     end
@@ -1637,7 +1755,7 @@ local function initLooplistUI()
         sg.Parent = LocalPlayer:FindFirstChild("PlayerGui") or CoreGui
 
         local frame = Instance.new("Frame")
-        frame.Size = UDim2.new(0, 360, 0, 260)
+        frame.Size = UDim2.new(0, 420, 0, 300)
         frame.Position = UDim2.new(1, -380, 0, 20)
         frame.BackgroundColor3 = Color3.fromRGB(22,22,22)
         frame.BackgroundTransparency = 0.2
@@ -1649,8 +1767,8 @@ local function initLooplistUI()
         ui.Parent = frame
 
         local title = Instance.new("TextLabel")
-        title.Size = UDim2.new(1, -12, 0, 26)
-        title.Position = UDim2.new(0, 6, 0, 6)
+        title.Size = UDim2.new(1, -40, 0, 28)
+        title.Position = UDim2.new(0, 12, 0, 6)
         title.BackgroundTransparency = 1
         title.TextColor3 = Color3.fromRGB(255,255,255)
         title.Font = Enum.Font.GothamBold
@@ -1658,9 +1776,30 @@ local function initLooplistUI()
         title.Text = "SecurityBot Looplist"
         title.Parent = frame
 
+        local toggleBtn = Instance.new("TextButton")
+        toggleBtn.Size = UDim2.new(0, 24, 0, 24)
+        toggleBtn.Position = UDim2.new(1, -30, 0, 6)
+        toggleBtn.Text = "–"
+        toggleBtn.BackgroundColor3 = Color3.fromRGB(40,40,40)
+        toggleBtn.TextColor3 = Color3.fromRGB(255,255,255)
+        toggleBtn.Font = Enum.Font.GothamBold
+        toggleBtn.Parent = frame
+
+        local search = Instance.new("TextBox")
+        search.Size = UDim2.new(1, -24, 0, 26)
+        search.Position = UDim2.new(0, 12, 0, 36)
+        search.BackgroundColor3 = Color3.fromRGB(30,30,30)
+        search.TextColor3 = Color3.fromRGB(200,200,200)
+        search.PlaceholderText = "Search usernames..."
+        search.ClearTextOnFocus = false
+        search.Font = Enum.Font.Gotham
+        search.TextScaled = false
+        search.TextXAlignment = Enum.TextXAlignment.Left
+        search.Parent = frame
+
         local box = Instance.new("TextBox")
-        box.Size = UDim2.new(1, -12, 1, -72)
-        box.Position = UDim2.new(0, 6, 0, 38)
+        box.Size = UDim2.new(1, -24, 1, -120)
+        box.Position = UDim2.new(0, 12, 0, 68)
         box.TextXAlignment = Enum.TextXAlignment.Left
         box.TextYAlignment = Enum.TextYAlignment.Top
         box.BackgroundColor3 = Color3.fromRGB(30,30,30)
@@ -1675,7 +1814,7 @@ local function initLooplistUI()
 
         local copyBtn = Instance.new("TextButton")
         copyBtn.Size = UDim2.new(0, 100, 0, 28)
-        copyBtn.Position = UDim2.new(0, 6, 1, -34)
+        copyBtn.Position = UDim2.new(0, 12, 1, -40)
         copyBtn.Text = "Copy"
         copyBtn.BackgroundColor3 = Color3.fromRGB(40,40,40)
         copyBtn.TextColor3 = Color3.fromRGB(255,255,255)
@@ -1684,16 +1823,25 @@ local function initLooplistUI()
 
         local refreshBtn = Instance.new("TextButton")
         refreshBtn.Size = UDim2.new(0, 100, 0, 28)
-        refreshBtn.Position = UDim2.new(0, 112, 1, -34)
+        refreshBtn.Position = UDim2.new(0, 124, 1, -40)
         refreshBtn.Text = "Refresh"
         refreshBtn.BackgroundColor3 = Color3.fromRGB(40,40,40)
         refreshBtn.TextColor3 = Color3.fromRGB(255,255,255)
         refreshBtn.Font = Enum.Font.Gotham
         refreshBtn.Parent = frame
 
+        local saveBtn = Instance.new("TextButton")
+        saveBtn.Size = UDim2.new(0, 100, 0, 28)
+        saveBtn.Position = UDim2.new(0, 236, 1, -40)
+        saveBtn.Text = "Save"
+        saveBtn.BackgroundColor3 = Color3.fromRGB(40,40,40)
+        saveBtn.TextColor3 = Color3.fromRGB(255,255,255)
+        saveBtn.Font = Enum.Font.Gotham
+        saveBtn.Parent = frame
+
         local closeBtn = Instance.new("TextButton")
         closeBtn.Size = UDim2.new(0, 100, 0, 28)
-        closeBtn.Position = UDim2.new(1, -106, 1, -34)
+        closeBtn.Position = UDim2.new(1, -112, 1, -40)
         closeBtn.Text = "Close"
         closeBtn.BackgroundColor3 = Color3.fromRGB(40,40,40)
         closeBtn.TextColor3 = Color3.fromRGB(255,255,255)
@@ -1713,19 +1861,100 @@ local function initLooplistUI()
             if okU then box.Text = txt end
         end
 
+        local function applySearch()
+            local q = string.lower(search.Text or "")
+            local arr = Persistent.getActiveNames(false)
+            table.sort(arr)
+            if q == "" then
+                local out = {}
+                for _, n in ipairs(arr) do table.insert(out, "@"..n) end
+                box.Text = table.concat(out, ",\n")
+                return
+            end
+            local out = {}
+            for _, n in ipairs(arr) do
+                if string.find(string.lower(n), q, 1, true) then
+                    table.insert(out, "@"..n)
+                end
+            end
+            box.Text = table.concat(out, ",\n")
+        end
+
         copyBtn.MouseButton1Click:Connect(function()
             setclipboardSafe(box.Text or "")
         end)
         refreshBtn.MouseButton1Click:Connect(function()
             update()
         end)
+        saveBtn.MouseButton1Click:Connect(function()
+            -- Parse usernames from the textbox and persist
+            local text = box.Text or ""
+            local names = {}
+            for token in string.gmatch(text, "[@%w_]+") do
+                local n = token:gsub("^@", "")
+                if n ~= "" then names[#names+1] = n end
+            end
+            -- Deduplicate
+            local uniq = {}
+            for _, n in ipairs(names) do uniq[n] = true end
+            Persistent.entries = {}
+            for n, _ in pairs(uniq) do
+                Persistent.add(n, "permanent", 0, "ui-save")
+            end
+            Persistent.save()
+            applySearch()
+        end)
         closeBtn.MouseButton1Click:Connect(function()
             frame.Visible = false
+        end)
+
+        search:GetPropertyChangedSignal("Text"):Connect(function()
+            applySearch()
+        end)
+
+        -- draggable support
+        local dragging = false
+        local dragStart
+        local startPos
+        title.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 then
+                dragging = true
+                dragStart = input.Position
+                startPos = frame.Position
+            end
+        end)
+        title.InputEnded:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 then
+                dragging = false
+            end
+        end)
+        UserInputService.InputChanged:Connect(function(input)
+            if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+                local delta = input.Position - dragStart
+                frame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+            end
+        end)
+
+        -- minimize toggle
+        local minimized = false
+        local function setMinimized(v)
+            minimized = v
+            box.Visible = not v
+            search.Visible = not v
+            copyBtn.Visible = not v
+            refreshBtn.Visible = not v
+            saveBtn.Visible = not v
+            frame.Size = v and UDim2.new(0, 300, 0, 40) or UDim2.new(0, 420, 0, 300)
+            toggleBtn.Text = v and "+" or "–"
+        end
+        toggleBtn.MouseButton1Click:Connect(function()
+            setMinimized(not minimized)
         end)
 
         State.loopUIUpdate = update
         if Config.LOOPLIST_UI_AUTO_OPEN then frame.Visible = true else frame.Visible = false end
         update()
+        applySearch()
     end)
     if not ok then print("[WARN] Looplist UI init failed") end
 end
