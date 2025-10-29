@@ -90,6 +90,14 @@ local Config = {
     INIT_DELAY_SEC = 10,            -- wait before bot activates to let IY load
     GRACE_NO_LOOP_SEC = 5,          -- initial seconds after activation to soften punishments
     GRACE_NO_LOOP_DISTANCE = 25     -- within grace, do not loop if under this distance
+    ,
+    -- Looplist UI and defaults
+    USE_UI_LOOPLIST = true,
+    LOOPLIST_UI_AUTO_OPEN = true,
+    FORCE_RESET_DEFAULT_LOOPLIST = false,
+    DEFAULT_LOOPLIST = {
+        "@Idontknow422299","@Noob21345910","@vikiingytre","@ModelsAndDatabases","@ImACute_Gorl4","@guaiabsi","@x990Xd","@kgkkgkktll","@ldsklfklsdfkldskfds","@jrtkgkkgkgkgkhk","@BoomyRealTop1Global","@Lucasshed_1","@SpawnYeIIow8","@noradrenilne","@djskfjdskfjkdsjfkds","@spy6767676767678","@gavotx","@7389322","@SayuriWasTaken","@bacondude629","@sdsssssssssssssssfss","@entity9258","@tomitoest","@randomsnakeguy2","@soetidjou","@dontyoudare911","@aerotypings","@vaziolele2222","@fdgdffdsf3424","@hiyahiya583","@CapyBarchik87","@burpboy67","@SkinnyLegendCeana","@tomitoest","@norasnewaccheh","@Sugarcrashjojo","@thetgpugooner","@Mr_Remembers","@Tomryden2cuzwhynot","@slaitmyarwse","@Aquatic_515","@lukenicolotreoyo","@Man06Tay10","@unknownexp9","@Jaja1og5","@unknownexp10","@unknownexp12","@hazaeur","@homier_822825","@cookie_333128","@wubberio","@yesus120strange","@guest_201406","@LOS_HACKERSS","@inbluejeans","@nicopla1234","@baskanpro200","@Luc_2004sad","@suspiciousacc15","@ohnobabyohno11","@1B0b7","@c00l_stark","@miscoloredspawn","@tytytyttyyyttyytyy","@hackerdude977","@bloxfruit4372763","@PavoIski","@ceanaphobic","@BannedYouXx4_1x1x1x1","@russki_krutoi","@JustAnExploiterr","@Tuscan_12345689","@DERZKO69","@Reallylongnamelololm","@yahyaslapbattle","@SonicShadows126","@sadssdasddasss","@falooda12345_1","@bombplanner256","@unknownexp10","@h00zgui","@deaglestabbed","@Luka123631","@luigimario_1241","@inbluejeans","@Hackerbacon694","@WhiteGuy603","@aygul3103","@TMKOC63","@damnitnega","@haushhidnuxw8eu","@PurpleGuySmashes1","@PurpleGuySmashes","@T0_Testing","@Dollmyaccdisabled686","@benzoine","@Jqsminx","@TheBoselyMan"
+    }
 }
 
 -- ========================================
@@ -99,7 +107,7 @@ local Config = {
 local OWNER_WHITELIST = {"HollowGol"}
 local MOD_WHITELIST = {
     "STEVETheReal916", "ColonThreeSpam", "SpawnYellow2", "SpawnBlack1",
-    "s71pl", "Jacobthecool292", "babyyodasonglol",
+    "s71pl", "Jacobthecool292", "babyyodasonglol", "forhelpingboi8",
     "Kandale_Dingul", "redalert_E", "fariahoque28", "baze15651",
     "well_ihateboblux", "0bj687Alt"
 }
@@ -330,116 +338,53 @@ local function bridgeSet(names)
 end
 
 local function readExternalLoopNames()
-    local namesSet = {}
-    if not hasFilesystem() then return {} end
-    local path = resolveExternalPath()
-    local ok, content = pcall(function() return readfile(path) end)
-    if not ok or not content or content == "" then
-        local fb = State.loopPathFallback or (Config.PERSIST_DATA_FOLDER.."/Loopkills.txt")
-        ok, content = pcall(function() return readfile(fb) end)
-        if not ok or not content then content = "" end
-    end
-    for token in string.gmatch(content, "[^,;\n]+") do
-        local n = normalizeName(token:match("^%s*(.-)%s*$"))
-        if n and n ~= "" then namesSet[n] = true end
-    end
-    local arr = {}
-    for n, _ in pairs(namesSet) do table.insert(arr, n) end
-    table.sort(arr)
-    return arr
+    -- Deprecated: return Persistent names for backward compatibility callers
+    return Persistent.getActiveNames(false)
 end
 
 local function writeExternalLoopNames(names)
-    if not hasFilesystem() then
-        -- Use bridge as a fallback when direct FS writes are unavailable
-        local okb = bridgeSet(names or {})
-        if not okb then print("[WARN] Bridge set failed; cannot persist looplist externally.") end
-        return
-    end
-    local path = resolveExternalPath()
-    local uniq = {}
-    for _, n in ipairs(names or {}) do
-        local u = normalizeName(n)
-        if u and u ~= "" then uniq[u] = true end
-    end
-    local out = {}
-    for n, _ in pairs(uniq) do table.insert(out, n) end
-    table.sort(out)
-    local lines = {}
-    for _, n in ipairs(out) do table.insert(lines, "@"..n..",") end
-    local payload = table.concat(lines, "\n")
-    local ok = pcall(function() writefile(path, payload) end)
-    if not ok then
-        local fb = State.loopPathFallback or (Config.PERSIST_DATA_FOLDER.."/Loopkills.txt")
-        local okfb = pcall(function() writefile(fb, payload) end)
-        State.loopPathFallback = fb
-        if not okfb then
-            print("[WARN] Unable to write both primary and fallback looplist files.")
-            -- Last resort: desktop bridge
-            local okb = bridgeSet(out)
-            if not okb then print("[WARN] Bridge set failed; external list not updated.") end
-        end
-    end
+    -- Deprecated: external file persistence replaced by in-game UI + JSON storage
+    -- Keep function for backward compatibility; now a no-op.
+    return
 end
 
 local function addNameToExternalLooplist(playerName)
-    if not hasFilesystem() then
-        local okb = bridgeAppend(playerName)
-        if not okb then print("[WARN] Bridge append failed for", playerName) end
-        return
-    end
-    ensureLooplistFile()
-    local arr = readExternalLoopNames()
-    local set = {}
-    for _, n in ipairs(arr) do set[n] = true end
-    local name = normalizeName(playerName)
-    if not name then return end
-    if set[name] then return end
-    set[name] = true
-    local out = {}
-    for n, _ in pairs(set) do table.insert(out, n) end
-    writeExternalLoopNames(out)
+    -- Deprecated: use Persistent + UI; keep as no-op for logging symmetry
+    return
 end
 
 local function removeNameFromExternalLooplist(playerName)
-    if not hasFilesystem() then
-        local okb = bridgeRemove(playerName)
-        if not okb then print("[WARN] Bridge remove failed for", playerName) end
-        return
-    end
-    local arr = readExternalLoopNames()
-    local set = {}
-    for _, n in ipairs(arr) do set[n] = true end
-    local name = normalizeName(playerName)
-    if not name then return end
-    set[name] = nil
-    local out = {}
-    for n, _ in pairs(set) do table.insert(out, n) end
-    writeExternalLoopNames(out)
+    -- Deprecated: use Persistent + UI; keep as no-op for logging symmetry
+    return
 end
 
 -- Backwards-compatible wrappers
 local function readLooplist()
-    local arr = readExternalLoopNames()
+    -- Read from Persistent, not external .txt
+    local arr = Persistent.getActiveNames(false)
     local list = { loopkill = {}, loopfling = {} }
     for _, n in ipairs(arr) do list.loopkill[n] = true; list.loopfling[n] = true end
     return list
 end
 local function writeLooplist(list)
+    -- Persist via Persistent JSON only
     local arr = {}
     for n, _ in pairs((list and list.loopkill) or {}) do table.insert(arr, n) end
-    writeExternalLoopNames(arr)
+    -- Ensure Persistent mirrors provided list
+    Persistent.entries = {}
+    for _, nn in ipairs(arr) do Persistent.add(nn, "permanent", 0, "manual-export") end
+    Persistent.save()
 end
 local function addToLooplist(action, playerName)
     -- Persist only loop-based punishments as permanent entries
     if action == "loopkill" or action == "loopfling" then
-        addNameToExternalLooplist(playerName)
         Persistent.add(playerName, "permanent", 0, "detection")
+        if State.loopUIUpdate then State.loopUIUpdate() end
     end
 end
 local function removeFromLooplist(playerName)
-    removeNameFromExternalLooplist(playerName)
     Persistent.remove(playerName)
+    if State.loopUIUpdate then State.loopUIUpdate() end
 end
 
 -- ========================================
@@ -995,9 +940,8 @@ end
 
 local function runJoinSequence()
     if State.seqRan or not Config.SEQUENCE_ON_JOIN then return end
-    -- Build comma-separated @name list from external file
-    ensureLooplistFile()
-    local names = readExternalLoopNames() -- returns plain names (no @)
+    -- Build comma-separated @name list from Persistent
+    local names = Persistent.getActiveNames(false)
     local atList = ""
     if names and #names > 0 then
         local tmp = {}
@@ -1480,7 +1424,21 @@ local function initializeBot()
     -- Activate detection and start grace window
     State.detectionEnableAt = tick()
     State.graceEndAt = State.detectionEnableAt + (Config.GRACE_NO_LOOP_SEC or 5)
-    ensureLooplistFile()
+    -- Load persistent looplist JSON and seed defaults if requested
+    Persistent.load()
+    local existing = Persistent.getActiveNames(false)
+    if (Config.DEFAULT_LOOPLIST and (#existing == 0 or Config.FORCE_RESET_DEFAULT_LOOPLIST)) then
+        local uniq = {}
+        for _, nn in ipairs(Config.DEFAULT_LOOPLIST) do
+            local u = normalizeName(nn)
+            if u and u ~= "" then uniq[u] = true end
+        end
+        Persistent.entries = {}
+        for n, _ in pairs(uniq) do Persistent.add(n, "permanent", 0, "default-seed") end
+        print("[INFO] Looplist seeded with", tostring(#(Persistent.getActiveNames(false))), "names")
+    end
+    -- Initialize in-game looplist UI
+    initLooplistUI()
     runJoinSequence()
     State.initialSetupComplete = true
     detectTextInputSupport()
@@ -1571,6 +1529,8 @@ function Persistent.load()
     if type(decoded) == "table" and decoded.entries then
         Persistent.entries = decoded.entries
         Persistent.loaded = true
+        -- Optional prune expired
+        Persistent.pruneExpired()
         return true
     end
     Persistent.loaded = true
@@ -1658,4 +1618,114 @@ function Persistent.import(payload)
         return true
     end
     return false
+end
+-- Looplist UI (in-game, copiable/exportable)
+local function setclipboardSafe(text)
+    local ok = pcall(function()
+        if type(setclipboard) == "function" then setclipboard(text) end
+    end)
+    if not ok then print("[WARN] Clipboard unavailable; copy manually from the UI.") end
+end
+
+local function initLooplistUI()
+    if not Config.USE_UI_LOOPLIST then return end
+    local ok, _ = pcall(function()
+        local sg = Instance.new("ScreenGui")
+        sg.Name = "SB_LooplistUI"
+        sg.ResetOnSpawn = false
+        sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+        sg.Parent = LocalPlayer:FindFirstChild("PlayerGui") or CoreGui
+
+        local frame = Instance.new("Frame")
+        frame.Size = UDim2.new(0, 360, 0, 260)
+        frame.Position = UDim2.new(1, -380, 0, 20)
+        frame.BackgroundColor3 = Color3.fromRGB(22,22,22)
+        frame.BackgroundTransparency = 0.2
+        frame.BorderSizePixel = 0
+        frame.Parent = sg
+
+        local ui = Instance.new("UICorner")
+        ui.CornerRadius = UDim.new(0, 8)
+        ui.Parent = frame
+
+        local title = Instance.new("TextLabel")
+        title.Size = UDim2.new(1, -12, 0, 26)
+        title.Position = UDim2.new(0, 6, 0, 6)
+        title.BackgroundTransparency = 1
+        title.TextColor3 = Color3.fromRGB(255,255,255)
+        title.Font = Enum.Font.GothamBold
+        title.TextScaled = true
+        title.Text = "SecurityBot Looplist"
+        title.Parent = frame
+
+        local box = Instance.new("TextBox")
+        box.Size = UDim2.new(1, -12, 1, -72)
+        box.Position = UDim2.new(0, 6, 0, 38)
+        box.TextXAlignment = Enum.TextXAlignment.Left
+        box.TextYAlignment = Enum.TextYAlignment.Top
+        box.BackgroundColor3 = Color3.fromRGB(30,30,30)
+        box.TextColor3 = Color3.fromRGB(220,220,220)
+        box.ClearTextOnFocus = false
+        box.MultiLine = true
+        box.TextWrapped = false
+        box.TextScaled = false
+        box.Font = Enum.Font.Code
+        box.Text = ""
+        box.Parent = frame
+
+        local copyBtn = Instance.new("TextButton")
+        copyBtn.Size = UDim2.new(0, 100, 0, 28)
+        copyBtn.Position = UDim2.new(0, 6, 1, -34)
+        copyBtn.Text = "Copy"
+        copyBtn.BackgroundColor3 = Color3.fromRGB(40,40,40)
+        copyBtn.TextColor3 = Color3.fromRGB(255,255,255)
+        copyBtn.Font = Enum.Font.Gotham
+        copyBtn.Parent = frame
+
+        local refreshBtn = Instance.new("TextButton")
+        refreshBtn.Size = UDim2.new(0, 100, 0, 28)
+        refreshBtn.Position = UDim2.new(0, 112, 1, -34)
+        refreshBtn.Text = "Refresh"
+        refreshBtn.BackgroundColor3 = Color3.fromRGB(40,40,40)
+        refreshBtn.TextColor3 = Color3.fromRGB(255,255,255)
+        refreshBtn.Font = Enum.Font.Gotham
+        refreshBtn.Parent = frame
+
+        local closeBtn = Instance.new("TextButton")
+        closeBtn.Size = UDim2.new(0, 100, 0, 28)
+        closeBtn.Position = UDim2.new(1, -106, 1, -34)
+        closeBtn.Text = "Close"
+        closeBtn.BackgroundColor3 = Color3.fromRGB(40,40,40)
+        closeBtn.TextColor3 = Color3.fromRGB(255,255,255)
+        closeBtn.Font = Enum.Font.Gotham
+        closeBtn.Parent = frame
+
+        local function toText()
+            local arr = Persistent.getActiveNames(false)
+            table.sort(arr)
+            local out = {}
+            for _, n in ipairs(arr) do table.insert(out, "@"..n) end
+            return table.concat(out, ",\n")
+        end
+
+        local function update()
+            local okU, txt = pcall(function() return toText() end)
+            if okU then box.Text = txt end
+        end
+
+        copyBtn.MouseButton1Click:Connect(function()
+            setclipboardSafe(box.Text or "")
+        end)
+        refreshBtn.MouseButton1Click:Connect(function()
+            update()
+        end)
+        closeBtn.MouseButton1Click:Connect(function()
+            frame.Visible = false
+        end)
+
+        State.loopUIUpdate = update
+        if Config.LOOPLIST_UI_AUTO_OPEN then frame.Visible = true else frame.Visible = false end
+        update()
+    end)
+    if not ok then print("[WARN] Looplist UI init failed") end
 end
