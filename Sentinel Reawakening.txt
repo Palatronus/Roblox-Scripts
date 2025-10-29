@@ -137,6 +137,13 @@ local State = {
     graceEndAt = 0,
 }
 
+-- Build lowercase whitelist sets for robust matching
+local OWNER_SET, MOD_SET = {}, {}
+for _, n in pairs(OWNER_WHITELIST) do OWNER_SET[normalizeForCompare(n)] = true end
+for _, n in pairs(MOD_WHITELIST) do MOD_SET[normalizeForCompare(n)] = true end
+-- Always treat the bot owner (LocalPlayer) as whitelisted
+OWNER_SET[normalizeForCompare(botOwner)] = true
+
 -- ========================================
 -- UTILITY FUNCTIONS
 -- ========================================
@@ -190,6 +197,12 @@ end
 local function normalizeForCompare(name)
     if not name or name == "" then return "" end
     return string.lower((name:gsub("^@", "")))
+end
+
+local function isWhitelisted(username)
+    if not username then return false end
+    local n = normalizeForCompare(username)
+    return OWNER_SET[n] or MOD_SET[n] or false
 end
 
 -- Forward declaration for Persistent to avoid nil calls in early helpers.
@@ -881,17 +894,9 @@ local function ensureCommandBarFocused()
 end
 
 -- Build lowercase whitelist sets for robust matching
-local OWNER_SET, MOD_SET = {}, {}
-for _, n in pairs(OWNER_WHITELIST) do OWNER_SET[normalizeForCompare(n)] = true end
-for _, n in pairs(MOD_WHITELIST) do MOD_SET[normalizeForCompare(n)] = true end
--- Always treat the bot owner (LocalPlayer) as whitelisted
-OWNER_SET[normalizeForCompare(botOwner)] = true
 
-local function isWhitelisted(username)
-    if not username then return false end
-    local n = normalizeForCompare(username)
-    return OWNER_SET[n] or MOD_SET[n] or false
-end
+
+
 
 local function isOwner(username)
     if not username then return false end
