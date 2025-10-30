@@ -1,5 +1,5 @@
 local OwnerUsernames = {"HollowGol"}
-local ModeratorUsernames = {"QGTYyO7kD", "STEVETheReal916", "ColonThreeSpam", "SpawnYellow2", "s71pl", "SpawnBlack1", "redalert_E", "awes955alter"}
+local ModeratorUsernames = {"QGTYyO7kD", "STEVETheReal916"}
 
 local TargetUsernames = {"", "ADD_OTHER_NAMES_HERE"}
 local warning_kill = {}
@@ -349,6 +349,11 @@ TextChatService.MessageReceived:Connect(function(message)
 					table.remove(AltLoopkillTargets, i)
 					break
 				end
+			end
+			
+			if AutoResetActive and AttackerWhoKilledBot and AttackerWhoKilledBot.Name == targetName then
+				AutoResetActive = false
+				AttackerWhoKilledBot = nil
 			end
 		end
 		
