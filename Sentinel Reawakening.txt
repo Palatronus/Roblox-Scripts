@@ -1,13 +1,8 @@
 local TargetUsernames = {"4bductedbyaIiens", "ADD_OTHER_NAMES_HERE"}
 local warning_kill = {}
-
-local Owners = {"Hollowgol"}
-local Moderators = {"ADD_MOD_NAME_HERE"}
-
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local workspace = game:GetService("Workspace")
-local TextChatService = game:GetService("TextChatService")
 local LocalPlayer = Players.LocalPlayer
 local BringOffset = Vector3.new(1.25, 3, -1.75)
 local HighAltitude = -10000000
@@ -17,20 +12,6 @@ workspace.FallenPartsDestroyHeight = 0/0
 local processedHumanoids = {}
 local playerKillData = {}
 local killDetectionInitialized = false
-
-local function getRank(username)
-	for _, ownerName in ipairs(Owners) do
-		if ownerName == username then
-			return "Owner"
-		end
-	end
-	for _, modName in ipairs(Moderators) do
-		if modName == username then
-			return "Moderator"
-		end
-	end
-	return "User"
-end
 
 local function setupCharacter(Character)
 	if not Character then return end
@@ -115,12 +96,6 @@ local function onHumanoidAdded(humanoid)
 
 				local creatorPlayer = creatorTag.Value
 				local creatorName = creatorPlayer.Name
-				
-				local creatorRank = getRank(creatorName)
-				if creatorRank == "Owner" or creatorRank == "Moderator" then
-					return
-				end
-				
 				local creatorCharacter = creatorPlayer.Character
 				local victimRootPart = victimCharacter:FindFirstChild("HumanoidRootPart")
 
@@ -198,62 +173,47 @@ local function initializeKillDetection()
 	workspace.DescendantAdded:Connect(onDescendantAdded)
 end
 
-TextChatService.MessageReceived:Connect(function(message)
-	if not message.TextSource then return end
-	
-	local senderName = message.TextSource.Name
-	local senderRank = getRank(senderName)
-	
-	if senderRank == "User" then return end
-	
-	local text = message.Text
-	local generalChannel = TextChatService.TextChannels.RBXGeneral
-
-	local jumpMatch = string.match(text, "^jump (.+)")
-	if jumpMatch then
-		local targetUsername = jumpMatch
-		local targetRank = getRank(targetUsername)
-		
-		if senderRank == "Moderator" and (targetRank == "Owner" or targetRank == "Moderator") then
-			if generalChannel then
-				generalChannel:SendAsync("USER:" .. senderName .. ", RANK:" .. senderRank .. ", PERMISSION DENIED")
-			end
-			return
-		end
-		
-		table.insert(TargetUsernames, targetUsername)
-		if generalChannel then
-			generalChannel:SendAsync("USER:" .. senderName .. ", RANK:" .. senderRank .. ", JUMP COMMAND INITIATED ON " .. targetUsername)
-		end
-		return
-	end
-
-	local unloopMatch = string.match(text, "^unloop (.+)")
-	if unloopMatch then
-		local targetUsername = unloopMatch
-		local targetRank = getRank(targetUsername)
-		
-		if senderRank == "Moderator" and (targetRank == "Owner" or targetRank == "Moderator") then
-			if generalChannel then
-				generalChannel:SendAsync("USER:" .. senderName .. ", RANK:" .. senderRank .. ", PERMISSION DENIED")
-			end
-			return
-		end
-		
-		for i, name in ipairs(TargetUsernames) do
-			if name == targetUsername then
-				table.remove(TargetUsernames, i)
-				break
-			end
-		end
-		if generalChannel then
-			generalChannel:SendAsync("USER:" .. senderName .. ", RANK:" .. senderRank .. ", UNLOOP COMMAND INITIATED ON " .. targetUsername)
-		end
-		return
-	end
-end)
-
 task.wait(0.1)
+
+task.spawn(function()
+	local Hitbox = Instance.new("Part")
+	Hitbox.Name = "SwordHitbox"
+	Hitbox.Size = Vector3.new(10, 10, 10)
+	Hitbox.CanCollide = false
+	Hitbox.Anchored = false
+	Hitbox.Transparency = 1
+	Hitbox.Parent = workspace
+	local HitboxAngle = 0
+	
+	Hitbox.Touched:Connect(function(hit)
+		if hit and hit.Parent then
+			local hitChar = hit.Parent
+			local hitHumanoid = hitChar:FindFirstChildWhichIsA("Humanoid")
+			if hitHumanoid and hitChar ~= LocalPlayer.Character then
+				hitHumanoid.Health = 0
+			end
+		end
+	end)
+
+	RunService.Heartbeat:Connect(function(dt)
+		HitboxAngle = HitboxAngle + (math.pi * 2 * 10 * dt)
+		local rotation = CFrame.Angles(HitboxAngle, 0, HitboxAngle)
+		local currentCFrame = CFrame.new(0, HighAltitude, 0)
+		
+		if LocalPlayer.Character then
+			local tool = LocalPlayer.Character:FindFirstChild(toolname)
+			if tool and tool:FindFirstChild("Handle") then
+				currentCFrame = tool.Handle.CFrame
+			else
+				local HRP = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+				if HRP then
+					currentCFrame = HRP.CFrame
+				end
+			end
+		end
+		Hitbox.CFrame = currentCFrame * rotation
+	end)
+end)
 
 task.spawn(function()
 	while true do
@@ -278,37 +238,6 @@ task.spawn(function()
 					local tool = LocalPlayer.Character:FindFirstChild(toolname)
 					if tool then
 						tool:Activate()
-						local handle = tool:FindFirstChild("Handle")
-						if handle then
-							local boxReach = handle:FindFirstChild("BoxReach")
-							if not boxReach then
-								boxReach = Instance.new("Part")
-								boxReach.Name = "BoxReach"
-								boxReach.Size = Vector3.new(10, 10, 10)
-								boxReach.CFrame = handle.CFrame
-								boxReach.Anchored = false
-								boxReach.CanCollide = false
-								boxReach.Transparency = 1
-								boxReach.Parent = handle
-
-								local boxWeld = Instance.new("WeldConstraint")
-								boxWeld.Part0 = handle
-								boxWeld.Part1 = boxReach
-								boxWeld.Parent = handle
-
-								boxReach.Touched:Connect(function(hit)
-									if not hit or not hit.Parent then return end
-									local char = hit.Parent
-									if char == LocalPlayer.Character then return end
-									
-									local hitHumanoid = char:FindFirstChildOfClass("Humanoid")
-									if hitHumanoid and hitHumanoid.Health > 0 then
-										hitHumanoid:TakeDamage(100)
-									end
-								end)
-							end
-							boxReach.CFrame = boxReach.CFrame * CFrame.Angles(0, 1, 0)
-						end
 					end
 				end
 			end
