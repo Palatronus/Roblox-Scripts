@@ -349,28 +349,6 @@ task.spawn(function()
 	end
 end)
 
-task.spawn(function()
-	while true do
-		pcall(function()
-			for _, player in ipairs(Players:GetPlayers()) do
-				if player ~= LocalPlayer and not isRanked(player.Name) then
-					local character = player.Character
-					if character then
-						local hrp = character:FindFirstChild("HumanoidRootPart")
-						local humanoid = character:FindFirstChild("Humanoid")
-						if hrp and humanoid and humanoid.Health > 0 then
-							if hrp.Velocity.Magnitude > 999 then
-								humanoid.Health = 0
-							end
-						end
-					end
-				end
-			end
-		end)
-		task.wait(0.1)
-	end
-end)
-
 while true do
 	local Character = LocalPlayer.Character
 	if Character then
