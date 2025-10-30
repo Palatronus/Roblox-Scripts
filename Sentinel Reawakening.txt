@@ -389,7 +389,7 @@ while true do
 				local TargetHRP = TargetPlayer.Character:FindFirstChild("HumanoidRootPart")
 				if TargetHRP then
 					local RelativeOffsetCFrame = CFrame.new(BringOffset)
-					TargetHRP.CFrame = SpeakerHRP.CFrame * RelativeOffsetCFrame
+					TargetHKFrame = SpeakerHRP.CFrame * RelativeOffsetCFrame
 				end
 			end
 		end
@@ -400,7 +400,7 @@ while true do
 				local TargetHRP = TargetPlayer.Character:FindFirstChild("HumanoidRootPart")
 				if TargetHRP then
 					local RelativeOffsetCFrame = CFrame.new(BringOffset)
-					TargetHEFrame = SpeakerHRP.CFrame * RelativeOffsetCFrame
+					TargetHRP.CFrame = SpeakerHRP.CFrame * RelativeOffsetCFrame
 				end
 			end
 		end
