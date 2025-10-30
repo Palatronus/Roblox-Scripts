@@ -1,22 +1,22 @@
-local TargetUsernames = {"4bductedbyaIiens", "ADD_OTHER_NAMES_HERE"}
-local warning_kill = {}
+[cite_start]local TargetUsernames = {"4bductedbyaIiens", "ADD_OTHER_NAMES_HERE"} [cite: 1]
+[cite_start]local warning_kill = {} [cite: 1]
 
 local Owners = {"Hollowgol"}
 local Moderators = {"ADD_MOD_NAME_HERE"}
 
-local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
-local workspace = game:GetService("Workspace")
-local TextChatService = game:GetService("TextChatService")
-local LocalPlayer = Players.LocalPlayer
-local BringOffset = Vector3.new(1.25, 3, -1.75)
-local HighAltitude = -10000000
-local toolname = "Sword"
-workspace.FallenPartsDestroyHeight = 0/0
+[cite_start]local Players = game:GetService("Players") [cite: 1]
+[cite_start]local RunService = game:GetService("RunService") [cite: 1]
+[cite_start]local workspace = game:GetService("Workspace") [cite: 1]
+[cite_start]local TextChatService = game:GetService("TextChatService") [cite: 1]
+[cite_start]local LocalPlayer = Players.LocalPlayer [cite: 1]
+[cite_start]local BringOffset = Vector3.new(1.25, 3, -1.75) [cite: 1]
+[cite_start]local HighAltitude = -10000000 [cite: 1]
+[cite_start]local toolname = "Sword" [cite: 1]
+[cite_start]workspace.FallenPartsDestroyHeight = 0/0 [cite: 1]
 
-local processedHumanoids = {}
-local playerKillData = {}
-local killDetectionInitialized = false
+[cite_start]local processedHumanoids = {} [cite: 1]
+[cite_start]local playerKillData = {} [cite: 1]
+[cite_start]local killDetectionInitialized = false [cite: 1]
 
 local function getRank(username)
 	for _, ownerName in ipairs(Owners) do
@@ -32,182 +32,182 @@ local function getRank(username)
 	return "User"
 end
 
-local function setupCharacter(Character)
-	if not Character then return end
-	task.wait(0.5)
-	for _, Part in ipairs(Character:GetDescendants()) do
-		if Part:IsA("BasePart") then Part.CanCollide = false end
-	end
-	local HRP = Character:FindFirstChild("HumanoidRootPart")
-	if HRP then
-		local TargetCFrame = CFrame.new(0, HighAltitude, 0)
-		HRP.CFrame = TargetCFrame
-	end
-	local Backpack = LocalPlayer:FindFirstChild("Backpack")
-	if Backpack then
-		for _, Item in ipairs(Backpack:GetChildren()) do
-			if Item:IsA("Tool") and Item.Parent == Backpack then
-				Item.Parent = Character
-			end
-		end
-	end
-end
+[cite_start]local function setupCharacter(Character) [cite: 1]
+	[cite_start]if not Character then return end [cite: 1]
+	[cite_start]task.wait(0.5) [cite: 1]
+	[cite_start]for _, Part in ipairs(Character:GetDescendants()) do [cite: 1]
+		[cite_start]if Part:IsA("BasePart") then Part.CanCollide = false end [cite: 1]
+	[cite_start]end [cite: 1]
+	[cite_start]local HRP = Character:FindFirstChild("HumanoidRootPart") [cite: 1]
+	[cite_start]if HRP then [cite: 1]
+		[cite_start]local TargetCFrame = CFrame.new(0, HighAltitude, 0) [cite: 1]
+		[cite_start]HRP.CFrame = TargetCFrame [cite: 1]
+	[cite_start]end [cite: 1]
+	[cite_start]local Backpack = LocalPlayer:FindFirstChild("Backpack") [cite: 1]
+	[cite_start]if Backpack then [cite: 1]
+		[cite_start]for _, Item in ipairs(Backpack:GetChildren()) do [cite: 1]
+			[cite_start]if Item:IsA("Tool") and Item.Parent == Backpack then [cite: 1]
+				[cite_start]Item.Parent = Character [cite: 1]
+			[cite_start]end [cite: 1]
+		[cite_start]end [cite: 1]
+	[cite_start]end [cite: 1]
+[cite_start]end [cite: 1]
 
-if not LocalPlayer then
-	repeat task.wait() until Players.LocalPlayer
-	LocalPlayer = Players.LocalPlayer
-end
+[cite_start]if not LocalPlayer then [cite: 1]
+	[cite_start]repeat task.wait() until Players.LocalPlayer [cite: 1]
+	[cite_start]LocalPlayer = Players.LocalPlayer [cite: 1, 2]
+[cite_start]end [cite: 2]
 
-LocalPlayer.CharacterAdded:Connect(setupCharacter)
+[cite_start]LocalPlayer.CharacterAdded:Connect(setupCharacter) [cite: 2]
 
-if LocalPlayer.Character then
-	setupCharacter(LocalPlayer.Character)
-end
+[cite_start]if LocalPlayer.Character then [cite: 2]
+	[cite_start]setupCharacter(LocalPlayer.Character) [cite: 2]
+[cite_start]end [cite: 2]
 
-local function onHumanoidAdded(humanoid)
-	humanoid:GetPropertyChangedSignal("Health"):Connect(function()
-		if humanoid.Health <= 0 and not processedHumanoids[humanoid] then
+[cite_start]local function onHumanoidAdded(humanoid) [cite: 2]
+	[cite_start]humanoid:GetPropertyChangedSignal("Health"):Connect(function() [cite: 2]
+		[cite_start]if humanoid.Health <= 0 and not processedHumanoids[humanoid] then [cite: 2]
 			
-			local victimPlayer = Players:GetPlayerFromCharacter(humanoid.Parent)
-			if victimPlayer then
-				for i, name in ipairs(warning_kill) do
-					if name == victimPlayer.Name then
-						table.remove(warning_kill, i)
-						break
-					end
-				end
-			end
+			[cite_start]local victimPlayer = Players:GetPlayerFromCharacter(humanoid.Parent) [cite: 2]
+			[cite_start]if victimPlayer then [cite: 2]
+				[cite_start]for i, name in ipairs(warning_kill) do [cite: 2]
+					[cite_start]if name == victimPlayer.Name then [cite: 2]
+						[cite_start]table.remove(warning_kill, i) [cite: 2]
+						[cite_start]break [cite: 2]
+					[cite_start]end [cite: 2]
+				[cite_start]end [cite: 2]
+			[cite_start]end [cite: 2]
 			
-			processedHumanoids[humanoid] = true
-			local creatorTag = humanoid:FindFirstChild("creator")
+			[cite_start]processedHumanoids[humanoid] = true [cite: 2]
+			[cite_start]local creatorTag = humanoid:FindFirstChild("creator") [cite: 2]
 
-			if creatorTag and creatorTag:IsA("ObjectValue") and creatorTag.Value and creatorTag.Value:IsA("Player") then
-				local victimCharacter = humanoid.Parent
+			[cite_start]if creatorTag and creatorTag:IsA("ObjectValue") and creatorTag.Value and creatorTag.Value:IsA("Player") then [cite: 2]
+				[cite_start]local victimCharacter = humanoid.Parent [cite: 2]
 				
-				if victimPlayer == LocalPlayer then
-					local creatorPlayer = creatorTag.Value
-					local creatorName = creatorPlayer.Name
-					local alreadyExists = false
-					for _, name in ipairs(TargetUsernames) do
-						if name == creatorName then
-							alreadyExists = true
-							break
-						end
-					end
-					if not alreadyExists then
-						table.insert(TargetUsernames, creatorName)
-					end
-					return
-				end
+				[cite_start]if victimPlayer == LocalPlayer then [cite: 2]
+					[cite_start]local creatorPlayer = creatorTag.Value [cite: 2]
+					[cite_start]local creatorName = creatorPlayer.Name [cite: 2]
+					[cite_start]local alreadyExists = false [cite: 2]
+					[cite_start]for _, name in ipairs(TargetUsernames) do [cite: 2]
+						[cite_start]if name == creatorName then [cite: 2]
+							[cite_start]alreadyExists = true [cite: 2]
+							[cite_start]break [cite: 2]
+						[cite_start]end [cite: 2]
+					[cite_start]end [cite: 2]
+					[cite_start]if not alreadyExists then [cite: 2]
+						[cite_start]table.insert(TargetUsernames, creatorName) [cite: 2]
+					[cite_start]end [cite: 2]
+					[cite_start]return [cite: 2]
+				[cite_start]end [cite: 2]
 				
-				local victimName = victimCharacter.Name
-				local isIgnored = false
-				for _, name in ipairs(TargetUsernames) do
-					if name == victimName then
-						isIgnored = true
-						break
-					end
-				end
+				[cite_start]local victimName = victimCharacter.Name [cite: 2]
+				[cite_start]local isIgnored = false [cite: 2]
+				[cite_start]for _, name in ipairs(TargetUsernames) do [cite: 2]
+					[cite_start]if name == victimName then [cite: 2]
+						[cite_start]isIgnored = true [cite: 2]
+						[cite_start]break [cite: 2]
+					[cite_start]end [cite: 2]
+				[cite_start]end [cite: 2]
 				
-				if isIgnored then
-					return
-				end
+				[cite_start]if isIgnored then [cite: 2]
+					[cite_start]return [cite: 2]
+				[cite_start]end [cite: 2]
 
-				local creatorPlayer = creatorTag.Value
-				local creatorName = creatorPlayer.Name
-				
+				[cite_start]local creatorPlayer = creatorTag.Value [cite: 2]
+				[cite_start]local creatorName = creatorPlayer.Name [cite: 2]
+
 				local creatorRank = getRank(creatorName)
 				if creatorRank == "Owner" or creatorRank == "Moderator" then
 					return
 				end
 				
-				local creatorCharacter = creatorPlayer.Character
-				local victimRootPart = victimCharacter:FindFirstChild("HumanoidRootPart")
+				[cite_start]local creatorCharacter = creatorPlayer.Character [cite: 2]
+				[cite_start]local victimRootPart = victimCharacter:FindFirstChild("HumanoidRootPart") [cite: 2, 3]
 
-				if creatorCharacter and victimRootPart then
-					local creatorRootPart = creatorCharacter:FindFirstChild("HumanoidRootPart")
-					if creatorRootPart then
-						local distance = (victimRootPart.Position - creatorRootPart.Position).Magnitude
-						local roundedDistance = math.floor(distance + 0.5)
+				[cite_start]if creatorCharacter and victimRootPart then [cite: 3]
+					[cite_start]local creatorRootPart = creatorCharacter:FindFirstChild("HumanoidRootPart") [cite: 3]
+					[cite_start]if creatorRootPart then [cite: 3]
+						[cite_start]local distance = (victimRootPart.Position - creatorRootPart.Position).Magnitude [cite: 3]
+						[cite_start]local roundedDistance = math.floor(distance + 0.5) [cite: 3]
 
-						print(creatorName .. " killed " .. victimCharacter.Name .. " with " .. roundedDistance .. " stud distance")
+						[cite_start]print(creatorName .. " killed " .. victimCharacter.Name .. " with " .. roundedDistance .. " stud distance") [cite: 3]
 
-						if distance >= 25 then
-							local currentTime = tick()
-							if not playerKillData[creatorName] then
-								playerKillData[creatorName] = {lastKillTime = 0, recentKillCount = 0}
-							end
+						[cite_start]if distance >= 25 then [cite: 3]
+							[cite_start]local currentTime = tick() [cite: 3]
+							[cite_start]if not playerKillData[creatorName] then [cite: 3]
+								[cite_start]playerKillData[creatorName] = {lastKillTime = 0, recentKillCount = 0} [cite: 3]
+							[cite_start]end [cite: 3]
 							
-							local data = playerKillData[creatorName]
-							local timeSinceLast = currentTime - data.lastKillTime
+							[cite_start]local data = playerKillData[creatorName] [cite: 3]
+							[cite_start]local timeSinceLast = currentTime - data.lastKillTime [cite: 3]
 
-							if timeSinceLast <= 0.25 then
-								data.recentKillCount = data.recentKillCount + 1
-							else
-								data.recentKillCount = 1
-							end
+							[cite_start]if timeSinceLast <= 0.25 then [cite: 3]
+								[cite_start]data.recentKillCount = data.recentKillCount + 1 [cite: 3]
+							[cite_start]else [cite: 3]
+								[cite_start]data.recentKillCount = 1 [cite: 3]
+							[cite_start]end [cite: 3]
 							
-							data.lastKillTime = currentTime
+							[cite_start]data.lastKillTime = currentTime [cite: 3]
 
-							if data.recentKillCount >= 2 then
-								local alreadyExists = false
-								for _, name in ipairs(TargetUsernames) do
-									if name == creatorName then
-										alreadyExists = true
-										break
-									end
-								end
-								if not alreadyExists then
-									table.insert(TargetUsernames, creatorName)
-								end
-								data.recentKillCount = 0
-							end
-						end
+							[cite_start]if data.recentKillCount >= 2 then [cite: 3]
+								[cite_start]local alreadyExists = false [cite: 3]
+								[cite_start]for _, name in ipairs(TargetUsernames) do [cite: 3]
+									[cite_start]if name == creatorName then [cite: 3]
+										[cite_start]alreadyExists = true [cite: 3]
+										[cite_start]break [cite: 3]
+									[cite_start]end [cite: 3]
+								[cite_start]end [cite: 3]
+								[cite_start]if not alreadyExists then [cite: 3]
+									[cite_start]table.insert(TargetUsernames, creatorName) [cite: 3]
+								[cite_start]end [cite: 3]
+								[cite_start]data.recentKillCount = 0 [cite: 3]
+							[cite_start]end [cite: 3]
+						[cite_start]end [cite: 3]
 						
-						if distance >= 15 then
-							local alreadyExists = false
-							for _, name in ipairs(warning_kill) do
-								if name == creatorName then
-									alreadyExists = true
-									break
-								end
-							end
-							if not alreadyExists then
-								table.insert(warning_kill, creatorName)
-							end
-						end
-					end
-				end
-			end
-		end
-	end)
-end
+						[cite_start]if distance >= 15 then [cite: 3, 4]
+							[cite_start]local alreadyExists = false [cite: 4]
+							[cite_start]for _, name in ipairs(warning_kill) do [cite: 4]
+								[cite_start]if name == creatorName then [cite: 4]
+									[cite_start]alreadyExists = true [cite: 4]
+									[cite_start]break [cite: 4]
+								[cite_start]end [cite: 4]
+							[cite_start]end [cite: 4]
+							[cite_start]if not alreadyExists then [cite: 4]
+								[cite_start]table.insert(warning_kill, creatorName) [cite: 4]
+							[cite_start]end [cite: 4]
+						[cite_start]end [cite: 4]
+					[cite_start]end [cite: 4]
+				[cite_start]end [cite: 4]
+			[cite_start]end [cite: 4]
+		[cite_start]end [cite: 4]
+	[cite_start]end) [cite: 4]
+[cite_start]end [cite: 4]
 
-local function onDescendantAdded(descendant)
-	if descendant:IsA("Humanoid") then
-		onHumanoidAdded(descendant)
-	end
-end
+[cite_start]local function onDescendantAdded(descendant) [cite: 4]
+	[cite_start]if descendant:IsA("Humanoid") then [cite: 4]
+		[cite_start]onHumanoidAdded(descendant) [cite: 4]
+	[cite_start]end [cite: 4]
+[cite_start]end [cite: 4]
 
-local function initializeKillDetection()
-	for _, descendant in ipairs(workspace:GetDescendants()) do
-		if descendant:IsA("Humanoid") then
-			onHumanoidAdded(descendant)
-		end
-	end
-	workspace.DescendantAdded:Connect(onDescendantAdded)
-end
+[cite_start]local function initializeKillDetection() [cite: 4]
+	[cite_start]for _, descendant in ipairs(workspace:GetDescendants()) do [cite: 4]
+		[cite_start]if descendant:IsA("Humanoid") then [cite: 4]
+			[cite_start]onHumanoidAdded(descendant) [cite: 4]
+		[cite_start]end [cite: 4]
+	[cite_start]end [cite: 4]
+	[cite_start]workspace.DescendantAdded:Connect(onDescendantAdded) [cite: 4]
+[cite_start]end [cite: 4]
 
-TextChatService.MessageReceived:Connect(function(message)
-	if not message.TextSource then return end
+[cite_start]TextChatService.MessageReceived:Connect(function(message) [cite: 4]
+	[cite_start]if not message.TextSource then return end [cite: 4]
 	
 	local senderName = message.TextSource.Name
 	local senderRank = getRank(senderName)
 	
 	if senderRank == "User" then return end
 	
-	local text = message.Text
-	local generalChannel = TextChatService.TextChannels.RBXGeneral
+	[cite_start]local text = message.Text [cite: 4]
+	[cite_start]local generalChannel = TextChatService.TextChannels.RBXGeneral [cite: 4]
 
 	local jumpMatch = string.match(text, "^jump (.+)")
 	if jumpMatch then
@@ -221,141 +221,141 @@ TextChatService.MessageReceived:Connect(function(message)
 			return
 		end
 		
-		table.insert(TargetUsernames, targetUsername)
-		if generalChannel then
-			generalChannel:SendAsync("USER:" .. senderName .. ", RANK:" .. senderRank .. ", JUMP COMMAND INITIATED ON " .. targetUsername)
-		end
-		return
-	end
+		[cite_start]table.insert(TargetUsernames, targetUsername) [cite: 4]
+		[cite_start]if generalChannel then [cite: 4]
+			[cite_start]generalChannel:SendAsync("USER:" .. senderName .. ", RANK:" .. senderRank .. ", JUMP COMMAND INITIATED ON " .. targetUsername) [cite: 4]
+		[cite_start]end [cite: 4]
+		[cite_start]return [cite: 4]
+	[cite_start]end [cite: 4]
 
-	local unloopMatch = string.match(text, "^unloop (.+)")
-	if unloopMatch then
-		local targetUsername = unloopMatch
+	[cite_start]local unloopMatch = string.match(text, "^unloop (.+)") [cite: 4]
+	[cite_start]if unloopMatch then [cite: 4]
+		[cite_start]local targetUsername = unloopMatch [cite: 4]
 		local targetRank = getRank(targetUsername)
-		
+
 		if senderRank == "Moderator" and (targetRank == "Owner" or targetRank == "Moderator") then
 			if generalChannel then
 				generalChannel:SendAsync("USER:" .. senderName .. ", RANK:" .. senderRank .. ", PERMISSION DENIED")
 			end
 			return
 		end
-		
-		for i, name in ipairs(TargetUsernames) do
-			if name == targetUsername then
-				table.remove(TargetUsernames, i)
-				break
-			end
-		end
-		if generalChannel then
-			generalChannel:SendAsync("USER:" .. senderName .. ", RANK:" .. senderRank .. ", UNLOOP COMMAND INITIATED ON " .. targetUsername)
-		end
-		return
-	end
-end)
 
-task.wait(0.1)
+		[cite_start]for i, name in ipairs(TargetUsernames) do [cite: 4]
+			[cite_start]if name == targetUsername then [cite: 4]
+				[cite_start]table.remove(TargetUsernames, i) [cite: 4]
+				[cite_start]break [cite: 4]
+			[cite_start]end [cite: 4]
+		[cite_start]end [cite: 4]
+		[cite_start]if generalChannel then [cite: 4]
+			[cite_start]generalChannel:SendAsync("USER:" .. senderName .. ", RANK:" .. senderRank .. ", UNLOOP COMMAND INITIATED ON " .. targetUsername) [cite: 4]
+		[cite_start]end [cite: 4]
+		[cite_start]return [cite: 4]
+	[cite_start]end [cite: 4]
+[cite_start]end) [cite: 4]
 
-task.spawn(function()
-	while true do
-		pcall(function()
-			if LocalPlayer.Backpack and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
-				if LocalPlayer.Backpack:FindFirstChild(toolname) and LocalPlayer.Character:FindFirstChild(toolname) == nil then
-					local tool = LocalPlayer.Backpack:FindFirstChild(toolname)
-					LocalPlayer.Character.Humanoid:EquipTool(tool)
-				end
-			end
-		end)
-		task.wait()
-	end
-end)
+[cite_start]task.wait(0.1) [cite: 4]
 
-task.spawn(function()
-	while true do
-		pcall(function()
-			if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
-				local humanoid = LocalPlayer.Character:FindFirstChild("Humanoid")
-				if humanoid.Health > 0 then
-					local tool = LocalPlayer.Character:FindFirstChild(toolname)
-					if tool then
-						tool:Activate()
-						local handle = tool:FindFirstChild("Handle")
-						if handle then
-							local boxReach = handle:FindFirstChild("BoxReach")
-							if not boxReach then
-								boxReach = Instance.new("Part")
-								boxReach.Name = "BoxReach"
-								boxReach.Size = Vector3.new(10, 10, 10)
-								boxReach.CFrame = handle.CFrame
-								boxReach.Anchored = false
-								boxReach.CanCollide = false
-								boxReach.Transparency = 1
-								boxReach.Parent = handle
+[cite_start]task.spawn(function() [cite: 4]
+	[cite_start]while true do [cite: 4]
+		[cite_start]pcall(function() [cite: 4]
+			[cite_start]if LocalPlayer.Backpack and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then [cite: 4, 5]
+				[cite_start]if LocalPlayer.Backpack:FindFirstChild(toolname) and LocalPlayer.Character:FindFirstChild(toolname) == nil then [cite: 5]
+					[cite_start]local tool = LocalPlayer.Backpack:FindFirstChild(toolname) [cite: 5]
+					[cite_start]LocalPlayer.Character.Humanoid:EquipTool(tool) [cite: 5]
+				[cite_start]end [cite: 5]
+			[cite_start]end [cite: 5]
+		[cite_start]end) [cite: 5]
+		[cite_start]task.wait() [cite: 5]
+	[cite_start]end [cite: 5]
+[cite_start]end) [cite: 5]
 
-								local boxWeld = Instance.new("WeldConstraint")
-								boxWeld.Part0 = handle
-								boxWeld.Part1 = boxReach
-								boxWeld.Parent = handle
+[cite_start]task.spawn(function() [cite: 5]
+	[cite_start]while true do [cite: 5]
+		[cite_start]pcall(function() [cite: 5]
+			[cite_start]if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then [cite: 5]
+				[cite_start]local humanoid = LocalPlayer.Character:FindFirstChild("Humanoid") [cite: 5]
+				[cite_start]if humanoid.Health > 0 then [cite: 5]
+					[cite_start]local tool = LocalPlayer.Character:FindFirstChild(toolname) [cite: 5]
+					[cite_start]if tool then [cite: 5]
+						[cite_start]tool:Activate() [cite: 5]
+						[cite_start]local handle = tool:FindFirstChild("Handle") [cite: 5]
+						[cite_start]if handle then [cite: 5]
+							[cite_start]local boxReach = handle:FindFirstChild("BoxReach") [cite: 5]
+							[cite_start]if not boxReach then [cite: 5]
+								[cite_start]boxReach = Instance.new("Part") [cite: 5]
+								[cite_start]boxReach.Name = "BoxReach" [cite: 5]
+								[cite_start]boxReach.Size = Vector3.new(10, 10, 10) [cite: 5]
+								[cite_start]boxReach.CFrame = handle.CFrame [cite: 5]
+								[cite_start]boxReach.Anchored = false [cite: 5]
+								[cite_start]boxReach.CanCollide = false [cite: 5]
+								[cite_start]boxReach.Transparency = 1 [cite: 5]
+								[cite_start]boxReach.Parent = handle [cite: 5]
 
-								boxReach.Touched:Connect(function(hit)
-									if not hit or not hit.Parent then return end
-									local char = hit.Parent
-									if char == LocalPlayer.Character then return end
+								[cite_start]local boxWeld = Instance.new("WeldConstraint") [cite: 5]
+								[cite_start]boxWeld.Part0 = handle [cite: 5]
+								[cite_start]boxWeld.Part1 = boxReach [cite: 5]
+								[cite_start]boxWeld.Parent = handle [cite: 5]
+
+								[cite_start]boxReach.Touched:Connect(function(hit) [cite: 5]
+									[cite_start]if not hit or not hit.Parent then return end [cite: 5]
+									[cite_start]local char = hit.Parent [cite: 5]
+									[cite_start]if char == LocalPlayer.Character then return end [cite: 5]
 									
-									local hitHumanoid = char:FindFirstChildOfClass("Humanoid")
-									if hitHumanoid and hitHumanoid.Health > 0 then
-										hitHumanoid:TakeDamage(100)
-									end
-								end)
-							end
-							boxReach.CFrame = boxReach.CFrame * CFrame.Angles(0, 1, 0)
-						end
-					end
-				end
-			end
-		end)
-		task.wait()
-	end
-end)
+									[cite_start]local hitHumanoid = char:FindFirstChildOfClass("Humanoid") [cite: 5]
+									[cite_start]if hitHumanoid and hitHumanoid.Health > 0 then [cite: 5]
+										[cite_start]hitHumanoid:TakeDamage(100) [cite: 5]
+									[cite_start]end [cite: 5]
+								[cite_start]end) [cite: 5]
+							[cite_start]end [cite: 5]
+							[cite_start]boxReach.CFrame = boxReach.CFrame * CFrame.Angles(0, 1, 0) [cite: 5, 6]
+						[cite_start]end [cite: 6]
+					[cite_start]end [cite: 6]
+				[cite_start]end [cite: 6]
+			[cite_start]end [cite: 6]
+		[cite_start]end) [cite: 6]
+		[cite_start]task.wait() [cite: 6]
+	[cite_start]end [cite: 6]
+[cite_start]end) [cite: 6]
 
-while true do
-	local Character = LocalPlayer.Character
-	if Character then
-		local HRP = Character:FindFirstChild("HumanoidRootPart")
-		if HRP then
-			local TargetCFrame = CFrame.new(0, HighAltitude, 0)
-			HRP.CFrame = TargetCFrame
+[cite_start]while true do [cite: 6]
+	[cite_start]local Character = LocalPlayer.Character [cite: 6]
+	[cite_start]if Character then [cite: 6]
+		[cite_start]local HRP = Character:FindFirstChild("HumanoidRootPart") [cite: 6]
+		[cite_start]if HRP then [cite: 6]
+			[cite_start]local TargetCFrame = CFrame.new(0, HighAltitude, 0) [cite: 6]
+			[cite_start]HRP.CFrame = TargetCFrame [cite: 6]
 			
-			if not killDetectionInitialized and HRP.CFrame.Position == Vector3.new(0, HighAltitude, 0) then
-				killDetectionInitialized = true
-				task.spawn(initializeKillDetection)
-			end
-		end
-	end
+			[cite_start]if not killDetectionInitialized and HRP.CFrame.Position == Vector3.new(0, HighAltitude, 0) then [cite: 6]
+				[cite_start]killDetectionInitialized = true [cite: 6]
+				[cite_start]task.spawn(initializeKillDetection) [cite: 6]
+			[cite_start]end [cite: 6]
+		[cite_start]end [cite: 6]
+	[cite_start]end [cite: 6]
 
-	local SpeakerHRP = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-	if SpeakerHRP then
-		for _, TargetUsername in ipairs(TargetUsernames) do
-			local TargetPlayer = Players:FindFirstChild(TargetUsername)
-			if TargetPlayer and TargetPlayer.Character then
-				local TargetHRP = TargetPlayer.Character:FindFirstChild("HumanoidRootPart")
-				if TargetHRP then
-					local RelativeOffsetCFrame = CFrame.new(BringOffset)
-					TargetHRP.CFrame = SpeakerHKRP.CFrame * RelativeOffsetCFrame
-				end
-			end
-		end
+	[cite_start]local SpeakerHRP = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") [cite: 6]
+	[cite_start]if SpeakerHRP then [cite: 6]
+		[cite_start]for _, TargetUsername in ipairs(TargetUsernames) do [cite: 6]
+			[cite_start]local TargetPlayer = Players:FindFirstChild(TargetUsername) [cite: 6]
+			[cite_start]if TargetPlayer and TargetPlayer.Character then [cite: 6]
+				[cite_start]local TargetHRP = TargetPlayer.Character:FindFirstChild("HumanoidRootPart") [cite: 6]
+				[cite_start]if TargetHRP then [cite: 6]
+					[cite_start]local RelativeOffsetCFrame = CFrame.new(BringOffset) [cite: 6]
+					[cite_start]TargetHRP.CFrame = SpeakerHRP.CFrame * RelativeOffsetCFrame [cite: 6]
+				[cite_start]end [cite: 6]
+			[cite_start]end [cite: 6]
+		[cite_start]end [cite: 6]
 		
-		for _, TargetUsername in ipairs(warning_kill) do
-			local TargetPlayer = Players:FindFirstChild(TargetUsername)
-			if TargetPlayer and TargetPlayer.Character then
-				local TargetHRP = TargetPlayer.Character:FindFirstChild("HumanoidRootPart")
-				if TargetHRP then
-					local RelativeOffsetCFrame = CFrame.new(BringOffset)
-					TargetHRP.CFrame = SpeakerHRP.CFrame * RelativeOffsetCFrame
-				end
-			end
-		end
-	end
+		[cite_start]for _, TargetUsername in ipairs(warning_kill) do [cite: 6]
+			[cite_start]local TargetPlayer = Players:FindFirstChild(TargetUsername) [cite: 6]
+			[cite_start]if TargetPlayer and TargetPlayer.Character then [cite: 6]
+				[cite_start]local TargetHRP = TargetPlayer.Character:FindFirstChild("HumanoidRootPart") [cite: 6]
+				[cite_start]if TargetHRP then [cite: 6]
+					[cite_start]local RelativeOffsetCFrame = CFrame.new(BringOffset) [cite: 6]
+					[cite_start]TargetHRP.CFrame = SpeakerHRP.CFrame * RelativeOffsetCFrame [cite: 6]
+				[cite_start]end [cite: 6]
+			[cite_start]end [cite: 6]
+		[cite_start]end [cite: 6]
+	[cite_start]end [cite: 6]
 
-	task.wait(0.01)
-end
+	[cite_start]task.wait(0.01) [cite: 6]
+[cite_start]end [cite: 6]
