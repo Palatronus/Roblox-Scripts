@@ -1,806 +1,314 @@
-local Config = {
-    OWNERS = {"HollowGol"},
-    MODS = {"STEVETheReal916", "ColonThreeSpam", "SpawnYellow2", "SpawnBlack1", "s71pl", "Jacobthecool292", "babyyodasonglol", "forhelpingboi8", "Kandale_Dingul", "redalert_E", "fariahoque28", "baze15651", "well_ihateboblux", "0bj687Alt"},
-    Looplist = {},
-
-    -- Time in seconds before the bot starts its main loop after joining.
-    INITIAL_WAIT_TIME = 7.5,
-
-    -- Time in seconds during which automated detections are inactive after INITIAL_WAIT_TIME.
-    GRACE_PERIOD_TIME = 5,
-
-    -- Distance in studs for kill detection. Kills beyond this distance are considered suspicious.
-    KILL_DISTANCE = 15,
-
-    -- Distance in studs for automated looping detection after grace period.
-    LOOP_KILL_DISTANCE = 24,
-
-    -- File name for saving and loading the looplist.
-    LOOPLIST_FILE_NAME = "SentinelLooplist.json",
-
-    -- Phrase that, when chatted by a looped player, temporarily unloops them.
-    UNLOOP_PHRASE = "Qpmbsjbvt",
-
-    -- Minimum number of non-whitelisted players required in a server to prevent server hopping.
-    PLAYER_COUNT_THRESHOLD = 2,
-
-    -- Multi-kill detection parameters
-    MULTI_KILL_WINDOW = 0.25, -- Time window in seconds to detect multiple kills
-    MULTI_KILL_THRESHOLD = 2, -- Number of kills within the window to trigger detection
-    MULTI_KILL_DISTANCE = 25, -- Kills beyond this distance contribute to multi-kill detection
-    RecentKills = {},
-
-    -- Fling detection parameters
-    FLINGER_VELOCITY_THRESHOLD = 100, -- Velocity magnitude to detect flinging
-
-    -- Internal state
-    GracePeriodActive = true,
-}
-
-local Modules = {}
-Modules.Commands = {}
-Modules.Looplist = {}
-Modules.Permissions = {}
-Modules.Utils = {}
-Modules.Detection = {}
-Modules.Chat = {}
-Modules.GUI = {}
-
--- Utility function to normalize player names (e.g., remove "@" prefix)
-function Modules.Utils.normalizeName(name)
-    if name:sub(1, 1) == "@" then
-        return name:sub(2)
-    end
-    return name
-end
-
--- Utility function to normalize names for comparison (case-insensitive)
-function Modules.Utils.normalizeForCompare(name)
-    return name:lower()
-end
-
-local State = {
-    commandBarFocused = false,
-    commandBarTextBox = nil,
-}
-
-local VirtualInputManager = game:GetService("VirtualInputManager")
-local CoreGui = game:GetService("CoreGui")
+local TargetUsernames = {"4bductedbyaIiens", "ADD_OTHER_NAMES_HERE"}
+local warning_kill = {}
 local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local workspace = game:GetService("Workspace")
+local TextChatService = game:GetService("TextChatService")
 local LocalPlayer = Players.LocalPlayer
+local BringOffset = Vector3.new(1.25, 3, -1.75)
+local HighAltitude = -10000000
+local toolname = "Sword"
+workspace.FallenPartsDestroyHeight = 0/0
 
-local function safeWait(t)
-    if t > 0 then
-        task.wait(t)
-    end
+local processedHumanoids = {}
+local playerKillData = {}
+local killDetectionInitialized = false
+
+local function setupCharacter(Character)
+	if not Character then return end
+	task.wait(0.5)
+	for _, Part in ipairs(Character:GetDescendants()) do
+		if Part:IsA("BasePart") then Part.CanCollide = false end
+	end
+	local HRP = Character:FindFirstChild("HumanoidRootPart")
+	if HRP then
+		local TargetCFrame = CFrame.new(0, HighAltitude, 0)
+		HRP.CFrame = TargetCFrame
+	end
+	local Backpack = LocalPlayer:FindFirstChild("Backpack")
+	if Backpack then
+		for _, Item in ipairs(Backpack:GetChildren()) do
+			if Item:IsA("Tool") and Item.Parent == Backpack then
+				Item.Parent = Character
+			end
+		end
+	end
 end
 
--- ========================================
--- COMMAND EXECUTION SYSTEM
--- ========================================
-
-local CommandSystem = {}
-
-function CommandSystem.findCommandBar()
-    -- Look for Infinite Yield command bar
-    local function searchForCommandBar(parent)
-        for _, child in pairs(parent:GetChildren()) do
-            if child:IsA("TextBox") then
-                local name = string.lower(child.Name)
-                if string.find(name, "command") or string.find(name, "cmd") or string.find(name, "bar") then
-                    return child
-                end
-            end
-            if child:IsA("GuiObject") and #child:GetChildren() > 0 then
-                local found = searchForCommandBar(child)
-                if found then return found end
-            end
-        end
-        return nil
-    end
-    
-    -- Search in CoreGui first (where IY usually places its GUI)
-    local commandBar = searchForCommandBar(CoreGui)
-    if commandBar then
-        State.commandBarTextBox = commandBar
-        return commandBar
-    end
-    
-    -- Search in PlayerGui as fallback
-    if LocalPlayer.PlayerGui then
-        commandBar = searchForCommandBar(LocalPlayer.PlayerGui)
-        if commandBar then
-            State.commandBarTextBox = commandBar
-            return commandBar
-        end
-    end
-    
-    return nil
+if not LocalPlayer then
+	repeat task.wait() until Players.LocalPlayer
+	LocalPlayer = Players.LocalPlayer
 end
 
-function CommandSystem.pressKey(keyCode)
-    local success = pcall(function()
-        VirtualInputManager:SendKeyEvent(true, keyCode, false, game)
-        safeWait(0.05)
-        VirtualInputManager:SendKeyEvent(false, keyCode, false, game)
-    end)
-    return success
+LocalPlayer.CharacterAdded:Connect(setupCharacter)
+
+if LocalPlayer.Character then
+	setupCharacter(LocalPlayer.Character)
 end
 
-function CommandSystem.typeText(text)
-    -- If we have a direct reference to the command bar, use it
-    if State.commandBarTextBox and State.commandBarTextBox.Parent then
-        local success = pcall(function()
-            State.commandBarTextBox.Text = text
-        end)
-        if success then return true end
-    end
-    
-    -- Fallback to virtual input
-    local success = pcall(function()
-        for i = 1, #text do
-            local char = text:sub(i, i)
-            VirtualInputManager:SendTextInputCharacterEvent(char, game)
-            safeWait(math.random(0.01 * 100, 0.05 * 100) / 100) -- Using SecurityBot's default CHAR_DELAY_MIN/MAX
-        end
-    end)
-    return success
+local function onHumanoidAdded(humanoid)
+	humanoid:GetPropertyChangedSignal("Health"):Connect(function()
+		if humanoid.Health <= 0 and not processedHumanoids[humanoid] then
+			
+			local victimPlayer = Players:GetPlayerFromCharacter(humanoid.Parent)
+			if victimPlayer then
+				for i, name in ipairs(warning_kill) do
+					if name == victimPlayer.Name then
+						table.remove(warning_kill, i)
+						break
+					end
+				end
+			end
+			
+			processedHumanoids[humanoid] = true
+			local creatorTag = humanoid:FindFirstChild("creator")
+
+			if creatorTag and creatorTag:IsA("ObjectValue") and creatorTag.Value and creatorTag.Value:IsA("Player") then
+				local victimCharacter = humanoid.Parent
+				
+				if victimPlayer == LocalPlayer then
+					local creatorPlayer = creatorTag.Value
+					local creatorName = creatorPlayer.Name
+					local alreadyExists = false
+					for _, name in ipairs(TargetUsernames) do
+						if name == creatorName then
+							alreadyExists = true
+							break
+						end
+					end
+					if not alreadyExists then
+						table.insert(TargetUsernames, creatorName)
+					end
+					return
+				end
+				
+				local victimName = victimCharacter.Name
+				local isIgnored = false
+				for _, name in ipairs(TargetUsernames) do
+					if name == victimName then
+						isIgnored = true
+						break
+					end
+end
+				
+				if isIgnored then
+					return
+				end
+
+				local creatorPlayer = creatorTag.Value
+				local creatorName = creatorPlayer.Name
+				local creatorCharacter = creatorPlayer.Character
+				local victimRootPart = victimCharacter:FindFirstChild("HumanoidRootPart")
+
+				if creatorCharacter and victimRootPart then
+					local creatorRootPart = creatorCharacter:FindFirstChild("HumanoidRootPart")
+					if creatorRootPart then
+						local distance = (victimRootPart.Position - creatorRootPart.Position).Magnitude
+						local roundedDistance = math.floor(distance + 0.5)
+
+						print(creatorName .. " killed " .. victimCharacter.Name .. " with " .. roundedDistance .. " stud distance")
+
+						if distance >= 25 then
+							local currentTime = tick()
+							if not playerKillData[creatorName] then
+								playerKillData[creatorName] = {lastKillTime = 0, recentKillCount = 0}
+							end
+							
+							local data = playerKillData[creatorName]
+							local timeSinceLast = currentTime - data.lastKillTime
+
+							if timeSinceLast <= 0.25 then
+								data.recentKillCount = data.recentKillCount + 1
+							else
+								data.recentKillCount = 1
+							end
+							
+							data.lastKillTime = currentTime
+
+							if data.recentKillCount >= 2 then
+								local alreadyExists = false
+								for _, name in ipairs(TargetUsernames) do
+									if name == creatorName then
+										alreadyExists = true
+										break
+									end
+								end
+								if not alreadyExists then
+									table.insert(TargetUsernames, creatorName)
+								end
+								data.recentKillCount = 0
+							end
+						end
+						
+						if distance >= 15 then
+							local alreadyExists = false
+							for _, name in ipairs(warning_kill) do
+								if name == creatorName then
+									alreadyExists = true
+									break
+								end
+							end
+							if not alreadyExists then
+								table.insert(warning_kill, creatorName)
+							end
+						end
+					end
+				end
+			end
+		end
+	end)
 end
 
-function CommandSystem.openCommandBar()
-    -- First try to find the command bar
-    local commandBar = CommandSystem.findCommandBar()
-    if commandBar then
-        local success = pcall(function()
-            commandBar:CaptureFocus()
-        end)
-        if success then
-            State.commandBarFocused = true
-            return true
-        end
-    end
-    
-    -- Fallback to keypress method
-    local attempts = 0
-    local maxAttempts = 3
-    
-    while attempts < maxAttempts do
-        attempts = attempts + 1
-        
-        -- Try primary key (using RightShift as a common toggle)
-        if CommandSystem.pressKey(Enum.KeyCode.RightShift) then
-            safeWait(0.3)
-            -- Try to find command bar again after keypress
-            commandBar = CommandSystem.findCommandBar()
-            if commandBar then
-                State.commandBarTextBox = commandBar
-                State.commandBarFocused = true
-                return true
-            end
-        end
-        
-        -- Try fallback keys (using SecurityBot's default fallbacks)
-        for _, fallback in pairs({"Comma", "Backquote", "Quote", "Slash"}) do
-            local keyCode = Enum.KeyCode[fallback]
-            if keyCode and CommandSystem.pressKey(keyCode) then
-                safeWait(0.3)
-                commandBar = CommandSystem.findCommandBar()
-                if commandBar then
-                    State.commandBarTextBox = commandBar
-                    State.commandBarFocused = true
-                    return true
-                end
-            end
-        end
-        
-        safeWait(0.5)
-    end
-    
-    return false
+local function onDescendantAdded(descendant)
+	if descendant:IsA("Humanoid") then
+		onHumanoidAdded(descendant)
+	end
 end
 
-function CommandSystem.executeCommand(command)
-    if not command or command == "" then return false end
-    
-    print("[CMD] Executing:", command)
-    
-    if not CommandSystem.openCommandBar() then
-        print("[ERROR] Failed to open command bar")
-        return false
-    end
-    
-    safeWait(0.1)
-    
-    if not CommandSystem.typeText(command) then
-        print("[ERROR] Failed to type command")
-        return false
-    end
-    
-    safeWait(0.1)
-    
-    if not CommandSystem.pressKey(Enum.KeyCode.Return) then
-        print("[ERROR] Failed to press Enter")
-        return false
-    end
-    
-    safeWait(0.1) -- Using SecurityBot's default COMMAND_DELAY
-    State.commandBarFocused = false
-    return true
+local function initializeKillDetection()
+	for _, descendant in ipairs(workspace:GetDescendants()) do
+		if descendant:IsA("Humanoid") then
+			onHumanoidAdded(descendant)
+		end
+	end
+	workspace.DescendantAdded:Connect(onDescendantAdded)
 end
 
-function CommandSystem.executeSequence(commands)
-    for i, cmd in ipairs(commands) do
-        if not CommandSystem.executeCommand(cmd) then
-            print("[ERROR] Failed to execute command", i, ":", cmd)
-            return false
-        end
-    end
-    return true
+TextChatService.MessageReceived:Connect(function(message)
+	if message.TextSource and message.TextSource.Name == "Hollowgol" then
+		local text = message.Text
+		local generalChannel = TextChatService.TextChannels.RBXGeneral
+
+		local loopMatch = string.match(text, "^loop (.+)")
+		if loopMatch then
+			local username = loopMatch
+			table.insert(TargetUsernames, username)
+			if generalChannel then
+				generalChannel:SendAsync("USER:HollowGol, RANK:OWNER, LOOP COMMAND INITIATED ON " .. username)
+			end
+			return
+		end
+
+		local unloopMatch = string.match(text, "^unloop (.+)")
+		if unloopMatch then
+			local username = unloopMatch
+			for i, name in ipairs(TargetUsernames) do
+				if name == username then
+					table.remove(TargetUsernames, i)
+					break
+				end
+			end
+			if generalChannel then
+				generalChannel:SendAsync("USER:HollowGol, RANK:OWNER, UNLOOP COMMAND INITIATED ON " .. username)
+			end
+			return
+		end
+	end
+end)
+
+task.wait(0.1)
+
+task.spawn(function()
+	while true do
+		pcall(function()
+			if LocalPlayer.Backpack and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
+				if LocalPlayer.Backpack:FindFirstChild(toolname) and LocalPlayer.Character:FindFirstChild(toolname) == nil then
+					local tool = LocalPlayer.Backpack:FindFirstChild(toolname)
+					LocalPlayer.Character.Humanoid:EquipTool(tool)
+				end
+			end
+		end)
+		task.wait()
+	end
+end)
+
+task.spawn(function()
+	while true do
+		pcall(function()
+			if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
+				local humanoid = LocalPlayer.Character:FindFirstChild("Humanoid")
+				if humanoid.Health > 0 then
+					local tool = LocalPlayer.Character:FindFirstChild(toolname)
+					if tool then
+						tool:Activate()
+						local handle = tool:FindFirstChild("Handle")
+						if handle then
+							local boxReach = handle:FindFirstChild("BoxReach")
+							if not boxReach then
+								boxReach = Instance.new("Part")
+								boxReach.Name = "BoxReach"
+								boxReach.Size = Vector3.new(10, 10, 10)
+								boxReach.CFrame = handle.CFrame
+								boxReach.Anchored = false
+								boxReach.CanCollide = false
+								boxReach.Transparency = 1
+								boxReach.Parent = handle
+
+								local boxWeld = Instance.new("WeldConstraint")
+								boxWeld.Part0 = handle
+								boxWeld.Part1 = boxReach
+								boxWeld.Parent = handle
+
+								boxReach.Touched:Connect(function(hit)
+									if not hit or not hit.Parent then return end
+									local char = hit.Parent
+									if char == LocalPlayer.Character then return end
+									
+									local hitHumanoid = char:FindFirstChildOfClass("Humanoid")
+									if hitHumanoid and hitHumanoid.Health > 0 then
+										hitHumanoid:TakeDamage(100)
+									end
+								end)
+							end
+							boxReach.CFrame = boxReach.CFrame * CFrame.Angles(0, 1, 0)
+						end
+					end
+				end
+			end
+		end)
+		task.wait()
+	end
+end)
+
+while true do
+	local Character = LocalPlayer.Character
+	if Character then
+		local HRP = Character:FindFirstChild("HumanoidRootPart")
+		if HRP then
+			local TargetCFrame = CFrame.new(0, HighAltitude, 0)
+			HRP.CFrame = TargetCFrame
+			
+			if not killDetectionInitialized and HRP.CFrame.Position == Vector3.new(0, HighAltitude, 0) then
+				killDetectionInitialized = true
+				task.spawn(initializeKillDetection)
+			end
+		end
+	end
+
+	local SpeakerHRP = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+	if SpeakerHRP then
+		for _, TargetUsername in ipairs(TargetUsernames) do
+			local TargetPlayer = Players:FindFirstChild(TargetUsername)
+			if TargetPlayer and TargetPlayer.Character then
+				local TargetHRP = TargetPlayer.Character:FindFirstChild("HumanoidRootPart")
+				if TargetHRP then
+					local RelativeOffsetCFrame = CFrame.new(BringOffset)
+					TargetHRP.CFrame = SpeakerHRP.CFrame * RelativeOffsetCFrame
+				end
+			end
+		end
+		
+		for _, TargetUsername in ipairs(warning_kill) do
+			local TargetPlayer = Players:FindFirstChild(TargetUsername)
+			if TargetPlayer and TargetPlayer.Character then
+				local TargetHRP = TargetPlayer.Character:FindFirstChild("HumanoidRootPart")
+				if TargetHRP then
+					local RelativeOffsetCFrame = CFrame.new(BringOffset)
+					TargetHRP.CFrame = SpeakerHRP.CFrame * RelativeOffsetCFrame
+				end
+			end
+		end
+	end
+
+	task.wait(0.01)
 end
-
-function Modules.Commands.send_command(command)
-    -- Use the integrated CommandSystem to execute commands
-    CommandSystem.executeCommand(command)
-end
-
-function Modules.Commands.send_keypress_commands(commands)
-    CommandSystem.executeSequence(commands)
-end
-
--- Looplist Management
-function Modules.Looplist.save_looplist()
-    local success, err = pcall(function()
-        local HttpService = game:GetService("HttpService")
-        local DataStoreService = game:GetService("DataStoreService")
-        local looplist_store = DataStoreService:GetDataStore("SentinelLooplist")
-
-        local serialized_looplist = HttpService:JSONEncode(Config.Looplist)
-        looplist_store:SetAsync("LooplistData", serialized_looplist)
-    end)
-    if not success then
-        warn("Failed to save looplist: " .. err)
-    else
-        print("Looplist saved.")
-    end
-end
-
-function Modules.Looplist.load_looplist()
-    local success, data = pcall(function()
-        local HttpService = game:GetService("HttpService")
-        local DataStoreService = game:GetService("DataStoreService")
-        local looplist_store = DataStoreService:GetDataStore("SentinelLooplist")
-
-        local serialized_looplist = looplist_store:GetAsync("LooplistData")
-        if serialized_looplist then
-            return HttpService:JSONDecode(serialized_looplist)
-        end
-        return {}
-    end)
-    if success then
-        Config.Looplist = data
-        print("Looplist loaded.")
-    else
-        warn("Failed to load looplist: " .. data)
-        Config.Looplist = {} -- Ensure it's a table even on failure
-    end
-end
-
-function Modules.Looplist.add_to_looplist(player_name)
-    local normalized_name = Modules.Utils.normalizeForCompare(player_name)
-    if not Config.Looplist[normalized_name] then
-        Config.Looplist[normalized_name] = true
-        Modules.Looplist.save_looplist()
-        print(player_name .. " added to looplist.")
-        Modules.Looplist.looplist_changed:Fire()
-    end
-end
-
-function Modules.Looplist.remove_from_looplist(player_name)
-    local normalized_name = Modules.Utils.normalizeForCompare(player_name)
-    if Config.Looplist[normalized_name] then
-        Config.Looplist[normalized_name] = nil
-        Modules.Looplist.save_looplist()
-        print(player_name .. " removed from looplist.")
-        Modules.Looplist.looplist_changed:Fire()
-    end
-end
-
-function Modules.Looplist.get_looplist()
-    return Config.Looplist
-end
-
--- Custom event for looplist changes
-Modules.Looplist.looplist_changed = Instance.new("BindableEvent")
-
--- Permission Checks
-function Modules.Permissions.is_whitelisted(player_name)
-    local normalized_name = Modules.Utils.normalizeForCompare(player_name)
-    for _, owner in ipairs(Config.OWNERS) do
-        if Modules.Utils.normalizeForCompare(owner) == normalized_name then
-            return true
-        end
-    end
-    for _, mod in ipairs(Config.MODS) do
-        if Modules.Utils.normalizeForCompare(mod) == normalized_name then
-            return true
-        end
-    end
-    return false
-end
-
--- Detection Logic
-function Modules.Utils.get_distance_between_characters(char1, char2)
-    local hrp1 = char1:FindFirstChild("HumanoidRootPart")
-    local hrp2 = char2:FindFirstChild("HumanoidRootPart")
-
-    if hrp1 and hrp2 then
-        return (hrp1.Position - hrp2.Position).Magnitude
-    end
-    return math.huge -- Return a very large number if parts are not found
-end
-
-function Modules.Detection.handle_kill_detection(killer_name, victim_name, distance)
-    -- Ignore whitelisted players for kill detection
-    if Modules.Permissions.is_whitelisted(killer_name) then
-        return
-    end
-
-    -- Automated kill detection (50+ studs)
-    if distance >= Config.KILL_DISTANCE then
-        print(killer_name .. " killed " .. victim_name .. " from " .. math.floor(distance) .. " studs. Applying kill command.")
-        Modules.Commands.send_command("kill @" .. killer_name)
-    end
-
-    -- Automated looping detection (24+ studs after grace period)
-    if not Config.GracePeriodActive and distance >= Config.LOOP_KILL_DISTANCE then
-        print(killer_name .. " killed " .. victim_name .. " from " .. math.floor(distance) .. " studs after grace period. Looping them.")
-        Modules.Looplist.add_to_looplist(killer_name)
-        Modules.Commands.send_command("inf^0.1^loopkill @" .. killer_name)
-        Modules.Commands.send_command("inf^0.1^loopgoto @" .. killer_name .. " 0")
-    end
-end
-
-function Modules.Utils.get_account_age_in_days(player)
-    -- Calculates the age of a Roblox player's account in days.
-    -- This is useful for detecting potentially suspicious new accounts.
-    -- 'player' is expected to be a Roblox Player object.
-    local now = os.time()
-    local created = player.AccountAge
-    local diff = now - created
-    return math.floor(diff / (60 * 60 * 24))
-end
-
-function Modules.Detection.handle_account_age_detection(player)
-    -- Detects and loops players with very new accounts (account age <= 1 day).
-    -- This helps in identifying and mitigating potential alt accounts or exploiters.
-    -- Ignores whitelisted players.
-    -- 'player' is expected to be a Roblox Player object.
-    if Modules.Permissions.is_whitelisted(player.Name) then
-        return -- Ignore whitelisted players
-    end
-
-    local account_age = Modules.Utils.get_account_age_in_days(player)
-    -- If account age is 1 day or less, consider them a new account and loop them.
-    if account_age <= 1 then
-        print(player.Name .. " has an account age of " .. account_age .. " days. Looping them.")
-        Modules.Looplist.add_to_looplist(player.Name)
-        Modules.Commands.send_command("inf^0.1^loopkill @" .. player.Name)
-        Modules.Commands.send_command("inf^0.1^loopgoto @" .. player.Name .. " 0")
-    end
-end
-
-function Modules.Chat.handle_chat_unloop(player_name, message)
-    -- Handles the unloop chat command. When a player chats the Config.UNLOOP_PHRASE,
-    -- this function temporarily removes them from the looplist and sends a series of commands
-    -- to the executor to stop any active looping actions for that player.
-    -- 'player_name' is the name of the player who chatted, 'message' is the full chat message.
-    if message == Config.UNLOOP_PHRASE then
-        print(player_name .. " chatted the unloop phrase. Temporarily unlooping them.")
-        Modules.Looplist.remove_from_looplist(player_name)
-        Modules.Commands.send_command("break")
-        Modules.Commands.send_command("unloopgoto all")
-        Modules.Commands.send_command("unloopkill all")
-        Modules.Commands.send_command("inf^5^tppos 0 -1000000 0")
-        Modules.Commands.send_command("inf^0.1^loopkill [looplist]")
-        Modules.Commands.send_command("inf^2^walkfling")
-        Modules.Commands.send_command("inf^0.1^loopgoto [looplist] 0")
-    end
-end
-
-function Modules.Detection.handle_multiple_kills_detection(killer_name, victim_name, kill_distance)
-    -- Detects players who rapidly accumulate multiple kills within a defined time window and distance.
-    -- This helps identify potential exploiters or abusers.
-    -- Ignores whitelisted players.
-    -- 'killer_name' and 'victim_name' are strings, 'kill_distance' is a number.
-    -- Ignore whitelisted players to prevent false positives
-    if Modules.Permissions.is_whitelisted(killer_name) then
-        return
-    end
-
-    -- Check if the kill distance exceeds the configured threshold for multiple kills
-    if kill_distance >= Config.MULTI_KILL_DISTANCE then
-        -- Initialize RecentKills table for the killer if it doesn't exist
-        if not Config.RecentKills[killer_name] then
-            Config.RecentKills[killer_name] = {}
-        end
-
-        -- Record the current kill time
-        table.insert(Config.RecentKills[killer_name], os.time())
-
-        -- Remove old kill entries that are outside the MULTI_KILL_WINDOW
-        local current_time = os.time()
-        for i = #Config.RecentKills[killer_name], 1, -1 do
-            if (current_time - Config.RecentKills[killer_name][i]) > Config.MULTI_KILL_WINDOW then
-                table.remove(Config.RecentKills[killer_name], i)
-            end
-        end
-
-        -- If the number of recent kills exceeds the threshold, loop the player
-        if #Config.RecentKills[killer_name] >= Config.MULTI_KILL_THRESHOLD then
-            print(killer_name .. " has accumulated " .. #Config.RecentKills[killer_name] .. " kills within " .. Config.MULTI_KILL_WINDOW .. " seconds. Looping them.")
-            Modules.Looplist.add_to_looplist(killer_name)
-            Modules.Commands.send_command("inf^0.1^loopkill @" .. killer_name)
-            Modules.Commands.send_command("inf^0.1^loopgoto @" .. killer_name .. " 0")
-            Config.RecentKills[killer_name] = {} -- Reset kill count after looping
-        end
-    end
-end
-
-function Modules.Detection.handle_fling_detection(player, character)
-    -- Detects players who are potentially flinging others based on their character's velocity.
-    -- If a player's velocity exceeds Config.FLINGER_VELOCITY_THRESHOLD, a kill command is sent to them.
-    -- Ignores whitelisted players.
-    -- 'player' is a Roblox Player object, 'character' is the player's Character model.
-    if Modules.Permissions.is_whitelisted(player.Name) then
-        return -- Ignore whitelisted players
-    end
-
-    local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
-    if not humanoidRootPart then return end
-
-    local velocity = humanoidRootPart.AssemblyLinearVelocity or humanoidRootPart.Velocity
-    if velocity and velocity.Magnitude > Config.FLINGER_VELOCITY_THRESHOLD then
-        print(player.Name .. " detected flinging. Applying kill command.")
-        Modules.Commands.send_command("kill @" .. player.Name)
-    end
-end
-
-function Modules.Chat.handle_chat_commands(player_name, message)
-    -- Processes chat commands prefixed with "sentinel".
-    -- This function parses the message, validates the command and arguments,
-    -- and executes the corresponding action (e.g., temploop, jump, unloop).
-    -- Only whitelisted players can execute these commands.
-    -- 'player_name' is the name of the player who sent the command, 'message' is the full chat message.
-    local args = {}
-    for word in string.gmatch(message, "%S+") do
-        table.insert(args, word)
-    end
-
-    if #args == 0 then return end
-
-    local command_prefix = args[1]:lower()
-    if command_prefix ~= "sentinel" then return end
-
-    if not Modules.Permissions.is_whitelisted(player_name) then
-        print(player_name .. " attempted to use a Sentinel command but is not whitelisted.")
-        return
-    end
-
-    if #args < 2 then
-        print("Usage: sentinel <command> [args]")
-        return
-    end
-
-    local sub_command = args[2]:lower()
-    local target_username_raw = args[3]
-
-    if sub_command == "temploop" or sub_command == "jump" or sub_command == "unloop" then
-        if not target_username_raw or target_username_raw == "" then
-            print("Usage: sentinel " .. sub_command .. " <Username>")
-            return
-        end
-    end
-    local target_username = target_username_raw and Modules.Utils.normalizeName(target_username_raw) or nil
-
-    if sub_command == "temploop" then
-        if not target_username or target_username == "" then
-            print("Usage: sentinel temploop <Username>")
-            return
-        end
-        -- Check if the target is whitelisted
-        if Modules.Permissions.is_whitelisted(target_username) then
-            print("Cannot temploop a whitelisted player: " .. target_username)
-            return
-        end
-        print(player_name .. " temporarily looping " .. target_username)
-        Modules.Commands.send_command("inf^0.1^loopkill @" .. target_username)
-        Modules.Commands.send_command("inf^0.1^loopgoto @" .. target_username .. " 0")
-        -- Note: Temploop does not add to the persistent looplist
-    elseif sub_command == "jump" then
-        if not target_username or target_username == "" then
-            print("Usage: sentinel jump <Username>")
-            return
-        end
-        if Modules.Permissions.is_whitelisted(target_username) then
-            print("Cannot jump-loop a whitelisted player: " .. target_username)
-            return
-        end
-        print(player_name .. " jump-looping and adding to looplist: " .. target_username)
-        Modules.Looplist.add_to_looplist(target_username)
-        Modules.Commands.send_command("inf^0.1^loopkill @" .. target_username)
-        Modules.Commands.send_command("inf^0.1^loopgoto @" .. target_username .. " 0")
-    elseif sub_command == "unloop" then
-        if not target_username or target_username == "" then
-            print("Usage: sentinel unloop <Username>")
-            return
-        end
-        if Modules.Permissions.is_whitelisted(target_username) then
-            print("Cannot unloop a whitelisted player: " .. target_username)
-            return
-        end
-        print(player_name .. " unlooping and removing from looplist: " .. target_username)
-        Modules.Looplist.remove_from_looplist(target_username)
-        Modules.Commands.send_command("unloopkill @" .. target_username)
-        Modules.Commands.send_command("unloopgoto @" .. target_username)
-    elseif sub_command == "shop" then
-        print(player_name .. " initiated a manual server hop.")
-        Modules.Utils.server_hop()
-    else
-        print("Unknown Sentinel command: " .. sub_command)
-    end
-end
-
--- Server hopping logic
-function Modules.Utils.should_server_hop()
-    local players = game:GetService("Players"):GetPlayers()
-    local non_whitelisted_players = 0
-
-    for _, player in ipairs(players) do
-        if player.Name ~= game:GetService("Players").LocalPlayer.Name and not Modules.Permissions.is_whitelisted(player.Name) then
-            non_whitelisted_players = non_whitelisted_players + 1
-        end
-    end
-
-    -- If there are no other players (excluding self and whitelisted players), server hop
-    return non_whitelisted_players >= Config.PLAYER_COUNT_THRESHOLD
-end
-
-function Modules.Utils.server_hop()
-    local TeleportService = game:GetService("TeleportService")
-    local Players = game:GetService("Players")
-    local LocalPlayer = Players.LocalPlayer
-
-    -- Placeholder for actual server hopping logic
-    -- In a real scenario, you would find a new server to teleport to.
-    -- This might involve a pre-determined server ID, or logic to find a less populated server.
-    print("Attempting to server hop...")
-
-    -- Example: Teleport to a new, empty server of the current place
-    -- This requires the place to be set up for private servers or have available public servers.
-    -- For demonstration, we'll just print a message.
-    local success, err = pcall(function() TeleportService:Teleport(game.PlaceId) end)
-    if not success then
-        warn("Teleport failed: ", err)
-    else
-        print("Teleport initiated successfully.")
-    end
-end
-
--- Looplist GUI Implementation
-function Modules.GUI.create_looplist_gui()
-    local player = game:GetService("Players").LocalPlayer
-    local player_gui = player:WaitForChild("PlayerGui")
-
-    -- Toggle button for the entire GUI
-    local toggle_gui_button = Instance.new("TextButton")
-    toggle_gui_button.Name = "ToggleLooplistGUIButton"
-    toggle_gui_button.Size = UDim2.new(0, 100, 0, 30)
-    toggle_gui_button.Position = UDim2.new(0, 10, 0, 10) -- Top-left corner
-    toggle_gui_button.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
-    toggle_gui_button.Text = "Toggle Looplist"
-    toggle_gui_button.TextColor3 = Color3.fromRGB(255, 255, 255)
-    toggle_gui_button.Font = Enum.Font.SourceSansBold
-    toggle_gui_button.TextSize = 14
-    toggle_gui_button.BorderSizePixel = 0
-    toggle_gui_button.Parent = player_gui
-
-    local screen_gui = Instance.new("ScreenGui")
-    screen_gui.Name = "LooplistScreenGui"
-    screen_gui.Parent = player_gui
-    screen_gui.Enabled = true -- Start enabled by default
-
-    toggle_gui_button.MouseButton1Click:Connect(function()
-        screen_gui.Enabled = not screen_gui.Enabled
-    end)
-
-    local main_frame = Instance.new("Frame")
-    main_frame.Name = "LooplistFrame"
-    main_frame.Size = UDim2.new(0, 300, 0, 400)
-    main_frame.Position = UDim2.new(0.5, -150, 0.5, -200) -- Center of the screen
-    main_frame.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
-    main_frame.BorderSizePixel = 1
-    main_frame.BorderColor3 = Color3.fromRGB(20, 20, 20)
-    main_frame.Active = true -- Essential for dragging
-    main_frame.Draggable = true -- Make the frame draggable
-    main_frame.Parent = screen_gui
-
-    local title_bar = Instance.new("Frame")
-    title_bar.Name = "TitleBar"
-    title_bar.Size = UDim2.new(1, 0, 0, 30)
-    title_bar.Position = UDim2.new(0, 0, 0, 0)
-    title_bar.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
-    title_bar.BorderSizePixel = 0
-    title_bar.Parent = main_frame
-
-    local title_label = Instance.new("TextLabel")
-    title_label.Name = "TitleLabel"
-    title_label.Size = UDim2.new(1, -40, 1, 0)
-    title_label.Position = UDim2.new(0, 0, 0, 0)
-    title_label.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
-    title_label.Text = "Sentinel Looplist"
-    title_label.TextColor3 = Color3.fromRGB(255, 255, 255)
-    title_label.Font = Enum.Font.SourceSansBold
-    title_label.TextSize = 18
-    title_label.TextXAlignment = Enum.TextXAlignment.Center
-    title_label.TextYAlignment = Enum.TextYAlignment.Center
-    title_label.BorderSizePixel = 0
-    title_label.Parent = title_bar
-
-    local minimize_button = Instance.new("TextButton")
-    minimize_button.Name = "MinimizeButton"
-    minimize_button.Size = UDim2.new(0, 30, 1, 0)
-    minimize_button.Position = UDim2.new(1, -30, 0, 0)
-    minimize_button.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
-    minimize_button.Text = "_"
-    minimize_button.TextColor3 = Color3.fromRGB(255, 255, 255)
-    minimize_button.Font = Enum.Font.SourceSansBold
-    minimize_button.TextSize = 20
-    minimize_button.BorderSizePixel = 0
-    minimize_button.Parent = title_bar
-
-    minimize_button.MouseButton1Click:Connect(function()
-        main_frame.Visible = not main_frame.Visible
-    end)
-
-    -- Search bar
-    local search_bar = Instance.new("TextBox")
-    search_bar.Name = "SearchBar"
-    search_bar.Size = UDim2.new(1, -20, 0, 25)
-    search_bar.Position = UDim2.new(0, 10, 0, 40)
-    search_bar.PlaceholderText = "Search looplist..."
-    search_bar.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-    search_bar.TextColor3 = Color3.fromRGB(255, 255, 255)
-    search_bar.Font = Enum.Font.SourceSans
-    search_bar.TextSize = 14
-    search_bar.ClearTextOnFocus = false
-    search_bar.Parent = main_frame
-
-    -- Scrolling frame for looplist items
-    local looplist_scrolling_frame = Instance.new("ScrollingFrame")
-    looplist_scrolling_frame.Name = "LooplistScrollingFrame"
-    looplist_scrolling_frame.Size = UDim2.new(1, -20, 1, -80)
-    looplist_scrolling_frame.Position = UDim2.new(0, 10, 0, 75)
-    looplist_scrolling_frame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-    looplist_scrolling_frame.BorderSizePixel = 1
-    looplist_scrolling_frame.BorderColor3 = Color3.fromRGB(20, 20, 20)
-    looplist_scrolling_frame.CanvasSize = UDim2.new(0, 0, 0, 0) -- Will be updated dynamically
-    looplist_scrolling_frame.ScrollBarThickness = 8
-    looplist_scrolling_frame.Parent = main_frame
-
-    local ui_list_layout = Instance.new("UIListLayout")
-    ui_list_layout.Name = "LooplistLayout"
-    ui_list_layout.FillDirection = Enum.FillDirection.Vertical
-    ui_list_layout.HorizontalAlignment = Enum.HorizontalAlignment.Left
-    ui_list_layout.VerticalAlignment = Enum.VerticalAlignment.Top
-    ui_list_layout.Padding = UDim.new(0, 5)
-    ui_list_layout.Parent = looplist_scrolling_frame
-
-    -- Function to update the displayed looplist items
-    local function update_looplist_display(filter_text)
-        for _, child in ipairs(looplist_scrolling_frame:GetChildren()) do
-            if child:IsA("TextLabel") or child:IsA("Frame") then
-                child:Destroy()
-            end
-        end
-
-        local current_y_offset = 0
-        local item_height = 25
-
-        -- Iterate over Config.Looplist (which is now a set)
-        for username, _ in pairs(Modules.Looplist.get_looplist()) do
-            if filter_text == "" or string.find(username:lower(), filter_text:lower()) then
-                local item_frame = Instance.new("Frame")
-                item_frame.Name = username .. "_Item"
-                item_frame.Size = UDim2.new(1, 0, 0, item_height)
-                item_frame.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-                item_frame.BorderSizePixel = 0
-                item_frame.Parent = looplist_scrolling_frame
-
-                local username_label = Instance.new("TextLabel")
-                username_label.Name = "UsernameLabel"
-                username_label.Size = UDim2.new(1, -60, 1, 0)
-                username_label.Position = UDim2.new(0, 0, 0, 0)
-                username_label.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-                username_label.Text = username
-                username_label.TextColor3 = Color3.fromRGB(255, 255, 255)
-                username_label.Font = Enum.Font.SourceSans
-                username_label.TextSize = 16
-                username_label.TextXAlignment = Enum.TextXAlignment.Left
-                username_label.TextYAlignment = Enum.TextYAlignment.Center
-                username_label.TextWrapped = true
-                username_label.BorderSizePixel = 0
-                username_label.Parent = item_frame
-
-                local unloop_button = Instance.new("TextButton")
-                unloop_button.Name = "UnloopButton"
-                unloop_button.Size = UDim2.new(0, 50, 1, 0)
-                unloop_button.Position = UDim2.new(1, -50, 0, 0)
-                unloop_button.BackgroundColor3 = Color3.fromRGB(180, 60, 60)
-                unloop_button.Text = "Unloop"
-                unloop_button.TextColor3 = Color3.fromRGB(255, 255, 255)
-                unloop_button.Font = Enum.Font.SourceSansBold
-                unloop_button.TextSize = 14
-                unloop_button.BorderSizePixel = 0
-                unloop_button.Parent = item_frame
-
-                unloop_button.MouseButton1Click:Connect(function()
-                    Modules.Looplist.remove_from_looplist(username)
-                    Modules.Commands.send_command("unloopkill @" .. username)
-                    Modules.Commands.send_command("unloopgoto @" .. username)
-                    update_looplist_display(search_bar.Text)
-                end)
-
-                current_y_offset = current_y_offset + item_height + ui_list_layout.Padding.Offset
-            end
-        end
-        looplist_scrolling_frame.CanvasSize = UDim2.new(0, 0, 0, current_y_offset)
-    end
-
-    search_bar.Changed:Connect(function(property)
-        if property == "Text" then
-            update_looplist_display(search_bar.Text)
-        end
-    end)
-
-    -- Initial display update
-    update_looplist_display("")
-
-    -- Connect looplist changes to GUI update
-        Modules.Looplist.looplist_changed.Event:Connect(function()
-        update_looplist_display(search_bar.Text)
-    end)
-
-    return screen_gui
-end
-
-local function startup_sequence()
-    print("Sentinel AI initializing...")
-    Modules.Looplist.load_looplist()
-
-    -- Initial commands to send at startup
-    local initial_commands = {
-        "inf^5^tppos 0 -1000000 0",
-        "spawn",
-        "inf^0.1^loopkill [looplist]",
-        "inf^2^walkfling",
-        "inf^0.1^loopgoto [looplist] 0",
-        "instarespawn",
-        "novoid",
-        "antiban",
-        "lessfilter 1"
-    }
-    Modules.Commands.send_keypress_commands(initial_commands)
-
-    task.wait(Config.INITIAL_WAIT_TIME)
-
-    print("Grace period active for " .. Config.GRACE_PERIOD_TIME .. " seconds.")
-    Config.GracePeriodActive = true
-    task.wait(Config.GRACE_PERIOD_TIME)
-    Config.GracePeriodActive = false
-    print("Grace period ended. All automated detections are now active.")
-
-    Modules.GUI.create_looplist_gui()
-end
-
--- Call the startup sequence when the script runs
-startup_sequence()
