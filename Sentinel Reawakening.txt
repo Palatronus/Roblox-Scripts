@@ -1,4 +1,4 @@
-local TargetUsernames = {"4bductedbyaIiens", "ADD_OTHER_NAMES_HERE"}
+local TargetUsernames = {"", "ADD_OTHER_NAMES_HERE"}
 local OwnerUsernames = {"YOUR_USERNAME_HERE"}
 local ModeratorUsernames = {"MOD_USERNAME_HERE"}
 local warning_kill = {}
