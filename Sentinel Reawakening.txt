@@ -1,7 +1,7 @@
 local OwnerUsernames = {"HollowGol"}
 local ModeratorUsernames = {"QGTYyO7kD", "MOD_USERNAME_2"}
 
-local TargetUsernames = {"4bductedbyaIiens", "ADD_OTHER_NAMES_HERE"}
+local TargetUsernames = {"", "ADD_OTHER_NAMES_HERE"}
 local warning_kill = {}
 local LoopkillTargets = {}
 
@@ -371,4 +371,5 @@ while true do
 
 	task.wait(0.01)
 end
+
 
