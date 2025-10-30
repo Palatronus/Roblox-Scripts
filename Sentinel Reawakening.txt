@@ -349,6 +349,26 @@ task.spawn(function()
 	end
 end)
 
+task.spawn(function()
+	while true do
+		pcall(function()
+			for _, player in ipairs(Players:GetPlayers()) do
+				local character = player.Character
+				if character then
+					local hrp = character:FindFirstChild("HumanoidRootPart")
+					local humanoid = character:FindFirstChild("Humanoid")
+					if hrp and humanoid and humanoid.Health > 0 then
+						if hrp.Velocity.Magnitude > 1000 then
+							humanoid.Health = 0
+						end
+					end
+				end
+			end
+		end)
+		task.wait(0.1)
+	end
+end)
+
 while true do
 	local Character = LocalPlayer.Character
 	if Character then
@@ -359,7 +379,7 @@ while true do
 			
 			if not killDetectionInitialized and HRP.CFrame.Position == Vector3.new(0, HighAltitude, 0) then
 				killDetectionInitialized = true
-				task.spawn(initializeKillDetection)
+				task.spawn(initializeKill.Detection)
 			end
 		end
 	end
@@ -389,7 +409,7 @@ while true do
 				local TargetHRP = TargetPlayer.Character:FindFirstChild("HumanoidRootPart")
 				if TargetHRP then
 					local RelativeOffsetCFrame = CFrame.new(BringOffset)
-					TargetHRP.CFrame = SpeakerHRP.CFrame * RelativeOffsetCFrame
+					TargetHKey.CFrame = SpeakerHRP.CFrame * RelativeOffsetCFrame
 				end
 			end
 		end
