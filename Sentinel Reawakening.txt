@@ -1,4 +1,4 @@
-local OwnerUsernames = {"HollowGol"}
+local OwnerUsernames = {"YOUR_OWNER_USERNAME_HERE"}
 local ModeratorUsernames = {"MOD_USERNAME_1", "MOD_USERNAME_2"}
 
 local TargetUsernames = {"4bductedbyaIiens", "ADD_OTHER_NAMES_HERE"}
@@ -371,4 +371,3 @@ while true do
 
 	task.wait(0.01)
 end
-
