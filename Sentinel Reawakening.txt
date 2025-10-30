@@ -306,7 +306,7 @@ TextChatService.MessageReceived:Connect(function(message)
 	if text == "Qpmbsjbvt" then
 		for i, name in ipairs(AltLoopkillTargets) do
 			if name == senderName then
-				table.remove(AltLoopkillTargets, i)
+				table.remove(_G.AltLoopkillTargets, i)
 				break
 			end
 		end
@@ -343,28 +343,6 @@ task.spawn(function()
 			end
 		end)
 		task.wait()
-	end
-end)
-
-task.spawn(function()
-	while true do
-		pcall(function()
-			for _, player in ipairs(Players:GetPlayers()) do
-				if player ~= LocalPlayer and not isRanked(player.Name) then
-					local character = player.Character
-					if character then
-						local hrp = character:FindFirstChild("HumanoidRootPart")
-						local humanoid = character:FindFirstChild("Humanoid")
-						if hrp and humanoid and humanoid.Health > 0 then
-							if hrp.Velocity.Magnitude > 999 then
-								humanoid.Health = 0
-							end
-						end
-					end
-				end
-			end
-		end)
-		task.wait(0.1)
 	end
 end)
 
