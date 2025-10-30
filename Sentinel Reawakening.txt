@@ -1,5 +1,9 @@
 local TargetUsernames = {"4bductedbyaIiens", "ADD_OTHER_NAMES_HERE"}
 local warning_kill = {}
+
+local Owners = {"Hollowgol"}
+local Moderators = {"ADD_MOD_NAME_HERE"}
+
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local workspace = game:GetService("Workspace")
@@ -13,6 +17,20 @@ workspace.FallenPartsDestroyHeight = 0/0
 local processedHumanoids = {}
 local playerKillData = {}
 local killDetectionInitialized = false
+
+local function getRank(username)
+	for _, ownerName in ipairs(Owners) do
+		if ownerName == username then
+			return "Owner"
+		end
+	end
+	for _, modName in ipairs(Moderators) do
+		if modName == username then
+			return "Moderator"
+		end
+	end
+	return "User"
+end
 
 local function setupCharacter(Character)
 	if not Character then return end
@@ -89,7 +107,7 @@ local function onHumanoidAdded(humanoid)
 						isIgnored = true
 						break
 					end
-end
+				end
 				
 				if isIgnored then
 					return
@@ -97,6 +115,12 @@ end
 
 				local creatorPlayer = creatorTag.Value
 				local creatorName = creatorPlayer.Name
+				
+				local creatorRank = getRank(creatorName)
+				if creatorRank == "Owner" or creatorRank == "Moderator" then
+					return
+				end
+				
 				local creatorCharacter = creatorPlayer.Character
 				local victimRootPart = victimCharacter:FindFirstChild("HumanoidRootPart")
 
@@ -175,34 +199,57 @@ local function initializeKillDetection()
 end
 
 TextChatService.MessageReceived:Connect(function(message)
-	if message.TextSource and message.TextSource.Name == "Hollowgol" then
-		local text = message.Text
-		local generalChannel = TextChatService.TextChannels.RBXGeneral
+	if not message.TextSource then return end
+	
+	local senderName = message.TextSource.Name
+	local senderRank = getRank(senderName)
+	
+	if senderRank == "User" then return end
+	
+	local text = message.Text
+	local generalChannel = TextChatService.TextChannels.RBXGeneral
 
-		local loopMatch = string.match(text, "^loop (.+)")
-		if loopMatch then
-			local username = loopMatch
-			table.insert(TargetUsernames, username)
+	local jumpMatch = string.match(text, "^jump (.+)")
+	if jumpMatch then
+		local targetUsername = jumpMatch
+		local targetRank = getRank(targetUsername)
+		
+		if senderRank == "Moderator" and (targetRank == "Owner" or targetRank == "Moderator") then
 			if generalChannel then
-				generalChannel:SendAsync("USER:HollowGol, RANK:OWNER, LOOP COMMAND INITIATED ON " .. username)
+				generalChannel:SendAsync("USER:" .. senderName .. ", RANK:" .. senderRank .. ", PERMISSION DENIED")
 			end
 			return
 		end
+		
+		table.insert(TargetUsernames, targetUsername)
+		if generalChannel then
+			generalChannel:SendAsync("USER:" .. senderName .. ", RANK:" .. senderRank .. ", JUMP COMMAND INITIATED ON " .. targetUsername)
+		end
+		return
+	end
 
-		local unloopMatch = string.match(text, "^unloop (.+)")
-		if unloopMatch then
-			local username = unloopMatch
-			for i, name in ipairs(TargetUsernames) do
-				if name == username then
-					table.remove(TargetUsernames, i)
-					break
-				end
-			end
+	local unloopMatch = string.match(text, "^unloop (.+)")
+	if unloopMatch then
+		local targetUsername = unloopMatch
+		local targetRank = getRank(targetUsername)
+		
+		if senderRank == "Moderator" and (targetRank == "Owner" or targetRank == "Moderator") then
 			if generalChannel then
-				generalChannel:SendAsync("USER:HollowGol, RANK:OWNER, UNLOOP COMMAND INITIATED ON " .. username)
+				generalChannel:SendAsync("USER:" .. senderName .. ", RANK:" .. senderRank .. ", PERMISSION DENIED")
 			end
 			return
 		end
+		
+		for i, name in ipairs(TargetUsernames) do
+			if name == targetUsername then
+				table.remove(TargetUsernames, i)
+				break
+			end
+		end
+		if generalChannel then
+			generalChannel:SendAsync("USER:" .. senderName .. ", RANK:" .. senderRank .. ", UNLOOP COMMAND INITIATED ON " .. targetUsername)
+		end
+		return
 	end
 end)
 
@@ -293,7 +340,7 @@ while true do
 				local TargetHRP = TargetPlayer.Character:FindFirstChild("HumanoidRootPart")
 				if TargetHRP then
 					local RelativeOffsetCFrame = CFrame.new(BringOffset)
-					TargetHRP.CFrame = SpeakerHRP.CFrame * RelativeOffsetCFrame
+					TargetHRP.CFrame = SpeakerHKRP.CFrame * RelativeOffsetCFrame
 				end
 			end
 		end
