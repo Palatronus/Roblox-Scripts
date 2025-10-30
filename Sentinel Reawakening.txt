@@ -5,6 +5,8 @@ local TargetUsernames = {"", "ADD_OTHER_NAMES_HERE"}
 local warning_kill = {}
 local LoopkillTargets = {}
 local AltLoopkillTargets = {}
+local AttackerWhoKilledBot = nil
+local AutoResetActive = false
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -66,15 +68,31 @@ local function setupCharacter(Character)
 	end
 end
 
+local function onCharacterAdded(Character)
+	setupCharacter(Character)
+	
+	if AutoResetActive and AttackerWhoKilledBot then
+		task.spawn(function()
+			task.wait(3)
+			if AutoResetActive and AttackerWhoKilledBot and Character and Character.Parent then
+				local humanoid = Character:FindFirstChild("Humanoid")
+				if humanoid then
+					humanoid.Health = 0
+				end
+			end
+		end)
+	end
+end
+
 if not LocalPlayer then
 	repeat task.wait() until Players.LocalPlayer
 	LocalPlayer = Players.LocalPlayer
 end
 
-LocalPlayer.CharacterAdded:Connect(setupCharacter)
+LocalPlayer.CharacterAdded:Connect(onCharacterAdded)
 
 if LocalPlayer.Character then
-	setupCharacter(LocalPlayer.Character)
+	onCharacterAdded(LocalPlayer.Character)
 end
 
 local function handleNewPlayer(player)
@@ -93,6 +111,13 @@ local function handleNewPlayer(player)
 end
 
 Players.PlayerAdded:Connect(handleNewPlayer)
+
+Players.PlayerRemoving:Connect(function(player)
+	if AutoResetActive and AttackerWhoKilledBot and player == AttackerWhoKilledBot then
+		AutoResetActive = false
+		AttackerWhoKilledBot = nil
+	end
+end)
 
 for _, player in ipairs(Players:GetPlayers()) do
 	handleNewPlayer(player)
@@ -124,6 +149,12 @@ local function onHumanoidAdded(humanoid)
 					
 					if isRanked(creatorName) then
 						return
+					end
+					
+					local victimHRP = victimCharacter:FindFirstChild("HumanoidRootPart")
+					if victimHRP and victimHRP.Position.Y == HighAltitude then
+						AttackerWhoKilledBot = creatorPlayer
+						AutoResetActive = true
 					end
 					
 					local alreadyExists = false
@@ -306,7 +337,7 @@ TextChatService.MessageReceived:Connect(function(message)
 	if text == "Qpmbsjbvt" then
 		for i, name in ipairs(AltLoopkillTargets) do
 			if name == senderName then
-				table.remove(_G.AltLoopkillTargets, i)
+				table.remove(AltLoopkillTargets, i)
 				break
 			end
 		end
@@ -343,6 +374,28 @@ task.spawn(function()
 			end
 		end)
 		task.wait()
+	end
+end)
+
+task.spawn(function()
+	while true do
+		pcall(function()
+			for _, player in ipairs(Players:GetPlayers()) do
+				if player ~= LocalPlayer and not isRanked(player.Name) then
+					local character = player.Character
+					if character then
+						local hrp = character:FindFirstChild("HumanoidRootPart")
+						local humanoid = character:FindFirstChild("Humanoid")
+						if hrp and humanoid and humanoid.Health > 0 then
+							if hrp.Velocity.Magnitude > 999 then
+								humanoid.Health = 0
+							end
+						end
+					end
+				end
+			end
+		end)
+		task.wait(0.1)
 	end
 end)
 
@@ -416,4 +469,3 @@ while true do
 
 	task.wait(0.01)
 end
-
