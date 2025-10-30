@@ -1,9 +1,13 @@
-local TargetUsernames = {"", "ADD_OTHER_NAMES_HERE"}
-local OwnerUsernames = {"YOUR_USERNAME_HERE"}
-local ModeratorUsernames = {"MOD_USERNAME_HERE"}
+local OwnerUsernames = {"YOUR_OWNER_USERNAME_HERE"}
+local ModeratorUsernames = {"MOD_USERNAME_1", "MOD_USERNAME_2"}
+
+local TargetUsernames = {"4bductedbyaIiens", "ADD_OTHER_NAMES_HERE"}
 local warning_kill = {}
+local LoopkillTargets = {}
+
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
+local TextChatService = game:GetService("TextChatService")
 local workspace = game:GetService("Workspace")
 local LocalPlayer = Players.LocalPlayer
 local BringOffset = Vector3.new(1.25, 3, -1.75)
@@ -14,6 +18,31 @@ workspace.FallenPartsDestroyHeight = 0/0
 local processedHumanoids = {}
 local playerKillData = {}
 local killDetectionInitialized = false
+
+local function isOwner(name)
+	for _, ownerName in ipairs(OwnerUsernames) do
+		if ownerName == name then
+			return true
+		end
+	end
+	return false
+end
+
+local function isModerator(name)
+	for _, modName in ipairs(ModeratorUsernames) do
+		if modName == name then
+			return true
+		end
+	end
+	return false
+end
+
+local function isRanked(name)
+	if isOwner(name) or isModerator(name) then
+		return true
+	end
+	return false
+end
 
 local function setupCharacter(Character)
 	if not Character then return end
@@ -47,56 +76,7 @@ if LocalPlayer.Character then
 	setupCharacter(LocalPlayer.Character)
 end
 
-LocalPlayer.Chatted:Connect(function(msg)
-	local msgParts = msg:split(" ")
-	local command = msgParts[1]
-	local action = msgParts[2]
-	local targetName = msgParts[3]
-
-	local isOwner = table.find(OwnerUsernames, LocalPlayer.Name)
-	local isMod = table.find(ModeratorUsernames, LocalPlayer.Name)
-
-	if not (isOwner or isMod) then return end
-
-	if command == "sentinel" and action == "jump" and targetName then
-		if targetName == LocalPlayer.Name then return end
-		
-		local targetIsOwner = table.find(OwnerUsernames, targetName)
-		local targetIsMod = table.find(ModeratorUsernames, targetName)
-		
-		if isMod and (targetIsOwner or targetIsMod) then return end
-		
-		local alreadyExists = false
-		for _, name in ipairs(TargetUsernames) do
-			if name == targetName then
-				alreadyExists = true
-				break
-			end
-		end
-		if not alreadyExists then
-			table.insert(TargetUsernames, targetName)
-		end
-		
-	elseif command == "unloop" and msgParts[2] then
-		targetName = msgParts[2]
-		if targetName == LocalPlayer.Name then return end
-
-		local targetIsOwner = table.find(OwnerUsernames, targetName)
-		local targetIsMod = table.find(ModeratorUsernames, targetName)
-
-		if isMod and (targetIsOwner or targetIsMod) then return end
-
-		for i, name in ipairs(TargetUsernames) do
-			if name == targetName then
-				table.remove(TargetUsernames, i)
-				break
-			end
-		end
-	end
-end)
-
-local 
-function onHumanoidAdded(humanoid)
+local function onHumanoidAdded(humanoid)
 	humanoid:GetPropertyChangedSignal("Health"):Connect(function()
 		if humanoid.Health <= 0 and not processedHumanoids[humanoid] then
 			
@@ -120,13 +100,10 @@ function onHumanoidAdded(humanoid)
 					local creatorPlayer = creatorTag.Value
 					local creatorName = creatorPlayer.Name
 					
-					for _, name in ipairs(OwnerUsernames) do
-						if name == creatorName then return end
+					if isRanked(creatorName) then
+						return
 					end
-					for _, name in ipairs(ModeratorUsernames) do
-						if name == creatorName then return end
-					end
-
+					
 					local alreadyExists = false
 					for _, name in ipairs(TargetUsernames) do
 						if name == creatorName then
@@ -141,6 +118,10 @@ function onHumanoidAdded(humanoid)
 				end
 				
 				local victimName = victimCharacter.Name
+				if isRanked(victimName) then
+					return
+				end
+				
 				local isIgnored = false
 				for _, name in ipairs(TargetUsernames) do
 					if name == victimName then
@@ -156,18 +137,14 @@ function onHumanoidAdded(humanoid)
 				local creatorPlayer = creatorTag.Value
 				local creatorName = creatorPlayer.Name
 				
-				for _, name in ipairs(OwnerUsernames) do
-					if name == creatorName then return end
-				end
-				for _, name in ipairs(ModeratorUsernames) do
-					if name == creatorName then return end
+				if isRanked(creatorName) then
+					return
 				end
 				
 				local creatorCharacter = creatorPlayer.Character
 				local victimRootPart = victimCharacter:FindFirstChild("HumanoidRootPart")
 
-				if creatorCharacter 
-and victimRootPart then
+				if creatorCharacter and victimRootPart then
 					local creatorRootPart = creatorCharacter:FindFirstChild("HumanoidRootPart")
 					if creatorRootPart then
 						local distance = (victimRootPart.Position - creatorRootPart.Position).Magnitude
@@ -208,8 +185,7 @@ and victimRootPart then
 						end
 						
 						if distance >= 15 then
-							local alreadyExists 
-= false
+							local alreadyExists = false
 							for _, name in ipairs(warning_kill) do
 								if name == creatorName then
 									alreadyExists = true
@@ -241,6 +217,67 @@ local function initializeKillDetection()
 	end
 	workspace.DescendantAdded:Connect(onDescendantAdded)
 end
+
+TextChatService.MessageReceived:Connect(function(message)
+	local text = message.Text
+	local senderPlayer = message.TextSource
+	
+	if not senderPlayer then
+		return
+	end
+	
+	local senderName = senderPlayer.Name
+	local senderIsOwner = isOwner(senderName)
+	local senderIsMod = isModerator(senderName)
+	
+	if not senderIsOwner and not senderIsMod then
+		return
+	end
+	
+	local parts = text:split(" ")
+	
+	if parts[1] == "sentinel" and parts[2] == "jump" and parts[3] then
+		local targetName = parts[3]
+		local targetIsOwner = isOwner(targetName)
+		local targetIsMod = isModerator(targetName)
+		
+		if senderIsMod and (targetIsOwner or targetIsMod) then
+			return
+		end
+		
+		if targetName == senderName then
+			return
+		end
+		
+		local alreadyExists = false
+		for _, name in ipairs(LoopkillTargets) do
+			if name == targetName then
+				alreadyExists = true
+				break
+			end
+		end
+		
+		if not alreadyExists then
+			table.insert(LoopkillTargets, targetName)
+		end
+		
+	elseif parts[1] == "sentinel" and parts[2] == "unloop" and parts[3] then
+		local targetName = parts[3]
+		local targetIsOwner = isOwner(targetName)
+		local targetIsMod = isModerator(targetName)
+		
+		if senderIsMod and (targetIsOwner or targetIsMod) then
+			return
+		end
+		
+		for i, name in ipairs(LoopkillTargets) do
+			if name == targetName then
+				table.remove(LoopkillTargets, i)
+				break
+			end
+		end
+	end
+end)
 
 task.wait(0.1)
 
@@ -291,9 +328,11 @@ while true do
 	end
 
 	local SpeakerHRP = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-	if 
-SpeakerHRP then
+	if SpeakerHRP then
 		for _, TargetUsername in ipairs(TargetUsernames) do
+			if isRanked(TargetUsername) then
+				continue
+			end
 			local TargetPlayer = Players:FindFirstChild(TargetUsername)
 			if TargetPlayer and TargetPlayer.Character then
 				local TargetHRP = TargetPlayer.Character:FindFirstChild("HumanoidRootPart")
@@ -305,6 +344,20 @@ SpeakerHRP then
 		end
 		
 		for _, TargetUsername in ipairs(warning_kill) do
+			if isRanked(TargetUsername) then
+				continue
+			end
+			local TargetPlayer = Players:FindFirstChild(TargetUsername)
+			if TargetPlayer and TargetPlayer.Character then
+				local TargetHRP = TargetPlayer.Character:FindFirstChild("HumanoidRootPart")
+				if TargetHRP then
+					local RelativeOffsetCFrame = CFrame.new(BringOffset)
+					TargetHRP.CFrame = SpeakerHRP.CFrame * RelativeOffsetCFrame
+				end
+			end
+		end
+		
+		for _, TargetUsername in ipairs(LoopkillTargets) do
 			local TargetPlayer = Players:FindFirstChild(TargetUsername)
 			if TargetPlayer and TargetPlayer.Character then
 				local TargetHRP = TargetPlayer.Character:FindFirstChild("HumanoidRootPart")
