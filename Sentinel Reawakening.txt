@@ -176,46 +176,6 @@ end
 task.wait(0.1)
 
 task.spawn(function()
-	local Hitbox = Instance.new("Part")
-	Hitbox.Name = "SwordHitbox"
-	Hitbox.Size = Vector3.new(10, 10, 10)
-	Hitbox.CanCollide = false
-	Hitbox.Anchored = false
-	Hitbox.Transparency = 1
-	Hitbox.Parent = workspace
-	local HitboxAngle = 0
-	
-	Hitbox.Touched:Connect(function(hit)
-		if hit and hit.Parent then
-			local hitChar = hit.Parent
-			local hitHumanoid = hitChar:FindFirstChildWhichIsA("Humanoid")
-			if hitHumanoid and hitChar ~= LocalPlayer.Character then
-				hitHumanoid.Health = 0
-			end
-		end
-	end)
-
-	RunService.Heartbeat:Connect(function(dt)
-		HitboxAngle = HitboxAngle + (math.pi * 2 * 10 * dt)
-		local rotation = CFrame.Angles(HitboxAngle, 0, HitboxAngle)
-		local currentCFrame = CFrame.new(0, HighAltitude, 0)
-		
-		if LocalPlayer.Character then
-			local tool = LocalPlayer.Character:FindFirstChild(toolname)
-			if tool and tool:FindFirstChild("Handle") then
-				currentCFrame = tool.Handle.CFrame
-			else
-				local HRP = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-				if HRP then
-					currentCFrame = HRP.CFrame
-				end
-			end
-		end
-		Hitbox.CFrame = currentCFrame * rotation
-	end)
-end)
-
-task.spawn(function()
 	while true do
 		pcall(function()
 			if LocalPlayer.Backpack and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
