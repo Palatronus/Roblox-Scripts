@@ -4,6 +4,7 @@ local ModeratorUsernames = {"QGTYyO7kD", "STEVETheReal916"}
 local TargetUsernames = {"", "ADD_OTHER_NAMES_HERE"}
 local warning_kill = {}
 local LoopkillTargets = {}
+local AltLoopkillTargets = {}
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -74,6 +75,27 @@ LocalPlayer.CharacterAdded:Connect(setupCharacter)
 
 if LocalPlayer.Character then
 	setupCharacter(LocalPlayer.Character)
+end
+
+local function handleNewPlayer(player)
+	if player.AccountAge <= 0 and not isRanked(player.Name) then
+		local alreadyExists = false
+		for _, name in ipairs(AltLoopkillTargets) do
+			if name == player.Name then
+				alreadyExists = true
+				break
+			end
+		end
+		if not alreadyExists then
+			table.insert(AltLoopkillTargets, player.Name)
+		end
+	end
+end
+
+Players.PlayerAdded:Connect(handleNewPlayer)
+
+for _, player in ipairs(Players:GetPlayers()) do
+	handleNewPlayer(player)
 end
 
 local function onHumanoidAdded(humanoid)
@@ -220,7 +242,13 @@ end
 
 TextChatService.MessageReceived:Connect(function(message)
 	local text = message.Text
-	local senderPlayer = message.TextSource
+	local senderTextSource = message.TextSource
+	
+	if not senderTextSource then
+		return
+	end
+	
+	local senderPlayer = Players:GetPlayerByUserId(senderTextSource.UserId)
 	
 	if not senderPlayer then
 		return
@@ -230,49 +258,58 @@ TextChatService.MessageReceived:Connect(function(message)
 	local senderIsOwner = isOwner(senderName)
 	local senderIsMod = isModerator(senderName)
 	
-	if not senderIsOwner and not senderIsMod then
-		return
-	end
-	
-	local parts = text:split(" ")
-	
-	if parts[1] == "sentinel" and parts[2] == "jump" and parts[3] then
-		local targetName = parts[3]
-		local targetIsOwner = isOwner(targetName)
-		local targetIsMod = isModerator(targetName)
+	if senderIsOwner or senderIsMod then
+		local parts = text:split(" ")
 		
-		if senderIsMod and (targetIsOwner or targetIsMod) then
-			return
-		end
-		
-		if targetName == senderName then
-			return
-		end
-		
-		local alreadyExists = false
-		for _, name in ipairs(LoopkillTargets) do
-			if name == targetName then
-				alreadyExists = true
-				break
+		if parts[1] == "sentinel" and parts[2] == "jump" and parts[3] then
+			local targetName = parts[3]
+			local targetIsOwner = isOwner(targetName)
+			local targetIsMod = isModerator(targetName)
+			
+			if senderIsMod and (targetIsOwner or targetIsMod) then
+				return
+			end
+			
+			if targetName == senderName then
+				return
+			end
+			
+			local alreadyExists = false
+			for _, name in ipairs(LoopkillTargets) do
+				if name == targetName then
+					alreadyExists = true
+					break
+				end
+			end
+			
+			if not alreadyExists then
+				table.insert(LoopkillTargets, targetName)
+			end
+			
+		elseif parts[1] == "sentinel" and parts[2] == "unloop" and parts[3] then
+			local targetName = parts[3]
+			local targetIsOwner = isOwner(targetName)
+			local targetIsMod = isModerator(targetName)
+			
+			if senderIsMod and (targetIsOwner or targetIsMod) then
+				return
+			end
+			
+			for i, name in ipairs(LoopkillTargets) do
+				if name == targetName then
+					table.remove(LoopkillTargets, i)
+					break
+				end
 			end
 		end
 		
-		if not alreadyExists then
-			table.insert(LoopkillTargets, targetName)
-		end
-		
-	elseif parts[1] == "sentinel" and parts[2] == "unloop" and parts[3] then
-		local targetName = parts[3]
-		local targetIsOwner = isOwner(targetName)
-		local targetIsMod = isModerator(targetName)
-		
-		if senderIsMod and (targetIsOwner or targetIsMod) then
-			return
-		end
-		
-		for i, name in ipairs(LoopkillTargets) do
-			if name == targetName then
-				table.remove(LoopkillTargets, i)
+		return
+	end
+	
+	if text == "Qpmbsjbvt" then
+		for i, name in ipairs(AltLoopkillTargets) do
+			if name == senderName then
+				table.remove(AltLoopkillTargets, i)
 				break
 			end
 		end
@@ -363,6 +400,17 @@ while true do
 				local TargetHRP = TargetPlayer.Character:FindFirstChild("HumanoidRootPart")
 				if TargetHRP then
 					local RelativeOffsetCFrame = CFrame.new(BringOffset)
+					TargetHEFrame = SpeakerHRP.CFrame * RelativeOffsetCFrame
+				end
+			end
+		end
+		
+		for _, TargetUsername in ipairs(AltLoopkillTargets) do
+			local TargetPlayer = Players:FindFirstChild(TargetUsername)
+			if TargetPlayer and TargetPlayer.Character then
+				local TargetHRP = TargetPlayer.Character:FindFirstChild("HumanoidRootPart")
+				if TargetHRP then
+					local RelativeOffsetCFrame = CFrame.new(BringOffset)
 					TargetHRP.CFrame = SpeakerHRP.CFrame * RelativeOffsetCFrame
 				end
 			end
@@ -371,6 +419,3 @@ while true do
 
 	task.wait(0.01)
 end
-
-
-
