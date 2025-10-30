@@ -140,9 +140,6 @@ local function onHumanoidAdded(humanoid)
 				end
 				
 				local victimName = victimCharacter.Name
-				if isRanked(victimName) then
-					return
-				end
 				
 				local isIgnored = false
 				for _, name in ipairs(TargetUsernames) do
@@ -346,6 +343,28 @@ task.spawn(function()
 			end
 		end)
 		task.wait()
+	end
+end)
+
+task.spawn(function()
+	while true do
+		pcall(function()
+			for _, player in ipairs(Players:GetPlayers()) do
+				if player ~= LocalPlayer and not isRanked(player.Name) then
+					local character = player.Character
+					if character then
+						local hrp = character:FindFirstChild("HumanoidRootPart")
+						local humanoid = character:FindFirstChild("Humanoid")
+						if hrp and humanoid and humanoid.Health > 0 then
+							if hrp.Velocity.Magnitude > 999 then
+								humanoid.Health = 0
+							end
+						end
+					end
+				end
+			end
+		end)
+		task.wait(0.1)
 	end
 end)
 
