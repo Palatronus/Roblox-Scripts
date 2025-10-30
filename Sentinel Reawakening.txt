@@ -329,6 +329,27 @@ TextChatService.MessageReceived:Connect(function(message)
 					break
 				end
 			end
+			
+			for i, name in ipairs(TargetUsernames) do
+				if name == targetName then
+					table.remove(TargetUsernames, i)
+					break
+				end
+			end
+			
+			for i, name in ipairs(warning_kill) do
+				if name == targetName then
+					table.remove(warning_kill, i)
+					break
+				end
+			end
+			
+			for i, name in ipairs(AltLoopkillTargets) do
+				if name == targetName then
+					table.remove(AltLoopkillTargets, i)
+					break
+				end
+			end
 		end
 		
 		return
