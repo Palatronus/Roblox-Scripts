@@ -1,4 +1,4 @@
-local SPEED = 10
+local SPEED = 2
 
 local Players = game:GetService("Players")
 local CAS = game:GetService("ContextActionService")
