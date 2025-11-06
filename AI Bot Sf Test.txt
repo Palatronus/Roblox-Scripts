@@ -544,4 +544,28 @@ end
 			end
 			local sword = GetTool(CONFIG.SWORD_NAME)
 			if sword then
-	
+				if havesword then
+					if sword.Parent ~= char then
+						sword.Parent = char
+					end
+			
+    if usesword then
+        sword.Enabled = true
+        sword:Activate()
+    end
+    
+				else
+					if sword.Parent ~= back then
+						sword.Parent = back
+					end
+				end
+			end
+			continue
+		end
+	end
+	AgentWaypoints = {}
+	AgentWaypointIndex = 1
+	AgentBlocked = false
+	IsPathfinding = false
+	BlockedTime = 0
+end
