@@ -1,25 +1,23 @@
-{
-  "DFIntDebugFRMQualityLevelOverride": 1,
-  "FIntRenderShadowIntensity": 0,
-  "DFFlagTextureQualityOverrideEnabled": true,
-  "DFIntTextureQualityOverride": 0,
-  "FFlagDebugSkyGray": true,
-  "FFlagNewLightAttenuation": "True",
-  "FFlagFastGPULightCulling3": "True",
-  "DFFlagDebugPauseVoxelizer": "True",
-  "FIntRenderLocalLightFadeInMs": "0",
-  "DFFlagDebugRenderForceTechnologyVoxel": "True",
-  "DFIntTextureCompositorActiveJobs": "0",
-  "FIntFRMMinGrassDistance": "0",
-  "FIntFRMMaxGrassDistance": "0",
-  "FIntRenderGrassDetailStrands": "0",
-  "FIntRenderGrassHeightScaler": "0",
-  "FIntTerrainArraySliceSize": "0",
-  "DFIntCSGLevelOfDetailSwitchingDistance": "0",
-  "DFIntCSGLevelOfDetailSwitchingDistanceL12": "0",
-  "DFIntCSGLevelOfDetailSwitchingDistanceL23": "0",
-  "DFIntCSGLevelOfDetailSwitchingDistanceL34": "0",
-  "DFIntCSGv2LodsToGenerate": "0",
-  "DFIntCSGv2LodMinTriangleCount": "0",
-  "DFIntDebugRestrictGCDistance": "1"
-}
+setfflag("DFIntDebugFRMQualityLevelOverride","1")
+setfflag("FIntRenderShadowIntensity","0")
+setfflag("DFFlagTextureQualityOverrideEnabled","true")
+setfflag("DFIntTextureQualityOverride","0")
+setfflag("FFlagDebugSkyGray","true")
+setfflag("FFlagNewLightAttenuation","True")
+setfflag("FFlagFastGPULightCulling3","True")
+setfflag("DFFlagDebugPauseVoxelizer","True")
+setfflag("FIntRenderLocalLightFadeInMs","0")
+setfflag("DFFlagDebugRenderForceTechnologyVoxel","True")
+setfflag("DFIntTextureCompositorActiveJobs","0")
+setfflag("FIntFRMMinGrassDistance","0")
+setfflag("FIntFRMMaxGrassDistance","0")
+setfflag("FIntRenderGrassDetailStrands","0")
+setfflag("FIntRenderGrassHeightScaler","0")
+setfflag("FIntTerrainArraySliceSize","0")
+setfflag("DFIntCSGLevelOfDetailSwitchingDistance","0")
+setfflag("DFIntCSGLevelOfDetailSwitchingDistanceL12","0")
+setfflag("DFIntCSGLevelOfDetailSwitchingDistanceL23","0")
+setfflag("DFIntCSGLevelOfDetailSwitchingDistanceL34","0")
+setfflag("DFIntCSGv2LodsToGenerate","0")
+setfflag("DFIntCSGv2LodMinTriangleCount","0")
+setfflag("DFIntDebugRestrictGCDistance","1")
