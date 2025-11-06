@@ -59,7 +59,8 @@ local CONFIG = {
     PREDICT_PLAYER_HIT = 0.175,
     MINIMUM_NODES_TO_LINEOFSIGHT = 2,
     STUCK_RESET = true,
-    RETRIES_BEFORE_RESET = 15
+    RETRIES_BEFORE_RESET = 15,
+    SWING_CHANCES = 15
 }
 
 -- Get Player
@@ -134,18 +135,14 @@ DebugWireframing.AlwaysOnTop = true
 DebugWireframing.Name = "DEBUG"
 
 local function CreateDot(pos)
-	local p = {}
-	for i=1, 32 do
-		local x = (i / 8) * math.pi * 2
-		local y = (i / 32) * math.pi
-		table.insert(p, pos + Vector3.new(
-			math.cos(x) * math.sin(y),
-			math.cos(y),
-			math.sin(x) * math.sin(y)
-		) * 0.2)
-	end
-	DebugWireframing:AddPath(p, true)
+    local p, seg, r = {}, 25, 0.55
+    for i = 1, seg do
+        local a = (i / seg) * math.pi * 2
+        p[#p+1] = pos + Vector3.new(math.cos(a)*r, 0, math.sin(a)*r)
+    end
+    DebugWireframing:AddPath(p, true)
 end
+
 local function CreateLine(a, b)
 	DebugWireframing:AddLine(a, b)
 end
@@ -357,7 +354,7 @@ end
 					if not Raycast(targetmove, Vector3.new(0, -5, 0)) then
 						targetmove = vpos + lookat:VectorToWorldSpace(Vector3.new(0, 0, 2))
 					end
-					if nearestdist < 4 + LocalPlayer:GetNetworkPing() * CONFIG.PREDICT_SWING then
+					if nearestdist < 4 + LocalPlayer:GetNetworkPing() * CONFIG.PREDICT_SWING + CONFIG.SWING_CHANCES then
 						usesword = true
 					end
 				end
@@ -460,8 +457,8 @@ end
         debugPrint("GOTO", "I am blocked. Pathfinding...")
     end
     if AgentPathfindForce ~= true then
-    BlockedSpamCounter = math.max((BlockedSpamCounter or 0) - 1, 0)
-    BlockedSpamCounter2 = math.max((BlockedSpamCounter2 or 0) - 1, 0)
+    BlockedSpamCounter = math.max((BlockedSpamCounter or 0) - 0.5, 0)
+    BlockedSpamCounter2 = math.max((BlockedSpamCounter2 or 0) - 0.5, 0)
 end
 
     BlockedTime = 0
@@ -494,7 +491,7 @@ end
 				-- NEW CONTENT BY ME
 local groundHit = workspace:Spherecast(
     targetmove2 + Vector3.new(0, 1, 0), -- start above foot
-    0.8,                                 -- radius of the ball (bigger than 0.25)
+    0.45,                                 -- radius of the ball (bigger than 0.25)
     Vector3.new(0, -10, 0),              -- downward sweep
     RCP
 )
@@ -547,26 +544,4 @@ end
 			end
 			local sword = GetTool(CONFIG.SWORD_NAME)
 			if sword then
-				if havesword then
-					if sword.Parent ~= char then
-						sword.Parent = char
-					end
-					if usesword then
-						sword.Enabled = true
-						sword:Activate()
-					end
-				else
-					if sword.Parent ~= back then
-						sword.Parent = back
-					end
-				end
-			end
-			continue
-		end
-	end
-	AgentWaypoints = {}
-	AgentWaypointIndex = 1
-	AgentBlocked = false
-	IsPathfinding = false
-	BlockedTime = 0
-end
+	
