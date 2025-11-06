@@ -19,7 +19,7 @@ local BONE = "I have a bone to pick with you"
 pcall(CAS.UnbindAction, CAS, BONE)
 CAS:BindAction(BONE, function(_, state, _)
     if state == Enum.UserInputState.Begin then
-        for i=0, 100, 0.5 do
+        for i=0, 100, 2 do
             applyGripPos(Vector3.new(-3, 0, -i))
             task.wait()
         end
