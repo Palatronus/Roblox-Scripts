@@ -1,3 +1,5 @@
+local SPEED = 50
+
 local Players = game:GetService("Players")
 local CAS = game:GetService("ContextActionService")
 local plr = Players.LocalPlayer
@@ -19,9 +21,11 @@ local BONE = "I have a bone to pick with you"
 pcall(CAS.UnbindAction, CAS, BONE)
 CAS:BindAction(BONE, function(_, state, _)
     if state == Enum.UserInputState.Begin then
-        for i=0, 100, 200 do
-            applyGripPos(Vector3.new(-3, 0, -i))
-            task.wait()
+        local pos = 0
+        while pos < 100 do
+            local dt = task.wait()
+            pos += SPEED * dt
+            applyGripPos(Vector3.new(-3, 0, -pos))
         end
     end
 end, true, Enum.KeyCode.E)
