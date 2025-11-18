@@ -40,5 +40,6 @@ end
 
 game:GetService("GuiService").ErrorMessageChanged:Connect(Rejoin)
 game.Players.PlayerRemoving:Connect(function()
+    task.wait(1)
     if #game.Players:GetPlayers() <= 1 then Serverhop() end
 end)
