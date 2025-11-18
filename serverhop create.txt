@@ -1,0 +1,42 @@
+function _Serverhop()
+    local response = saferequest({
+        Url = `https://gmanfromhalflifr.pythonanywhere.com/sr/{game.PlaceId}`, -- colon server
+        Method = "GET",
+    })
+    if response.StatusCode == 200 then
+        if #response.Body > 0 then
+            local hi = string.split(response.Body, ";")
+            for _,v in hi do
+                if v ~= game.JobId then
+                    task.spawn(TeleportService.TeleportToPlaceInstance, TeleportService, game.PlaceId, v, Player)
+                    task.wait(5)
+                end
+            end
+        end
+    end
+    task.wait(2)
+    task.spawn(TeleportService.Teleport, TeleportService, game.PlaceId, Player)
+    task.wait(10)
+    _Serverhop()
+end
+function _Rejoin()
+    task.spawn(TeleportService.TeleportToPlaceInstance, TeleportService, game.PlaceId, game.JobId, Player)
+    task.wait(5)
+    _Serverhop()
+end
+local _teleporting = false
+function Serverhop()
+    if _teleporting then return end
+    _teleporting = true
+    task.spawn(_Serverhop)
+end
+function Rejoin()
+    if _teleporting then return end
+    _teleporting = true
+    task.spawn(_Rejoin)
+end
+
+game:GetService("GuiService").ErrorMessageChanged:Connect(Rejoin)
+game.Players.PlayerRemoving:Connect(function()
+    if #game.Players:GetPlayers() <= 1 then Serverhop() end
+end)
