@@ -1,3 +1,4 @@
+local Player = game.Players.LocalPlayer 
 function _Serverhop()
     local response = saferequest({
         Url = `https://gmanfromhalflifr.pythonanywhere.com/sr/{game.PlaceId}`, -- colon server
