@@ -1,6 +1,7 @@
+local TeleportService = game:GetService("TeleportService")
 local Player = game.Players.LocalPlayer 
 function _Serverhop()
-    local response = saferequest({
+    local response = request({
         Url = `https://gmanfromhalflifr.pythonanywhere.com/sr/{game.PlaceId}`, -- colon server
         Method = "GET",
     })
