@@ -1,18 +1,3 @@
---[[
-stella comment
-
-claude thinks ur gonna put the code in an npc game script~!! >w<
-forcing print is not needed, this aint a terminal~ :3
-roblox already has a gc, ur just gonna tell the gc what to collect~
-ehehehehehehehehehe~~
-]]
-
---[[
-Awesome comment yes literally :3
-
-i adjusted many functions and provided extra configs hehe. adjust BLOCKED_TIME_PATHFIND accordingly to your liking and map :3
-]]
-
 --[[ 
 	Linked Sword AI Combat Script (Enhanced Version)
 	Implemented improvements per user request:
@@ -193,11 +178,26 @@ local function AgentPathfind()
 	AgentCalculating = true
 	task.spawn(function()
 		debugPrint("PF", "Computing path...")
-		pcall(AgentComputeAsync, AgentStart, AgentFinish)
+		xpcall(AgentComputeAsync, function(m)
+			warn(m)
+		end, AgentStart, AgentFinish)
 		AgentWaypoints = AgentGetWaypoints()
 		AgentWaypointIndex = 1
 		AgentBlocked = false
 		debugPrint("PF", `Generated Wacky {#AgentWaypoints} waypoints! :3`)
+		if #AgentWaypoints == 0 then
+			pcall(Agent.Destroy, Agent)
+			Agent = PathfindingService:CreatePath({
+				AgentRadius = CONFIG.PLAYERS_STOMACH_SIZE_FAT_NOT_INCLUDED,
+				AgentHeight = 5,
+				AgentCanJump = true,
+				WaypointSpacing = CONFIG.WAYPOINT_DIST,
+				Costs = {
+					AIWalk = 1,
+					AIVoid = math.huge,
+				}
+			})
+		end
 		task.wait()
 		task.wait()
 		AgentCalculating = false
@@ -250,6 +250,24 @@ end)
 
 LocalPlayer.DevComputerMovementMode = Enum.DevComputerMovementMode.Scriptable
 LocalPlayer.DevTouchMovementMode = Enum.DevTouchMovementMode.Scriptable
+local GameSettings = UserSettings().GameSettings
+local lastrotationtype = "MovementRelative"
+GameSettings.RotationType = lastrotationtype
+local function ShiftlockSet(cf)
+	local cam = workspace.CurrentCamera
+	local rotationtype = "MovementRelative"
+	if cf and cam then
+		rotationtype = "CameraRelative"
+		local zoom = (cam.Focus.Position - cam.CFrame.Position).Magnitude
+		local x0, y0, z0 = cam.CFrame:ToEulerAngles(Enum.RotationOrder.YXZ)
+		local x1, y1, z1 = cf:ToEulerAngles(Enum.RotationOrder.YXZ)
+		cam.CFrame = CFrame.new(cam.Focus.Position) * CFrame.fromEulerAngles(x0, y1, z0, Enum.RotationOrder.YXZ) * CFrame.new(0, 0, zoom)
+	end
+	if lastrotationtype ~= rotationtype then
+		lastrotationtype = rotationtype
+		GameSettings.RotationType = rotationtype
+	end
+end
 
 local charge = false
 
@@ -279,13 +297,10 @@ while true do
 		local hum = char:FindFirstChild("Humanoid")
 		local root = char:FindFirstChild("HumanoidRootPart")
 		local leg = char:FindFirstChild("Right Leg")
-		if hum and root and leg and hum.Health > 0 then
-			local shlock = root:FindFirstChild("Shiftlock")
-			if shlock == nil then
-				shlock = Instance.new("BodyGyro", root)
-				shlock.Name = "Shiftlock"
-				shlock.P = 9e4
-				shlock.MaxTorque = Vector3.new(0, 0, 0)
+		if hum and root and leg and hum:GetState() ~= Enum.HumanoidStateType.Dead then
+			if root.Position.Magnitude > 500 then
+				hum.Health = 0
+				continue
 			end
 			local targetmove = Vector3.new(0, 255, 0)
 			if CONFIG.ALLOWHEALING then
@@ -463,7 +478,7 @@ end
 
     BlockedTime = 0
     IsPathfinding = true
-    local groundRay = workspace:Raycast(root.Position + Vector3.new(0, 5, 0), Vector3.new(0, -100, 0), RCP)
+    local groundRay = Raycast(root.Position + Vector3.new(0, 5, 0), Vector3.new(0, -100, 0))
 if groundRay then
     AgentStart = groundRay.Position
 else
@@ -480,7 +495,7 @@ end
 			if leg.CanCollide then
     local forwardCheck = root.CFrame.LookVector * 3 -- check slightly ahead
     local upCheck = Vector3.new(0, 5, 0) -- check for obstacle height
-    local hit = Raycast(root.Position + Vector3.new(0, -2.7, 0) + forwardCheck, upCheck)
+    local hit = Raycast(root.Position + Vector3.new(0, -2.7, 0) - forwardCheck, forwardCheck * 2)
     if hit then
         targetjump = true
     end
@@ -537,10 +552,9 @@ end
 				BlockedTime = math.max(0, BlockedTime - dt)
 			end
 			if lookat ~= nil then
-				shlock.MaxTorque = Vector3.new(0, 9e9, 0)
-				shlock.CFrame = lookat
+				ShiftlockSet(lookat)
 			else
-				shlock.MaxTorque = Vector3.new(0, 0, 0)
+				ShiftlockSet(nil)
 			end
 			local sword = GetTool(CONFIG.SWORD_NAME)
 			if sword then
