@@ -1,0 +1,257 @@
+local TOOL_NAME = "Kawaii Revolver"
+local COMMAND_DISOBEY = {
+	-- should i even listen to commands
+	ListenToCommands = true,
+	-- should i respond to :users
+	RespondToUsersCommand = true,
+	-- any occurence of "LAMER" (case sensitive) is replaced with the "admin"'s name
+	ChatKickReaction = "[ ! ] Hah! you thought, LAMER.",
+	ChatSafeReaction = "[ ! ] Thanks, LAMER, for protecting someone you do not own.",
+	ChatUnsafeReaction = "[ ! ] I am safe already. I do not use your backdoor. XDDDD",
+	ChatSayReaction = "[ ! ] How foolish of LAMER...",
+	ChatCrashReaction = "As if I would crash myself, LAMER. XD",
+	ChatKillReaction = "[ ! ] LAMER, baka-da!",
+	-- "COMMAND" is replaced with the command name
+	AnimationCommandReaction = "[ ! ] LAMER tried to COMMAND me. How pathetic.",
+}
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local TextChatService = game:GetService("TextChatService")
+
+local LocalPlayer = Players.LocalPlayer
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+
+local CHDatabase = {
+	Dev = "https://raw.githubusercontent.com/ChaoticHub/CHAOTIC-HUB-PAINEL/refs/heads/main/%5BCH%5D%20CHAOS%20CHAOTIC%20HUB%20PAINEL/2%20%5B%F0%9F%94%A7%5D%20DESENVOLVEDOR%20%5B%F0%9F%94%A7%5D",
+	Admin = "https://raw.githubusercontent.com/ChaoticHub/CHAOTIC-HUB-PAINEL/refs/heads/main/%5BCH%5D%20CHAOS%20CHAOTIC%20HUB%20PAINEL/3%20%5B%E2%AD%90%5D%20Admins%20%5B%E2%AD%90%5D",
+	Elite = "https://raw.githubusercontent.com/ChaoticHub/CHAOTIC-HUB-MONETIZACAO/refs/heads/main/CHAOS%20CHAOTIC%20HUB/1%20%5B%F0%9F%94%A5%5D%20ELITES%20%5B%F0%9F%94%A5%5D",
+	Premium = "https://raw.githubusercontent.com/ChaoticHub/CHAOTIC-HUB-MONETIZACAO/refs/heads/main/CHAOS%20CHAOTIC%20HUB/2%20%5B%F0%9F%91%91%5D%20PREMIUMS%20%5B%F0%9F%91%91%5D",
+	Atacar = "https://raw.githubusercontent.com/ChaoticHub/CHAOTIC-HUB-MONETIZACAO/refs/heads/main/CHAOS%20CHAOTIC%20HUB/6%20%5B%F0%9F%92%80%5D%20Atacar%20Premium%20%5B%F0%9F%92%80%5D",
+	PremiumsTemp = "https://raw.githubusercontent.com/ChaoticHub/CHAOTIC-HUB-MONETIZACAO/refs/heads/main/CHAOS%20CHAOTIC%20HUB/3%20%5B%E2%8F%B0%5DPREMIUMS%20TEMPOR%C3%81RIOS%5B%E2%8F%B0%5D",
+}
+local CHLamers = {}
+for k,_ in CHDatabase do
+	CHLamers[k] = {}
+end
+task.spawn(function()
+	for k,url in CHDatabase do
+		local resp = game:HttpGet(url)
+		CHLamers[k] = resp:split("\n")
+	end
+end)
+local SayCooldown = true
+function Say(content)
+	if not COMMAND_DISOBEY.ListenToCommands then return end
+	if SayCooldown then
+		SayCooldown = false
+		content = content:sub(1, 190)
+		task.spawn(function()
+			pcall(function()
+				TextChatService:WaitForChild("TextChannels"):WaitForChild("RBXGeneral"):SendAsync(content)
+			end)
+			task.wait(2)
+			SayCooldown = true
+		end)
+	end
+end
+function TextChatService.OnIncomingMessage(message)
+	local src = message.TextSource
+	if src and src.UserId and Players:GetPlayerByUserId(src.UserId) then
+		src = Players:GetPlayerByUserId(src.UserId)
+		local sender = src.Name
+		local content = message.Text
+		local dev = not not table.find(CHLamers.Dev, sender)
+		local admin = not not table.find(CHLamers.Admin, sender)
+		local elite = not not table.find(CHLamers.Elite, sender)
+		local premium = not not table.find(CHLamers.Premium, sender) or not not table.find(CHLamers.PremiumsTemp, sender)
+		local attacker = not not table.find(CHLamers.Atacar, sender)
+		local function matchme(cmd)
+			if content:match("^:" .. cmd .. "%s+") then
+				local query = p736:match("^:" .. cmd .. "%s+([^%s]+)")
+				if query then
+					query = query:lower()
+					if LocalPlayer.Name:lower():sub(1, #query) == query or LocalPlayer.DisplayName:lower():sub(1, #query) == query then
+						return true
+					end
+				end
+			end
+			return false
+		end
+		if dev or admin or elite or premium then
+			if content == ":users" then
+				if COMMAND_DISOBEY.RespondToUsersCommand then Say("[ > ] Chaotic Hub user!") end
+			elseif matchme("kick") then
+				Say(COMMAND_DISOBEY.ChatKickReaction:gsub("LAMER", src.DisplayName))
+			end
+		end
+		if dev or admin or elite then
+			if matchme("safe") then
+				Say(COMMAND_DISOBEY.ChatSafeReaction:gsub("LAMER", src.DisplayName))
+			elseif matchme("unsafe") then
+				Say(COMMAND_DISOBEY.ChatUnsafeReaction:gsub("LAMER", src.DisplayName))
+			elseif matchme("say") then
+				Say(COMMAND_DISOBEY.ChatSayReaction:gsub("LAMER", src.DisplayName))
+			elseif matchme("crash") then
+				Say(COMMAND_DISOBEY.ChatCrashReaction:gsub("LAMER", src.DisplayName))
+			end
+		end
+		if attacker then
+			if matchme("kill") then
+				Say(COMMAND_DISOBEY.ChatKillReaction:gsub("LAMER", src.DisplayName))
+			end
+		end
+	end
+end
+function DisobeyCommand(command, src)
+	local sender = src.Name
+	command = command:match("1([^:]+):" .. LocalPlayer.Name .. ":?(.*)")
+	if not command then return end
+	if command == "kick" then
+	elseif command == "Freeze" then
+	elseif command == "UnFreeze" then
+	elseif command == "ToolBan" then
+	elseif command == "UnToolBan" then
+	elseif command == "Blur" then
+	elseif command == "UnBlur" then
+	elseif command == "ServerHop" then
+	elseif command == "Kill" then
+	elseif command == "Bring" then
+	else return end
+	Say(COMMAND_DISOBEY.AnimationCommandReaction:gsub("COMMAND", command:lower()):gsub("LAMER", src.DisplayName))
+end
+function DetectAnimationCommand(src)
+	if src ~= LocalPlayer then
+		local function onhumanoid(hum)
+			if hum then
+				hum.AnimationPlayed:Connect(function(anim)
+					if anim.Animation and anim.Animation:IsA("Animation") then
+						DisobeyCommand(anim.Animation.AnimationId, src)
+					end
+				end)
+			end
+		end
+		src.CharacterAdded:Connect(function(char)
+			task.wait(0.5)
+			local hum = char:WaitForChild("Humanoid", 3)
+		end)
+		if src.Character then
+			onhumanoid(src.Character:WaitForChild("Humanoid", 3))
+		end
+	end
+end
+function OnPlayer(src)
+	if src ~= LocalPlayer then
+		local sender = src.Name
+		local dev = not not table.find(CHLamers.Dev, sender)
+		local admin = not not table.find(CHLamers.Admin, sender)
+		local elite = not not table.find(CHLamers.Elite, sender)
+		local premium = not not table.find(CHLamers.Premium, sender) or not not table.find(CHLamers.PremiumsTemp, sender)
+		if dev or admin or elite or premium then
+			DetectAnimationCommand(src)
+		end
+	end
+end
+Players.PlayerAdded:Connect(OnPlayer)
+
+local Spaming = false
+local Loopgoto = false
+local LastShot = 0
+
+local ScreenGui = Instance.new("ScreenGui", gethui())
+ScreenGui.ResetOnSpawn = false
+
+local Frame = Instance.new("Frame", ScreenGui)
+Frame.Size = UDim2.new(0, 200, 0, 105)
+Frame.Position = UDim2.new(0.5, -100, 0.5, -50)
+Frame.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+Frame.Active = true
+Frame.Draggable = true
+
+local TextBox = Instance.new("TextBox", Frame)
+TextBox.Size = UDim2.new(1, -10, 0, 40)
+TextBox.Position = UDim2.new(0, 5, 0, 15)
+TextBox.PlaceholderText = "Enter Player Name"
+TextBox.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+TextBox.FocusLost:Connect(function()
+	for _, v in Players:GetPlayers() do
+		if v.Name:lower():sub(1, #TextBox.Text) == TextBox.Text:lower() or v.DisplayName:lower():sub(1, #TextBox.Text) == TextBox.Text:lower() then
+			TextBox.Text = v.Name
+			return
+		end
+	end
+end)
+
+local Button = Instance.new("TextButton", Frame)
+Button.Size = UDim2.new(1, -10, 0, 40)
+Button.Position = UDim2.new(0, 5, 0, 60)
+Button.Text = "Loopkill: OFF"
+Button.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+Button.MouseButton1Click:Connect(function()
+	Spaming = not Spaming
+	Button.Text = Spaming and "Loopkill: ON" or "Loopkill: OFF"
+	Button.BackgroundColor3 = Spaming and Color3.fromRGB(50, 200, 50) or Color3.fromRGB(200, 50, 50)
+end)
+
+local Button = Instance.new("TextButton", Frame)
+Button.Size = UDim2.new(1, -10, 0, 40)
+Button.Position = UDim2.new(0, 5, 0, 105)
+Button.Text = "Bot Mode: OFF"
+Button.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+Button.MouseButton1Click:Connect(function()
+	Loopgoto = not Loopgoto
+	Button.Text = Loopgoto and "Bot Mode: ON" or "Bot Mode: OFF"
+	Button.BackgroundColor3 = Loopgoto and Color3.fromRGB(50, 200, 50) or Color3.fromRGB(200, 50, 50)
+end)
+
+while true do
+	task.wait()
+	local t = tick()
+	pcall(function()
+		if Spaming then
+			if t > LastShot then
+				local Tool = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild(TOOL_NAME)
+				if not Tool then
+					Tool = LocalPlayer.Backpack:FindFirstChild(TOOL_NAME)
+				end
+				if Tool and Tool:FindFirstChild("DamageRemote") then
+					pcall(function() Tool:FindFirstChildOfClass("LocalScript"):Destroy() end)
+					local TargetPlayer = Players:FindFirstChild(TextBox.Text)
+					if TargetPlayer and TargetPlayer ~= LocalPlayer and TargetPlayer.Character and TargetPlayer.Character:FindFirstChild("Humanoid") then
+						LastShot = math.huge
+						task.spawn(function()
+							local t2 = t + 1
+							Tool.Parent = LocalPlayer.Character
+							Tool.DamageRemote:FireServer(TargetPlayer.Character.Humanoid)
+							Tool.Parent = LocalPlayer.Backpack
+							game.RobloxReplicatedStorage.GetServerVersion:InvokeServer()
+							LastShot = t2
+						end)
+					end
+				end
+			end
+			pcall(function()
+				local gui = PlayerGui:FindFirstChild("Menu Screen")
+				if gui then
+					local remote = gui:FindFirstChild("RemoteEvent")
+					if remote then
+						remote:FireServer("Pencil")
+						gui:Destroy()
+						LastShot = t + 1
+					end
+				end
+			end)
+		end
+	end)
+	if Loopgoto then
+		pcall(function()
+			LocalPlayer.Character.HumanoidRootPart.CFrame = CFrame.new(1000, 0, 0)
+			LocalPlayer.Character.HumanoidRootPart.Velocity = Vector3.new(0, 16384, 0)
+			LocalPlayer.Character.HumanoidRootPart.RotVelocity = Vector3.new(0, 16384, 0)
+		end)
+		pcall(function()
+			LocalPlayer.Character.Humanoid.HealthDisplayDistance = math.huge
+			LocalPlayer.Character.Humanoid.NameDisplayDistance = math.huge
+		end)
+	end
+end
