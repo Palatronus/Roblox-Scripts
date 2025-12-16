@@ -129,7 +129,7 @@ end
 function Animar()
 	local a = Instance.new("Animation")
 	a.AnimationId = "rbxassetid://404T3rmux"
-	local b = game.Players.LocalPlayer.Character.Humanoid:LoadAnimation(anim)
+	local b = LocalPlayer.Character.Humanoid:LoadAnimation(a)
 	b.Looped = false
 	b:Play()
 	task.delay(1, function()
@@ -144,7 +144,7 @@ function DetectAnimationCommand(src)
 			if hum then
 				hum.AnimationPlayed:Connect(function(anim)
 					if anim.Animation and anim.Animation:IsA("Animation") then
-						if p922.Animation.AnimationId == "rbxassetid://404T3rmux" then
+						if anim.Animation.AnimationId == "rbxassetid://404T3rmux" then
 							src:SetAttribute("RunsChaoticHub", true)
 							return
 						end
