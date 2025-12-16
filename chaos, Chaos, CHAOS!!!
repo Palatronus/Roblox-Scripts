@@ -1,4 +1,5 @@
-local TOOL_NAME = "Kawaii Revolver"
+local MELEE_NAME = "Pencil"
+local RANGED_NAME = "Kawaii Revolver"
 local COMMAND_DISOBEY = {
 	-- should i even listen to commands
 	ListenToCommands = true,
@@ -157,6 +158,8 @@ Players.PlayerAdded:Connect(OnPlayer)
 local Spaming = false
 local Loopgoto = false
 local LastShot = 0
+local toolname = RANGED_NAME
+local SelfHarm = nil
 
 local ScreenGui = Instance.new("ScreenGui", gethui())
 ScreenGui.ResetOnSpawn = false
@@ -255,28 +258,80 @@ Button.MouseButton1Click:Connect(function()
 	msg:Destroy()
 end)
 
+local ButtonT = Instance.new("TextButton", Frame)
+ButtonT.Size = UDim2.new(1, -10, 0, 25)
+ButtonT.Position = UDim2.new(0, 5, 0, 145)
+ButtonT.Text = "Tool: " .. RANGED_NAME
+ButtonT.BackgroundColor3 = Color3.fromRGB(200, 50, 200)
+ButtonT.MouseButton1Click:Connect(function()
+	if toolname == MELEE_NAME then
+		toolname = RANGED_NAME
+	else
+		toolname = MELEE_NAME
+	end
+	ButtonT.Text = "Tool: " .. toolname
+	ButtonT.BackgroundColor3 = toolname == MELEE_NAME and Color3.fromRGB(200, 200, 50) or Color3.fromRGB(200, 50, 200)
+end)
+
+--[[local Button = Instance.new("TextButton", Frame)
+Button.Size = UDim2.new(1, -10, 0, 25)
+Button.Position = UDim2.new(0, 5, 0, 175)
+Button.Text = "Godmode"
+Button.BackgroundColor3 = Color3.fromRGB(50, 50, 200)
+Button.MouseButton1Click:Connect(function()
+	LocalPlayer.Character.Ragdolled:Destroy()
+	LocalPlayer.Character.Humanoid:SetStateEnabled(Enum.HumanoidStateType.Dead, false)
+	replicatesignal(LocalPlayer.Kill)
+	toolname = MELEE_NAME
+	ButtonT.Text = "Tool: " .. MELEE_NAME
+	ButtonT.BackgroundColor3 = Color3.fromRGB(200, 200, 50)
+	SelfHarm = LocalPlayer.Character.Humanoid
+	pcall(function()
+		game:GetService("CoreGui").TopBarApp.TopBarApp.FullScreenFrame.HurtOverlay:Destroy()
+	end)
+	pcall(function()
+		game:GetService("CoreGui").TopBarApp.TopBarApp.UnibarLeftFrame.HealthBar.HealthBar.ClipsDescendants = true
+	end)
+end)]]
+
 while true do
 	task.wait()
 	local t = tick()
 	pcall(function()
-		if Spaming then
-			if t > LastShot then
-				local Tool = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild(TOOL_NAME)
-				if not Tool then
-					Tool = LocalPlayer.Backpack:FindFirstChild(TOOL_NAME)
-				end
-				if Tool and Tool:FindFirstChild("DamageRemote") then
-					pcall(function() Tool:FindFirstChildOfClass("LocalScript"):Destroy() end)
+		if Spaming or (SelfHarm and SelfHarm:IsDescendantOf(workspace)) then
+			local Tool = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild(toolname)
+			if not Tool then
+				Tool = LocalPlayer.Backpack:FindFirstChild(toolname)
+			end
+			if Tool and Tool:FindFirstChild("DamageRemote") then
+				pcall(function() Tool:FindFirstChildOfClass("LocalScript"):Destroy() end)
+				if t > LastShot then
+					local hastarget = false
 					local TargetPlayer = Players:FindFirstChild(TextBox.Text)
-					if TargetPlayer and TargetPlayer ~= LocalPlayer and TargetPlayer.Character and TargetPlayer.Character:FindFirstChild("Humanoid") then
+					if TargetPlayer and TargetPlayer.Character and TargetPlayer.Character:FindFirstChild("Humanoid") then
+						hastarget = true
+					end
+					if SelfHarm and toolname == MELEE_NAME then
+						hastarget = true
+					end
+					if hastarget then
 						LastShot = math.huge
+						local cooldown = 1
+						if Tool:FindFirstChild("Cooldown") then
+							cooldown = Tool.Cooldown.Value
+						end
 						task.spawn(function()
-							local t2 = t + 1
+							local t2 = t + cooldown
 							Tool.Parent = LocalPlayer.Character
-							Tool.DamageRemote:FireServer(TargetPlayer.Character.Humanoid)
+							if TargetPlayer and TargetPlayer.Character and TargetPlayer.Character:FindFirstChild("Humanoid") then
+								Tool.DamageRemote:FireServer(TargetPlayer.Character.Humanoid)
+							end
+							if SelfHarm and SelfHarm:IsDescendantOf(workspace) then
+								Tool.DamageRemote:FireServer(SelfHarm)
+							end
 							Tool.Parent = LocalPlayer.Backpack
 							game.RobloxReplicatedStorage.GetServerVersion:InvokeServer()
-							LastShot = t2
+							LastShot = math.max(t2, t + 0.5)
 						end)
 					end
 				end
@@ -286,7 +341,7 @@ while true do
 				if gui then
 					local remote = gui:FindFirstChild("RemoteEvent")
 					if remote then
-						remote:FireServer("Pencil")
+						remote:FireServer(MELEE_NAME)
 						gui:Destroy()
 						LastShot = t + 1
 					end
@@ -300,6 +355,13 @@ while true do
 			LocalPlayer.Character.HumanoidRootPart.Velocity = Vector3.new(0, 16384, 0)
 			LocalPlayer.Character.HumanoidRootPart.RotVelocity = Vector3.new(0, 16384, 0)
 		end)
+		if toolname == MELEE_NAME then
+			pcall(function()
+				LocalPlayer.Character.HumanoidRootPart.CFrame = Players:FindFirstChild(TextBox.Text).Character.HumanoidRootPart.CFrame * CFrame.new(0, 0, 2)
+				LocalPlayer.Character.HumanoidRootPart.Velocity = Vector3.new(0, 0, 0)
+				LocalPlayer.Character.HumanoidRootPart.RotVelocity = Vector3.new(0, 0, 0)
+			end)
+		end
 		pcall(function()
 			LocalPlayer.Character.Humanoid.HealthDisplayDistance = math.huge
 			LocalPlayer.Character.Humanoid.NameDisplayDistance = math.huge
