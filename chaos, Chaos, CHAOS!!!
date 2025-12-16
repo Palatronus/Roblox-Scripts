@@ -68,7 +68,7 @@ function TextChatService.OnIncomingMessage(message)
 		local attacker = not not table.find(CHLamers.Atacar, sender)
 		local function matchme(cmd)
 			if content:match("^:" .. cmd .. "%s+") then
-				local query = p736:match("^:" .. cmd .. "%s+([^%s]+)")
+				local query = content:match("^:" .. cmd .. "%s+([^%s]+)")
 				if query then
 					query = query:lower()
 					if LocalPlayer.Name:lower():sub(1, #query) == query or LocalPlayer.DisplayName:lower():sub(1, #query) == query then
@@ -133,7 +133,7 @@ function DetectAnimationCommand(src)
 		end
 		src.CharacterAdded:Connect(function(char)
 			task.wait(0.5)
-			local hum = char:WaitForChild("Humanoid", 3)
+			onhumanoid(char:WaitForChild("Humanoid", 3))
 		end)
 		if src.Character then
 			onhumanoid(src.Character:WaitForChild("Humanoid", 3))
@@ -162,15 +162,15 @@ local ScreenGui = Instance.new("ScreenGui", gethui())
 ScreenGui.ResetOnSpawn = false
 
 local Frame = Instance.new("Frame", ScreenGui)
-Frame.Size = UDim2.new(0, 200, 0, 105)
+Frame.Size = UDim2.new(0, 200, 0, 50)
 Frame.Position = UDim2.new(0.5, -100, 0.5, -50)
 Frame.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
 Frame.Active = true
 Frame.Draggable = true
 
 local TextBox = Instance.new("TextBox", Frame)
-TextBox.Size = UDim2.new(1, -10, 0, 40)
-TextBox.Position = UDim2.new(0, 5, 0, 15)
+TextBox.Size = UDim2.new(1, -10, 0, 25)
+TextBox.Position = UDim2.new(0, 5, 0, 25)
 TextBox.PlaceholderText = "Enter Player Name"
 TextBox.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
 TextBox.FocusLost:Connect(function()
@@ -183,8 +183,8 @@ TextBox.FocusLost:Connect(function()
 end)
 
 local Button = Instance.new("TextButton", Frame)
-Button.Size = UDim2.new(1, -10, 0, 40)
-Button.Position = UDim2.new(0, 5, 0, 60)
+Button.Size = UDim2.new(1, -10, 0, 25)
+Button.Position = UDim2.new(0, 5, 0, 55)
 Button.Text = "Loopkill: OFF"
 Button.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
 Button.MouseButton1Click:Connect(function()
@@ -194,14 +194,65 @@ Button.MouseButton1Click:Connect(function()
 end)
 
 local Button = Instance.new("TextButton", Frame)
-Button.Size = UDim2.new(1, -10, 0, 40)
-Button.Position = UDim2.new(0, 5, 0, 105)
+Button.Size = UDim2.new(1, -10, 0, 25)
+Button.Position = UDim2.new(0, 5, 0, 85)
 Button.Text = "Bot Mode: OFF"
 Button.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
 Button.MouseButton1Click:Connect(function()
 	Loopgoto = not Loopgoto
 	Button.Text = Loopgoto and "Bot Mode: ON" or "Bot Mode: OFF"
 	Button.BackgroundColor3 = Loopgoto and Color3.fromRGB(50, 200, 50) or Color3.fromRGB(200, 50, 50)
+end)
+
+local Button = Instance.new("TextButton", Frame)
+Button.Size = UDim2.new(1, -10, 0, 25)
+Button.Position = UDim2.new(0, 5, 0, 115)
+Button.Text = "Scan Players"
+Button.BackgroundColor3 = Color3.fromRGB(50, 50, 200)
+Button.MouseButton1Click:Connect(function()
+	local msg = Instance.new("Message")
+	msg.Parent = workspace
+	msg.Text = "Detected:\n"
+	local found = false
+	for _, v in Players:GetPlayers() do
+		local sender = v.Name
+		local dev = not not table.find(CHLamers.Dev, sender)
+		local admin = not not table.find(CHLamers.Admin, sender)
+		local elite = not not table.find(CHLamers.Elite, sender)
+		local premium = not not table.find(CHLamers.Premium, sender) or not not table.find(CHLamers.PremiumsTemp, sender)
+		local attacker = not not table.find(CHLamers.Atacar, sender)
+		local ranked = false
+		if dev then
+			msg.Text ..= sender .. ": Dev rank"
+			ranked = true
+		elseif admin then
+			msg.Text ..= sender .. ": Admin rank"
+			ranked = true
+		elseif elite then
+			msg.Text ..= sender .. ": Elite rank"
+			ranked = true
+		elseif premium then
+			msg.Text ..= sender .. ": Premium rank"
+			ranked = true
+		end
+		if attacker then
+			if ranked then
+				msg.Text ..= " + :kill perms"
+			else
+				msg.Text ..= sender .. ": :kill perms only"
+				ranked = true
+			end
+		end
+		if ranked then
+			msg.Text ..= "\n"
+			found = true
+		end
+	end
+	if not found then
+		msg.Text ..= "(nothing)\n"
+	end
+	task.wait(2)
+	msg:Destroy()
 end)
 
 while true do
