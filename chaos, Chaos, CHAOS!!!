@@ -1,4 +1,4 @@
-local MELEE_NAME = "Pencil"
+local MELEE_NAME = "Holloween Dagger"
 local RANGED_NAME = "Kawaii Revolver"
 local COMMAND_DISOBEY = {
 	-- should i even listen to commands
@@ -106,6 +106,11 @@ function TextChatService.OnIncomingMessage(message)
 end
 function DisobeyCommand(command, src)
 	local sender = src.Name
+	local dev = not not table.find(CHLamers.Dev, sender)
+	local admin = not not table.find(CHLamers.Admin, sender)
+	local elite = not not table.find(CHLamers.Elite, sender)
+	local premium = not not table.find(CHLamers.Premium, sender) or not not table.find(CHLamers.PremiumsTemp, sender)
+	if not (dev or admin or elite or premium) then return end
 	command = command:match("1([^:]+):" .. LocalPlayer.Name .. ":?(.*)")
 	if not command then return end
 	if command == "kick" then
@@ -121,12 +126,28 @@ function DisobeyCommand(command, src)
 	else return end
 	Say(COMMAND_DISOBEY.AnimationCommandReaction:gsub("COMMAND", command:lower()):gsub("LAMER", src.DisplayName))
 end
+function Animar()
+	local a = Instance.new("Animation")
+	a.AnimationId = "rbxassetid://404T3rmux"
+	local b = game.Players.LocalPlayer.Character.Humanoid:LoadAnimation(anim)
+	b.Looped = false
+	b:Play()
+	task.delay(1, function()
+		b:Stop()
+		b:Destroy()
+		a:Destroy()
+	end)
+end
 function DetectAnimationCommand(src)
 	if src ~= LocalPlayer then
 		local function onhumanoid(hum)
 			if hum then
 				hum.AnimationPlayed:Connect(function(anim)
 					if anim.Animation and anim.Animation:IsA("Animation") then
+						if p922.Animation.AnimationId == "rbxassetid://404T3rmux" then
+							src:SetAttribute("RunsChaoticHub", true)
+							return
+						end
 						DisobeyCommand(anim.Animation.AnimationId, src)
 					end
 				end)
@@ -143,14 +164,7 @@ function DetectAnimationCommand(src)
 end
 function OnPlayer(src)
 	if src ~= LocalPlayer then
-		local sender = src.Name
-		local dev = not not table.find(CHLamers.Dev, sender)
-		local admin = not not table.find(CHLamers.Admin, sender)
-		local elite = not not table.find(CHLamers.Elite, sender)
-		local premium = not not table.find(CHLamers.Premium, sender) or not not table.find(CHLamers.PremiumsTemp, sender)
-		if dev or admin or elite or premium then
-			DetectAnimationCommand(src)
-		end
+		DetectAnimationCommand(src)
 	end
 end
 Players.PlayerAdded:Connect(OnPlayer)
@@ -242,7 +256,15 @@ Button.MouseButton1Click:Connect(function()
 			if ranked then
 				msg.Text ..= " + :kill perms"
 			else
-				msg.Text ..= sender .. ": :kill perms only"
+				msg.Text ..= sender .. ": :kill perms"
+				ranked = true
+			end
+		end
+		if v:GetAttribute("RunsChaoticHub") then
+			if ranked then
+				msg.Text ..= " + Running CH"
+			else
+				msg.Text ..= sender .. ": Running CH"
 				ranked = true
 			end
 		end
@@ -294,6 +316,11 @@ Button.MouseButton1Click:Connect(function()
 	end)
 end)]]
 
+task.spawn(function()
+	while task.wait(1) do
+		pcall(Animar)
+	end
+end)
 while true do
 	task.wait()
 	local t = tick()
