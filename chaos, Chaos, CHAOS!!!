@@ -168,6 +168,9 @@ function OnPlayer(src)
 	end
 end
 Players.PlayerAdded:Connect(OnPlayer)
+for _,v in Players:GetPlayers() do
+	task.spawn(OnPlayer, v)
+end
 
 local Spaming = false
 local Loopgoto = false
