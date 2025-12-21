@@ -1,18 +1,14 @@
-local MELEE_NAME = "Holloween Dagger"
+local MELEE_NAME = "Pencil"
 local RANGED_NAME = "Kawaii Revolver"
 local COMMAND_DISOBEY = {
-	-- should i even listen to commands
 	ListenToCommands = true,
-	-- should i respond to :users
 	RespondToUsersCommand = true,
-	-- any occurence of "LAMER" (case sensitive) is replaced with the "admin"'s name
 	ChatKickReaction = "[ ! ] Hah! you thought, LAMER.",
 	ChatSafeReaction = "[ ! ] Thanks, LAMER, for protecting someone you do not own.",
 	ChatUnsafeReaction = "[ ! ] I am safe already. I do not use your backdoor. XDDDD",
 	ChatSayReaction = "[ ! ] How foolish of LAMER...",
 	ChatCrashReaction = "As if I would crash myself, LAMER. XD",
 	ChatKillReaction = "[ ! ] LAMER, baka-da!",
-	-- "COMMAND" is replaced with the command name
 	AnimationCommandReaction = "[ ! ] LAMER tried to COMMAND me. How pathetic.",
 }
 
@@ -31,16 +27,19 @@ local CHDatabase = {
 	Atacar = "https://raw.githubusercontent.com/ChaoticHub/CHAOTIC-HUB-MONETIZACAO/refs/heads/main/CHAOS%20CHAOTIC%20HUB/6%20%5B%F0%9F%92%80%5D%20Atacar%20Premium%20%5B%F0%9F%92%80%5D",
 	PremiumsTemp = "https://raw.githubusercontent.com/ChaoticHub/CHAOTIC-HUB-MONETIZACAO/refs/heads/main/CHAOS%20CHAOTIC%20HUB/3%20%5B%E2%8F%B0%5DPREMIUMS%20TEMPOR%C3%81RIOS%5B%E2%8F%B0%5D",
 }
+
 local CHLamers = {}
 for k,_ in CHDatabase do
 	CHLamers[k] = {}
 end
+
 task.spawn(function()
 	for k,url in CHDatabase do
 		local resp = game:HttpGet(url)
 		CHLamers[k] = resp:split("\n")
 	end
 end)
+
 local SayCooldown = true
 function Say(content)
 	if not COMMAND_DISOBEY.ListenToCommands then return end
@@ -56,6 +55,7 @@ function Say(content)
 		end)
 	end
 end
+
 function TextChatService.OnIncomingMessage(message)
 	local src = message.TextSource
 	if src and src.UserId and Players:GetPlayerByUserId(src.UserId) then
@@ -67,25 +67,31 @@ function TextChatService.OnIncomingMessage(message)
 		local elite = not not table.find(CHLamers.Elite, sender)
 		local premium = not not table.find(CHLamers.Premium, sender) or not not table.find(CHLamers.PremiumsTemp, sender)
 		local attacker = not not table.find(CHLamers.Atacar, sender)
+
 		local function matchme(cmd)
 			if content:match("^:" .. cmd .. "%s+") then
 				local query = content:match("^:" .. cmd .. "%s+([^%s]+)")
 				if query then
 					query = query:lower()
-					if LocalPlayer.Name:lower():sub(1, #query) == query or LocalPlayer.DisplayName:lower():sub(1, #query) == query then
+					if LocalPlayer.Name:lower():sub(1, #query) == query
+					or LocalPlayer.DisplayName:lower():sub(1, #query) == query then
 						return true
 					end
 				end
 			end
 			return false
 		end
+
 		if dev or admin or elite or premium then
 			if content == ":users" then
-				if COMMAND_DISOBEY.RespondToUsersCommand then Say("[ > ] Chaotic Hub user!") end
+				if COMMAND_DISOBEY.RespondToUsersCommand then
+					Say("[ > ] Chaotic Hub user!")
+				end
 			elseif matchme("kick") then
 				Say(COMMAND_DISOBEY.ChatKickReaction:gsub("LAMER", src.DisplayName))
 			end
 		end
+
 		if dev or admin or elite then
 			if matchme("safe") then
 				Say(COMMAND_DISOBEY.ChatSafeReaction:gsub("LAMER", src.DisplayName))
@@ -97,6 +103,7 @@ function TextChatService.OnIncomingMessage(message)
 				Say(COMMAND_DISOBEY.ChatCrashReaction:gsub("LAMER", src.DisplayName))
 			end
 		end
+
 		if attacker then
 			if matchme("kill") then
 				Say(COMMAND_DISOBEY.ChatKillReaction:gsub("LAMER", src.DisplayName))
@@ -126,6 +133,7 @@ function DisobeyCommand(command, src)
 	else return end
 	Say(COMMAND_DISOBEY.AnimationCommandReaction:gsub("COMMAND", command:lower()):gsub("LAMER", src.DisplayName))
 end
+
 function Animar()
 	local a = Instance.new("Animation")
 	a.AnimationId = "rbxassetid://404T3rmux"
@@ -138,6 +146,7 @@ function Animar()
 		a:Destroy()
 	end)
 end
+
 function DetectAnimationCommand(src)
 	if src ~= LocalPlayer then
 		local function onhumanoid(hum)
@@ -162,11 +171,13 @@ function DetectAnimationCommand(src)
 		end
 	end
 end
+
 function OnPlayer(src)
 	if src ~= LocalPlayer then
 		DetectAnimationCommand(src)
 	end
 end
+
 Players.PlayerAdded:Connect(OnPlayer)
 for _,v in Players:GetPlayers() do
 	task.spawn(OnPlayer, v)
@@ -177,61 +188,83 @@ local Loopgoto = false
 local LastShot = 0
 local toolname = RANGED_NAME
 local SelfHarm = nil
+-- UI Replacement using LMG2L GUI
+local LMG2L = {};
 
-local ScreenGui = Instance.new("ScreenGui", gethui())
-ScreenGui.ResetOnSpawn = false
+-- Main ScreenGui
+LMG2L["ScreenGui_1"] = Instance.new("ScreenGui", PlayerGui)
+LMG2L["ScreenGui_1"].ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+LMG2L["ScreenGui_1"].ResetOnSpawn = false
 
-local Frame = Instance.new("Frame", ScreenGui)
-Frame.Size = UDim2.new(0, 200, 0, 50)
-Frame.Position = UDim2.new(0.5, -100, 0.5, -50)
-Frame.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-Frame.Active = true
-Frame.Draggable = true
+-- Main Frame
+LMG2L["Frame_2"] = Instance.new("Frame", LMG2L["ScreenGui_1"])
+LMG2L["Frame_2"].BorderSizePixel = 0
+LMG2L["Frame_2"].BackgroundColor3 = Color3.fromRGB(59, 59, 59)
+LMG2L["Frame_2"].Size = UDim2.new(0, 188, 0, 212)
+LMG2L["Frame_2"].Position = UDim2.new(0, 418, 0, 116)
+LMG2L["Frame_2"].Active = true
+LMG2L["Frame_2"].Draggable = true
 
-local TextBox = Instance.new("TextBox", Frame)
-TextBox.Size = UDim2.new(1, -10, 0, 25)
-TextBox.Position = UDim2.new(0, 5, 0, 25)
-TextBox.PlaceholderText = "Enter Player Name"
-TextBox.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-TextBox.FocusLost:Connect(function()
-	for _, v in Players:GetPlayers() do
-		if v.Name:lower():sub(1, #TextBox.Text) == TextBox.Text:lower() or v.DisplayName:lower():sub(1, #TextBox.Text) == TextBox.Text:lower() then
-			TextBox.Text = v.Name
-			return
-		end
-	end
-end)
+LMG2L["UICorner_3"] = Instance.new("UICorner", LMG2L["Frame_2"])
+LMG2L["UICorner_3"].CornerRadius = UDim.new(0, 4)
 
-local Button = Instance.new("TextButton", Frame)
-Button.Size = UDim2.new(1, -10, 0, 25)
-Button.Position = UDim2.new(0, 5, 0, 55)
-Button.Text = "Loopkill: OFF"
-Button.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
-Button.MouseButton1Click:Connect(function()
+-- Inner Frame for buttons
+LMG2L["Frame2_4"] = Instance.new("Frame", LMG2L["Frame_2"])
+LMG2L["Frame2_4"].BorderSizePixel = 0
+LMG2L["Frame2_4"].BackgroundColor3 = Color3.fromRGB(83, 83, 83)
+LMG2L["Frame2_4"].Size = UDim2.new(0, 176, 0, 112)
+LMG2L["Frame2_4"].Position = UDim2.new(0, 6, 0, 52)
+LMG2L["UICorner_5"] = Instance.new("UICorner", LMG2L["Frame2_4"])
+LMG2L["UICorner_5"].CornerRadius = UDim.new(0, 4)
+
+-- Loopkill Button
+LMG2L["Loopkill Toggle_8"] = Instance.new("TextButton", LMG2L["Frame2_4"])
+LMG2L["Loopkill Toggle_8"].BorderSizePixel = 0
+LMG2L["Loopkill Toggle_8"].TextColor3 = Color3.fromRGB(255, 255, 255)
+LMG2L["Loopkill Toggle_8"].BackgroundColor3 = Color3.fromRGB(255, 0, 0)
+LMG2L["Loopkill Toggle_8"].Size = UDim2.new(0, 166, 0, 48)
+LMG2L["Loopkill Toggle_8"].Text = "Loopkill"
+LMG2L["Loopkill Toggle_8"].Position = UDim2.new(0, 4, 0, 4)
+LMG2L["Loopkill Toggle_8"].Name = "Loopkill Toggle"
+LMG2L["UICorner_9"] = Instance.new("UICorner", LMG2L["Loopkill Toggle_8"])
+LMG2L["UICorner_9"].CornerRadius = UDim.new(0, 2)
+
+LMG2L["Loopkill Toggle_8"].MouseButton1Click:Connect(function()
 	Spaming = not Spaming
-	Button.Text = Spaming and "Loopkill: ON" or "Loopkill: OFF"
-	Button.BackgroundColor3 = Spaming and Color3.fromRGB(50, 200, 50) or Color3.fromRGB(200, 50, 50)
+	LMG2L["Loopkill Toggle_8"].Text = Spaming and "Loopkill" or "Loopkill"
+	LMG2L["Loopkill Toggle_8"].BackgroundColor3 = Spaming and Color3.fromRGB(50, 200, 50) or Color3.fromRGB(255, 0, 0)
 end)
 
-local Button = Instance.new("TextButton", Frame)
-Button.Size = UDim2.new(1, -10, 0, 25)
-Button.Position = UDim2.new(0, 5, 0, 85)
-Button.Text = "Bot Mode: OFF"
-Button.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
-Button.MouseButton1Click:Connect(function()
+-- Bot Mode Button
+LMG2L["Bot mode toggle_a"] = Instance.new("TextButton", LMG2L["Frame2_4"])
+LMG2L["Bot mode toggle_a"].BorderSizePixel = 0
+LMG2L["Bot mode toggle_a"].TextColor3 = Color3.fromRGB(255, 255, 255)
+LMG2L["Bot mode toggle_a"].BackgroundColor3 = Color3.fromRGB(255, 0, 0)
+LMG2L["Bot mode toggle_a"].Size = UDim2.new(0, 82, 0, 48)
+LMG2L["Bot mode toggle_a"].Text = "Bot Mode"
+LMG2L["Bot mode toggle_a"].Position = UDim2.new(0, 4, 0, 58)
+LMG2L["UICorner_b"] = Instance.new("UICorner", LMG2L["Bot mode toggle_a"])
+LMG2L["UICorner_b"].CornerRadius = UDim.new(0, 2)
+
+LMG2L["Bot mode toggle_a"].MouseButton1Click:Connect(function()
 	Loopgoto = not Loopgoto
-	Button.Text = Loopgoto and "Bot Mode: ON" or "Bot Mode: OFF"
-	Button.BackgroundColor3 = Loopgoto and Color3.fromRGB(50, 200, 50) or Color3.fromRGB(200, 50, 50)
+	LMG2L["Bot mode toggle_a"].Text = Loopgoto and "Bot Mode" or "Bot Mode"
+	LMG2L["Bot mode toggle_a"].BackgroundColor3 = Loopgoto and Color3.fromRGB(50, 200, 50) or Color3.fromRGB(255, 0, 0)
 end)
 
-local Button = Instance.new("TextButton", Frame)
-Button.Size = UDim2.new(1, -10, 0, 25)
-Button.Position = UDim2.new(0, 5, 0, 115)
-Button.Text = "Scan Players"
-Button.BackgroundColor3 = Color3.fromRGB(50, 50, 200)
-Button.MouseButton1Click:Connect(function()
-	local msg = Instance.new("Message")
-	msg.Parent = workspace
+-- Scan Players Button
+LMG2L["Scan_6"] = Instance.new("TextButton", LMG2L["Frame2_4"])
+LMG2L["Scan_6"].BorderSizePixel = 0
+LMG2L["Scan_6"].TextColor3 = Color3.fromRGB(255, 255, 255)
+LMG2L["Scan_6"].BackgroundColor3 = Color3.fromRGB(100, 172, 255)
+LMG2L["Scan_6"].Size = UDim2.new(0, 76, 0, 48)
+LMG2L["Scan_6"].Text = "Scan"
+LMG2L["Scan_6"].Position = UDim2.new(0, 94, 0, 58)
+LMG2L["UICorner_7"] = Instance.new("UICorner", LMG2L["Scan_6"])
+LMG2L["UICorner_7"].CornerRadius = UDim.new(0, 2)
+
+LMG2L["Scan_6"].MouseButton1Click:Connect(function()
+	local msg = Instance.new("Message", workspace)
 	msg.Text = "Detected:\n"
 	local found = false
 	for _, v in Players:GetPlayers() do
@@ -283,51 +316,112 @@ Button.MouseButton1Click:Connect(function()
 	msg:Destroy()
 end)
 
-local ButtonT = Instance.new("TextButton", Frame)
-ButtonT.Size = UDim2.new(1, -10, 0, 25)
-ButtonT.Position = UDim2.new(0, 5, 0, 145)
-ButtonT.Text = "Tool: " .. RANGED_NAME
-ButtonT.BackgroundColor3 = Color3.fromRGB(200, 50, 200)
-ButtonT.MouseButton1Click:Connect(function()
-	if toolname == MELEE_NAME then
-		toolname = RANGED_NAME
-	else
-		toolname = MELEE_NAME
+-- Target TextBox
+LMG2L["Frame_12"] = Instance.new("Frame", LMG2L["Frame_2"])
+LMG2L["Frame_12"].BorderSizePixel = 0
+LMG2L["Frame_12"].BackgroundColor3 = Color3.fromRGB(82, 82, 82)
+LMG2L["Frame_12"].Size = UDim2.new(0, 176, 0, 34)
+LMG2L["Frame_12"].Position = UDim2.new(0, 6, 0, 172)
+LMG2L["UICorner_13"] = Instance.new("UICorner", LMG2L["Frame_12"])
+LMG2L["UICorner_13"].CornerRadius = UDim.new(0, 4)
+
+LMG2L["Input da target_14"] = Instance.new("TextBox", LMG2L["Frame_12"])
+LMG2L["Input da target_14"].Name = "Input da target"
+LMG2L["Input da target_14"].BorderSizePixel = 0
+LMG2L["Input da target_14"].BackgroundColor3 = Color3.fromRGB(103, 103, 103)
+LMG2L["Input da target_14"].PlaceholderText = "Target Username or displayname"
+LMG2L["Input da target_14"].Size = UDim2.new(0, 168, 0, 26)
+LMG2L["Input da target_14"].Position = UDim2.new(0, 4, 0, 4)
+LMG2L["Input da target_14"].Text = ""
+LMG2L["Input da target_14"].TextColor3 = Color3.fromRGB(255, 255, 255)
+
+LMG2L["UICorner_15"] = Instance.new("UICorner", LMG2L["Input da target_14"])
+LMG2L["UICorner_15"].CornerRadius = UDim.new(0, 2)
+LMG2L["UIPadding_16"] = Instance.new("UIPadding", LMG2L["Input da target_14"])
+LMG2L["UIPadding_16"].PaddingTop = UDim.new(0, 5)
+LMG2L["UIPadding_16"].PaddingRight = UDim.new(0, 5)
+LMG2L["UIPadding_16"].PaddingLeft = UDim.new(0, 5)
+LMG2L["UIPadding_16"].PaddingBottom = UDim.new(0, 5)
+
+-- Wire the TextBox to your targeting variable
+local TargetTextBox = LMG2L["Input da target_14"]
+TargetTextBox.FocusLost:Connect(function()
+	for _, v in Players:GetPlayers() do
+		if v.Name:lower():sub(1, #TargetTextBox.Text) == TargetTextBox.Text:lower() 
+		or v.DisplayName:lower():sub(1, #TargetTextBox.Text) == TargetTextBox.Text:lower() then
+			TargetTextBox.Text = v.Name
+			return
+		end
 	end
-	ButtonT.Text = "Tool: " .. toolname
-	ButtonT.BackgroundColor3 = toolname == MELEE_NAME and Color3.fromRGB(200, 200, 50) or Color3.fromRGB(200, 50, 200)
+end)
+-- Tool Toggle Button
+LMG2L["Frame_c"] = Instance.new("Frame", LMG2L["Frame_2"])
+LMG2L["Frame_c"].BorderSizePixel = 0
+LMG2L["Frame_c"].BackgroundColor3 = Color3.fromRGB(83, 83, 83)
+LMG2L["Frame_c"].Size = UDim2.new(0, 176, 0, 40)
+LMG2L["Frame_c"].Position = UDim2.new(0, 6, 0, 6)
+LMG2L["UICorner_11"] = Instance.new("UICorner", LMG2L["Frame_c"])
+LMG2L["UICorner_11"].CornerRadius = UDim.new(0, 4)
+
+-- Melee / Ranged tool buttons
+LMG2L["KawaiiGun_d"] = Instance.new("TextButton", LMG2L["Frame_c"])
+LMG2L["KawaiiGun_d"].BorderSizePixel = 0
+LMG2L["KawaiiGun_d"].TextColor3 = Color3.fromRGB(255, 250, 255)
+LMG2L["KawaiiGun_d"].BackgroundColor3 = Color3.fromRGB(248, 182, 255)
+LMG2L["KawaiiGun_d"].Size = UDim2.new(0, 80, 0, 30)
+LMG2L["KawaiiGun_d"].Text = "Kawaii Gun!"
+LMG2L["KawaiiGun_d"].Position = UDim2.new(0, 4, 0, 4)
+LMG2L["UICorner_e"] = Instance.new("UICorner", LMG2L["KawaiiGun_d"])
+LMG2L["UICorner_e"].CornerRadius = UDim.new(0, 2)
+
+LMG2L["Pencil_f"] = Instance.new("TextButton", LMG2L["Frame_c"])
+LMG2L["Pencil_f"].BorderSizePixel = 0
+LMG2L["Pencil_f"].TextColor3 = Color3.fromRGB(0, 0, 0)
+LMG2L["Pencil_f"].BackgroundColor3 = Color3.fromRGB(225, 255, 0)
+LMG2L["Pencil_f"].Size = UDim2.new(0, 82, 0, 30)
+LMG2L["Pencil_f"].Text = "Pencil"
+LMG2L["Pencil_f"].Position = UDim2.new(0, 90, 0, 4)
+LMG2L["UICorner_10"] = Instance.new("UICorner", LMG2L["Pencil_f"])
+LMG2L["UICorner_10"].CornerRadius = UDim.new(0, 2)
+
+-- Wire Tool Toggle Buttons
+LMG2L["KawaiiGun_d"].MouseButton1Click:Connect(function()
+	toolname = RANGED_NAME
+	LMG2L["KawaiiGun_d"].BackgroundColor3 = Color3.fromRGB(248, 182, 255)
+	LMG2L["Pencil_f"].BackgroundColor3 = Color3.fromRGB(225, 255, 0)
 end)
 
---[[local Button = Instance.new("TextButton", Frame)
-Button.Size = UDim2.new(1, -10, 0, 25)
-Button.Position = UDim2.new(0, 5, 0, 175)
-Button.Text = "Godmode"
-Button.BackgroundColor3 = Color3.fromRGB(50, 50, 200)
-Button.MouseButton1Click:Connect(function()
-	LocalPlayer.Character.Ragdolled:Destroy()
-	LocalPlayer.Character.Humanoid:SetStateEnabled(Enum.HumanoidStateType.Dead, false)
-	replicatesignal(LocalPlayer.Kill)
+LMG2L["Pencil_f"].MouseButton1Click:Connect(function()
 	toolname = MELEE_NAME
-	ButtonT.Text = "Tool: " .. MELEE_NAME
-	ButtonT.BackgroundColor3 = Color3.fromRGB(200, 200, 50)
-	SelfHarm = LocalPlayer.Character.Humanoid
-	pcall(function()
-		game:GetService("CoreGui").TopBarApp.TopBarApp.FullScreenFrame.HurtOverlay:Destroy()
-	end)
-	pcall(function()
-		game:GetService("CoreGui").TopBarApp.TopBarApp.UnibarLeftFrame.HealthBar.HealthBar.ClipsDescendants = true
-	end)
-end)]]
-
+	LMG2L["Pencil_f"].BackgroundColor3 = Color3.fromRGB(225, 255, 0)
+	LMG2L["KawaiiGun_d"].BackgroundColor3 = Color3.fromRGB(248, 182, 255)
+end)
+-- Keep original animation loop
 task.spawn(function()
 	while task.wait(1) do
 		pcall(Animar)
 	end
 end)
+
+-- Main loop for Loopkill, Bot Mode, and Tool usage
 while true do
 	task.wait()
 	local t = tick()
+	if Spaming then
+        pcall(function()
+            local gui = PlayerGui:FindFirstChild("Menu Screen")
+            if gui then
+                local remote = gui:FindFirstChild("RemoteEvent")
+                if remote then
+                    remote:FireServer(MELEE_NAME)  -- auto-equip Pencil
+                    gui:Destroy()
+                    LastShot = t + 1
+                end
+            end
+        end)
+    end
 	pcall(function()
+		-- Loopkill / SelfHarm
 		if Spaming or (SelfHarm and SelfHarm:IsDescendantOf(workspace)) then
 			local Tool = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild(toolname)
 			if not Tool then
@@ -337,7 +431,7 @@ while true do
 				pcall(function() Tool:FindFirstChildOfClass("LocalScript"):Destroy() end)
 				if t > LastShot then
 					local hastarget = false
-					local TargetPlayer = Players:FindFirstChild(TextBox.Text)
+					local TargetPlayer = Players:FindFirstChild(TargetTextBox.Text)
 					if TargetPlayer and TargetPlayer.Character and TargetPlayer.Character:FindFirstChild("Humanoid") then
 						hastarget = true
 					end
@@ -366,19 +460,10 @@ while true do
 					end
 				end
 			end
-			pcall(function()
-				local gui = PlayerGui:FindFirstChild("Menu Screen")
-				if gui then
-					local remote = gui:FindFirstChild("RemoteEvent")
-					if remote then
-						remote:FireServer(MELEE_NAME)
-						gui:Destroy()
-						LastShot = t + 1
-					end
-				end
-			end)
 		end
 	end)
+
+	-- Bot Mode / Loopgoto
 	if Loopgoto then
 		pcall(function()
 			LocalPlayer.Character.HumanoidRootPart.CFrame = CFrame.new(1000, 0, 0)
@@ -387,9 +472,12 @@ while true do
 		end)
 		if toolname == MELEE_NAME then
 			pcall(function()
-				LocalPlayer.Character.HumanoidRootPart.CFrame = Players:FindFirstChild(TextBox.Text).Character.HumanoidRootPart.CFrame * CFrame.new(0, 0, 2)
-				LocalPlayer.Character.HumanoidRootPart.Velocity = Vector3.new(0, 0, 0)
-				LocalPlayer.Character.HumanoidRootPart.RotVelocity = Vector3.new(0, 0, 0)
+				local TargetPlayer = Players:FindFirstChild(TargetTextBox.Text)
+				if TargetPlayer and TargetPlayer.Character and TargetPlayer.Character:FindFirstChild("HumanoidRootPart") then
+					LocalPlayer.Character.HumanoidRootPart.CFrame = TargetPlayer.Character.HumanoidRootPart.CFrame * CFrame.new(0, 0, 2)
+					LocalPlayer.Character.HumanoidRootPart.Velocity = Vector3.new(0, 0, 0)
+					LocalPlayer.Character.HumanoidRootPart.RotVelocity = Vector3.new(0, 0, 0)
+				end
 			end)
 		end
 		pcall(function()
@@ -398,3 +486,4 @@ while true do
 		end)
 	end
 end
+-- :3
