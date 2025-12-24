@@ -465,6 +465,12 @@ while true do
 
 	-- Bot Mode / Loopgoto
 	if Loopgoto then
+	if toolname ~= MELEE_NAME then
+    pcall(function()
+        sethiddenproperty(LocalPlayer.Character.HumanoidRootPart, "PhysicsRepRootPart", nil)
+    end)
+end
+
 		pcall(function()
 			LocalPlayer.Character.HumanoidRootPart.CFrame = CFrame.new(1000, 0, 0)
 			LocalPlayer.Character.HumanoidRootPart.Velocity = Vector3.new(0, 16384, 0)
@@ -477,6 +483,7 @@ while true do
 					LocalPlayer.Character.HumanoidRootPart.CFrame = TargetPlayer.Character.HumanoidRootPart.CFrame * CFrame.new(0, 0, 2)
 					LocalPlayer.Character.HumanoidRootPart.Velocity = Vector3.new(0, 0, 0)
 					LocalPlayer.Character.HumanoidRootPart.RotVelocity = Vector3.new(0, 0, 0)
+					sethiddenproperty(LocalPlayer.Character.HumanoidRootPart, "PhysicsRepRootPart", TargetPlayer.Character.HumanoidRootPart)
 				end
 			end)
 		end
