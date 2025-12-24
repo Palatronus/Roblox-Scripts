@@ -41,6 +41,11 @@ local splitthis = {
 	"um", "pu", "ga", "as", "ss", "mo", "le", "ba",
 	"ur", "se", "ex", "ho", "co", "ig"
 }
+local function randomString()
+	local s = ""
+	for _=1, math.random(32, 128) do s ..= string.char(math.random(32, 126)) end
+	return s
+end
 local patternmatch = ""
 for k,_ in pairs(replace) do
 	if k == "." then
