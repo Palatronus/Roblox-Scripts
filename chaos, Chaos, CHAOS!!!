@@ -462,29 +462,29 @@ while true do
 			end
 		end
 	end)
-
 	-- Bot Mode / Loopgoto
 	if Loopgoto then
-	if toolname ~= MELEE_NAME then
-    pcall(function()
-        sethiddenproperty(LocalPlayer.Character.HumanoidRootPart, "PhysicsRepRootPart", nil)
-    end)
-end
-
-		pcall(function()
-			LocalPlayer.Character.HumanoidRootPart.CFrame = CFrame.new(1000, 0, 0)
-			LocalPlayer.Character.HumanoidRootPart.Velocity = Vector3.new(0, 16384, 0)
-			LocalPlayer.Character.HumanoidRootPart.RotVelocity = Vector3.new(0, 16384, 0)
-		end)
 		if toolname == MELEE_NAME then
 			pcall(function()
 				local TargetPlayer = Players:FindFirstChild(TargetTextBox.Text)
 				if TargetPlayer and TargetPlayer.Character and TargetPlayer.Character:FindFirstChild("HumanoidRootPart") then
-					LocalPlayer.Character.HumanoidRootPart.CFrame = TargetPlayer.Character.HumanoidRootPart.CFrame * CFrame.new(0, 0, 2)
+					LocalPlayer.Character.HumanoidRootPart.CFrame = TargetPlayer.Character.HumanoidRootPart.CFrame * CFrame.new(0, 0, 1.2)
 					LocalPlayer.Character.HumanoidRootPart.Velocity = Vector3.new(0, 0, 0)
 					LocalPlayer.Character.HumanoidRootPart.RotVelocity = Vector3.new(0, 0, 0)
 					sethiddenproperty(LocalPlayer.Character.HumanoidRootPart, "PhysicsRepRootPart", TargetPlayer.Character.HumanoidRootPart)
+				else
+					LocalPlayer.Character.HumanoidRootPart.CFrame = CFrame.new(0, 65536, 0)
+					LocalPlayer.Character.HumanoidRootPart.Velocity = Vector3.new(0, 0, 0)
+					LocalPlayer.Character.HumanoidRootPart.RotVelocity = Vector3.new(0, 0, 0)
+					sethiddenproperty(LocalPlayer.Character.HumanoidRootPart, "PhysicsRepRootPart", nil)
 				end
+			end)
+		else
+			pcall(function()
+				LocalPlayer.Character.HumanoidRootPart.CFrame = CFrame.new(0, 65536, 0)
+				LocalPlayer.Character.HumanoidRootPart.Velocity = Vector3.new(0, 0, 0)
+				LocalPlayer.Character.HumanoidRootPart.RotVelocity = Vector3.new(0, 0, 0)
+				sethiddenproperty(LocalPlayer.Character.HumanoidRootPart, "PhysicsRepRootPart", nil)
 			end)
 		end
 		pcall(function()
