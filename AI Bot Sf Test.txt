@@ -385,6 +385,7 @@ end
 			end
 			CreateDot(targetmove + Vector3.new(0, 1, 0))
 			local targetmove2 = root.Position
+			if targetmove2 ~= targetmove2 then targetmove2 = Vector3.zero end -- hotfix for nan flings
 			if IsPathfinding then
 				if AgentCalculating then
 					BlockedTime = 0
