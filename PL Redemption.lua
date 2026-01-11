@@ -46,7 +46,7 @@ task.spawn(function()
 					end
 				end
 				if ohrp ~= hrp then
-					if ohrp.CFrame.Position == ohrp.CFrame.Position then
+					if ohrp and ohrp.CFrame.Position == ohrp.CFrame.Position then
 						go = ohrp.CFrame
 					end
 					ohrp = hrp
