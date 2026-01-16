@@ -1,4 +1,3 @@
-local M = 12
 local P, RS, RL = game:GetService("Players"), game:GetService("RunService"), game:GetService("ReplicatedStorage"):WaitForChild("meleeEvent")
 local LP, TgN, En = P.LocalPlayer, "", false
 local SG = Instance.new("ScreenGui", game:GetService("CoreGui"))
@@ -29,19 +28,25 @@ task.spawn(function()
 		if En and TgN ~= "" then
 			local Tgt = P:FindFirstChild(TgN)
 			if Tgt and Tgt.Character and Tgt.Character:FindFirstChild("Humanoid") and Tgt.Character.Humanoid.Health > 0 then
-				local char, tChar = LP.Character, Tgt.Character
-				if char and char:FindFirstChild("HumanoidRootPart") and tChar:FindFirstChild("HumanoidRootPart") then
-					local hrp, tHrp = char.HumanoidRootPart, tChar.HumanoidRootPart
-					local sPos = hrp.CFrame
+				local tChar = Tgt.Character
+				local tHrp = tChar:FindFirstChild("HumanoidRootPart")
+				if tHrp then
+					local sPos = nil
 					CL.Text = "Killing..."
-					hrp.CFrame = tHrp.CFrame * CFrame.new(0, -5.35, 0)
-					sethiddenproperty(hrp, "PhysicsRepRootPart", tHrp)
-					while En and Tgt.Character and Tgt.Character:FindFirstChild("Humanoid") and Tgt.Character.Humanoid.Health > 0 do
-						RL:FireServer(Tgt)
-						hrp.CFrame = tHrp.CFrame * CFrame.new(0, -5.35, 0)
+					while En and Tgt.Parent and Tgt.Character and Tgt.Character:FindFirstChild("Humanoid") and Tgt.Character.Humanoid.Health > 0 do
+						local char = LP.Character
+						local hrp = char and char:FindFirstChild("HumanoidRootPart")
+						if hrp then
+							if not sPos then sPos = hrp.CFrame end
+							hrp.CFrame = tHrp.CFrame * CFrame.new(0, -5.35, 0)
+							sethiddenproperty(hrp, "PhysicsRepRootPart", tHrp)
+							RL:FireServer(Tgt)
+						end
 						RS.Heartbeat:Wait()
 					end
-					hrp.CFrame = sPos
+					local char = LP.Character
+					local hrp = char and char:FindFirstChild("HumanoidRootPart")
+					if hrp and sPos then hrp.CFrame = sPos end
 					for i = 30, 1, -1 do
 						if not En or TgN == "" then break end
 						CL.Text = "Next Kill: " .. i .. "s"
