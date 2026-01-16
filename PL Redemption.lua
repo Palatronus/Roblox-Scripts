@@ -3,10 +3,11 @@ local P, RS, RL = game:GetService("Players"), game:GetService("RunService"), gam
 local LP, TgN, En = P.LocalPlayer, "", false
 local SG = Instance.new("ScreenGui", game:GetService("CoreGui"))
 local F = Instance.new("Frame", SG)
-F.Size, F.Position, F.BackgroundColor3 = UDim2.new(0, 150, 0, 70), UDim2.new(0.5, -75, 0.1, 0), Color3.new(0.1, 0.1, 0.1)
-local TB, BT = Instance.new("TextBox", F), Instance.new("TextButton", F)
-TB.Size, TB.Position, TB.PlaceholderText, TB.Text = UDim2.new(1, 0, 0.5, 0), UDim2.new(0, 0, 0, 0), "Player Name", ""
-BT.Size, BT.Position, BT.Text, BT.BackgroundColor3, BT.TextColor3 = UDim2.new(1, 0, 0.5, 0), UDim2.new(0, 0, 0.5, 0), "Toggle: OFF", Color3.new(0.2, 0.2, 0.2), Color3.new(1, 1, 1)
+F.Size, F.Position, F.BackgroundColor3 = UDim2.new(0, 150, 0, 90), UDim2.new(0.5, -75, 0.1, 0), Color3.new(0.1, 0.1, 0.1)
+local TB, BT, CL = Instance.new("TextBox", F), Instance.new("TextButton", F), Instance.new("TextLabel", F)
+TB.Size, TB.Position, TB.PlaceholderText, TB.Text = UDim2.new(1, 0, 0.33, 0), UDim2.new(0, 0, 0, 0), "Player Name", ""
+BT.Size, BT.Position, BT.Text, BT.BackgroundColor3, BT.TextColor3 = UDim2.new(1, 0, 0.33, 0), UDim2.new(0, 0, 0.33, 0), "Toggle: OFF", Color3.new(0.2, 0.2, 0.2), Color3.new(1, 1, 1)
+CL.Size, CL.Position, CL.Text, CL.BackgroundColor3, CL.TextColor3 = UDim2.new(1, 0, 0.34, 0), UDim2.new(0, 0, 0.66, 0), "Ready", Color3.new(0.15, 0.15, 0.15), Color3.new(1, 1, 1)
 TB.FocusLost:Connect(function(EP)
 	if not EP then return end
 	local input = TB.Text:lower()
@@ -28,12 +29,11 @@ task.spawn(function()
 		if En and TgN ~= "" then
 			local Tgt = P:FindFirstChild(TgN)
 			if Tgt and Tgt.Character and Tgt.Character:FindFirstChild("Humanoid") and Tgt.Character.Humanoid.Health > 0 then
-				local char = LP.Character
-				local tChar = Tgt.Character
+				local char, tChar = LP.Character, Tgt.Character
 				if char and char:FindFirstChild("HumanoidRootPart") and tChar:FindFirstChild("HumanoidRootPart") then
-					local hrp = char.HumanoidRootPart
-					local tHrp = tChar.HumanoidRootPart
-					local startPos = hrp.CFrame
+					local hrp, tHrp = char.HumanoidRootPart, tChar.HumanoidRootPart
+					local sPos = hrp.CFrame
+					CL.Text = "Killing..."
 					hrp.CFrame = tHrp.CFrame * CFrame.new(0, -5.35, 0)
 					sethiddenproperty(hrp, "PhysicsRepRootPart", tHrp)
 					while En and Tgt.Character and Tgt.Character:FindFirstChild("Humanoid") and Tgt.Character.Humanoid.Health > 0 do
@@ -41,8 +41,13 @@ task.spawn(function()
 						hrp.CFrame = tHrp.CFrame * CFrame.new(0, -5.35, 0)
 						RS.Heartbeat:Wait()
 					end
-					hrp.CFrame = startPos
-					task.wait(30)
+					hrp.CFrame = sPos
+					for i = 30, 1, -1 do
+						if not En or TgN == "" then break end
+						CL.Text = "Next Kill: " .. i .. "s"
+						task.wait(1)
+					end
+					CL.Text = "Ready"
 				end
 			end
 		end
