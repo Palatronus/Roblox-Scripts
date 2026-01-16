@@ -1,3 +1,4 @@
+local script_source = [[
 workspace.Gravity = 0
 local P, RS, RL = game:GetService("Players"), game:GetService("RunService"), game:GetService("ReplicatedStorage"):WaitForChild("meleeEvent")
 local LP, TgN, En = P.LocalPlayer, "", false
@@ -24,7 +25,7 @@ BT.MouseButton1Click:Connect(function()
 	BT.Text, BT.BackgroundColor3 = En and "Toggle: ON" or "Toggle: OFF", En and Color3.new(0, 0.5, 0) or Color3.new(0.2, 0.2, 0.2)
 end)
 task.spawn(function()
-	local nextJump = 0
+	local nextJump, glueReady = 0, 0
 	while true do
 		task.wait()
 		if En and TgN ~= "" then
@@ -40,14 +41,18 @@ task.spawn(function()
 						if hrp then
 							local dist = (hrp.Position - tHrp.Position).Magnitude
 							if dist >= 50 then
+								glueReady = 0
 								if tick() >= nextJump then
 									hrp.CFrame = hrp.CFrame + (tHrp.Position - hrp.Position).Unit * 50
 									nextJump = tick() + 1
 								end
 							else
-								hrp.CFrame = tHrp.CFrame * CFrame.new(0, -5.35, 0)
-								sethiddenproperty(hrp, "PhysicsRepRootPart", tHrp)
-								RL:FireServer(Tgt)
+								if glueReady == 0 then glueReady = tick() + 1 end
+								if tick() >= glueReady then
+									hrp.CFrame = tHrp.CFrame * CFrame.new(0, -5.35, 0)
+									sethiddenproperty(hrp, "PhysicsRepRootPart", tHrp)
+									RL:FireServer(Tgt)
+								end
 							end
 						end
 						RS.Heartbeat:Wait()
@@ -58,3 +63,6 @@ task.spawn(function()
 		end
 	end
 end)
+]]
+if queue_on_teleport then queue_on_teleport(script_source) end
+loadstring(script_source)()
