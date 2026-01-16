@@ -1,5 +1,5 @@
 -- M is melee range, S is tweengoto speed (studs per second)
-local M, S = 12, 32
+local M, S = 12, 16
 
 local P, RS, RL = game:GetService("Players"), game:GetService("RunService"), game:GetService("ReplicatedStorage"):WaitForChild("meleeEvent")
 local LP, TgN, En = P.LocalPlayer, "", false
