@@ -36,7 +36,7 @@ task.spawn(function()
 					local hrp, tHrp = char and char:FindFirstChild("HumanoidRootPart"), tChar and tChar:FindFirstChild("HumanoidRootPart")
 					local tH = tChar and tChar:FindFirstChild("Humanoid")
 					if hrp and tHrp and tH and tH.Health > 0 then
-						local goal = tHrp.CFrame * CFrame.new(0, -6, 0)
+						local goal = tHrp.CFrame * CFrame.new(0, -6.5, 0)
 						local dist = (hrp.Position - goal.Position).Magnitude
 						if dist >= 50 then
 							if glueReady ~= 0 then 
