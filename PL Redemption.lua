@@ -47,7 +47,7 @@ task.spawn(function()
 					local char = LP.Character
 					local hrp = char and char:FindFirstChild("HumanoidRootPart")
 					if hrp and sPos then hrp.CFrame = sPos end
-					for i = 15, 1, -1 do
+					for i = 10, 1, -1 do
 						if not En or TgN == "" then break end
 						CL.Text = "Next Kill: " .. i .. "s"
 						task.wait(1)
