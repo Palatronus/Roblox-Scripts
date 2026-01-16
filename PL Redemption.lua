@@ -34,6 +34,7 @@ task.spawn(function()
 					local sPos = nil
 					CL.Text = "Killing..."
 					while En and Tgt.Parent and Tgt.Character and Tgt.Character:FindFirstChild("Humanoid") and Tgt.Character.Humanoid.Health > 0 do
+						RS.Heartbeat:Wait()
 						local char = LP.Character
 						local hrp = char and char:FindFirstChild("HumanoidRootPart")
 						if hrp then
@@ -47,7 +48,6 @@ task.spawn(function()
 								RL:FireServer(Tgt)
 							end
 						end
-						RS.Heartbeat:Wait()
 					end
 					local char = LP.Character
 					local hrp = char and char:FindFirstChild("HumanoidRootPart")
