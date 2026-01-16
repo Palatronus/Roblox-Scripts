@@ -31,7 +31,6 @@ task.spawn(function()
 		if En and TgN ~= "" then
 			local Tgt = P:FindFirstChild(TgN)
 			if Tgt then
-				CL.Text = "Tracking..."
 				while En and Tgt.Parent and TgN == Tgt.Name do
 					local char, tChar = LP.Character, Tgt.Character
 					local hrp, tHrp = char and char:FindFirstChild("HumanoidRootPart"), tChar and tChar:FindFirstChild("HumanoidRootPart")
@@ -39,9 +38,13 @@ task.spawn(function()
 					if hrp and tHrp and tH and tH.Health > 0 then
 						local dist = (hrp.Position - tHrp.Position).Magnitude
 						if dist >= 50 then
-							if glueReady ~= 0 then chaseWait = tick() + 1 end
+							if glueReady ~= 0 then 
+								chaseWait = tick() + 1
+								CL.Text = "Waiting..."
+							end
 							glueReady = 0
 							if tick() >= nextJump and tick() >= chaseWait then
+								CL.Text = "Chasing..."
 								hrp.CFrame = hrp.CFrame + (tHrp.Position - hrp.Position).Unit * 50
 								nextJump = tick() + 1
 							end
@@ -49,16 +52,22 @@ task.spawn(function()
 							chaseWait = 0
 							if glueReady == 0 then glueReady = tick() + 1 end
 							if tick() >= glueReady then
+								CL.Text = "Killing..."
 								hrp.CFrame = tHrp.CFrame * CFrame.new(0, -5.35, 0)
 								sethiddenproperty(hrp, "PhysicsRepRootPart", tHrp)
 								RL:FireServer(Tgt)
+							else
+								CL.Text = "Locking..."
 							end
 						end
+					else
+						CL.Text = "Target Dead/Missing"
+						glueReady, chaseWait = 0, 0
 					end
 					RS.Heartbeat:Wait()
 				end
-				CL.Text = "Ready"
 			end
+			CL.Text = "Ready"
 		end
 	end
 end)
