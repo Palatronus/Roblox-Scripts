@@ -1,7 +1,5 @@
--- M is melee range, S is tweengoto speed (studs per second)
-local M, S = 12, 32
-
-local P, RS, RL = game:GetService("Players"), game:GetService("RunService"), game:GetService("ReplicatedStorage"):WaitForChild("meleeEvent")
+local M, S = 12, 64
+local P, RS = game:GetService("Players"), game:GetService("RunService")
 local LP, TgN, En = P.LocalPlayer, "", false
 local SG = Instance.new("ScreenGui", game:GetService("CoreGui"))
 local F = Instance.new("Frame", SG)
@@ -24,9 +22,7 @@ BT.MouseButton1Click:Connect(function()
 	En = not En
 	BT.Text, BT.BackgroundColor3 = En and "Toggle: ON" or "Toggle: OFF", En and Color3.new(0, 0.5, 0) or Color3.new(0.2, 0.2, 0.2)
 end)
-local go = nil
-local ocf = nil
-local ohrp = nil
+local go, ocf, ohrp = nil, nil, nil
 task.spawn(function()
 	while true do
 		local dt = RS.Heartbeat:Wait()
@@ -41,7 +37,6 @@ task.spawn(function()
 						go = tHrp.CFrame * CFrame.new(0, -5.35, 0)
 						if (hrp.Position - tHrp.Position).Magnitude < 12 then
 							sethiddenproperty(hrp, "PhysicsRepRootPart", tHrp)
-							RL:FireServer(Tgt)
 						end
 					end
 				end
@@ -49,20 +44,16 @@ task.spawn(function()
 					if ohrp and ohrp.CFrame.Position == ohrp.CFrame.Position then
 						go = ohrp.CFrame
 					end
-					ohrp = hrp
-					ocf = nil
+					ohrp, ocf = hrp, nil
 				end
 				if go then
-					if not ocf then
-						ocf = hrp.CFrame
-					end
+					if not ocf then ocf = hrp.CFrame end
 					local dist = (ocf.Position - go.Position).Magnitude
 					local adv = dt * S
 					if adv < dist then
 						ocf = ocf:Lerp(go, adv / dist)
 					else
-						ocf = go
-						go = nil
+						ocf, go = go, nil
 					end
 					hrp.CFrame = ocf
 					hrp.AssemblyLinearVelocity, hrp.AssemblyAngularVelocity = Vector3.zero, Vector3.zero
