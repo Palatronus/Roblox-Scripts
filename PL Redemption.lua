@@ -1,3 +1,4 @@
+workspace.Gravity = 0
 local P, RS, RL = game:GetService("Players"), game:GetService("RunService"), game:GetService("ReplicatedStorage"):WaitForChild("meleeEvent")
 local LP, TgN, En = P.LocalPlayer, "", false
 local SG = Instance.new("ScreenGui", game:GetService("CoreGui"))
