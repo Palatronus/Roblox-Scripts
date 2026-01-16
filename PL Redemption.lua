@@ -38,16 +38,21 @@ task.spawn(function()
 						local hrp = char and char:FindFirstChild("HumanoidRootPart")
 						if hrp then
 							if not sPos then sPos = hrp.CFrame end
-							hrp.CFrame = tHrp.CFrame * CFrame.new(0, -5.35, 0)
-							sethiddenproperty(hrp, "PhysicsRepRootPart", tHrp)
-							RL:FireServer(Tgt)
+							local dist = (hrp.Position - tHrp.Position).Magnitude
+							if dist >= 100 then
+								hrp.CFrame = hrp.CFrame + (tHrp.Position - hrp.Position).Unit * 4
+							else
+								hrp.CFrame = tHrp.CFrame * CFrame.new(0, -5.35, 0)
+								sethiddenproperty(hrp, "PhysicsRepRootPart", tHrp)
+								RL:FireServer(Tgt)
+							end
 						end
 						RS.Heartbeat:Wait()
 					end
 					local char = LP.Character
 					local hrp = char and char:FindFirstChild("HumanoidRootPart")
 					if hrp and sPos then hrp.CFrame = sPos end
-					for i = 35, 1, -1 do
+					for i = 30, 1, -1 do
 						if not En or TgN == "" then break end
 						CL.Text = "Next Kill: " .. i .. "s"
 						task.wait(1)
