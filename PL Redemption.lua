@@ -1,5 +1,5 @@
-local M, S = 12, 64
-local P, RS = game:GetService("Players"), game:GetService("RunService")
+local M = 12
+local P, RS, RL = game:GetService("Players"), game:GetService("RunService"), game:GetService("ReplicatedStorage"):WaitForChild("meleeEvent")
 local LP, TgN, En = P.LocalPlayer, "", false
 local SG = Instance.new("ScreenGui", game:GetService("CoreGui"))
 local F = Instance.new("Frame", SG)
@@ -10,7 +10,7 @@ BT.Size, BT.Position, BT.Text, BT.BackgroundColor3, BT.TextColor3 = UDim2.new(1,
 TB.FocusLost:Connect(function(EP)
 	if not EP then return end
 	local input = TB.Text:lower()
-	if input == "" then Tgt = nil return end
+	if input == "" then TgN = "" return end
 	for _, v in P:GetPlayers() do
 		if v ~= LP and (v.Name:lower():find(input) or v.DisplayName:lower():find(input)) then
 			TgN, TB.Text = v.Name, v.Name
@@ -22,41 +22,27 @@ BT.MouseButton1Click:Connect(function()
 	En = not En
 	BT.Text, BT.BackgroundColor3 = En and "Toggle: ON" or "Toggle: OFF", En and Color3.new(0, 0.5, 0) or Color3.new(0.2, 0.2, 0.2)
 end)
-local go, ocf, ohrp = nil, nil, nil
 task.spawn(function()
 	while true do
-		local dt = RS.Heartbeat:Wait()
-		local Tgt = P:FindFirstChild(TgN)
-		local char, tChar = LP.Character, Tgt and Tgt.Character
-		if char and char:FindFirstChild("HumanoidRootPart") then
-			local hrp = char.HumanoidRootPart
-			if not (LP.TeamColor == BrickColor.new("Really red") and char:FindFirstChildOfClass("ForceField")) then
-				if En then
-					if tChar and tChar:FindFirstChild("HumanoidRootPart") then
-						local tHrp = tChar.HumanoidRootPart
-						go = tHrp.CFrame * CFrame.new(0, -5.35, 0)
-						if (hrp.Position - tHrp.Position).Magnitude < 12 then
-							sethiddenproperty(hrp, "PhysicsRepRootPart", tHrp)
-						end
+		task.wait()
+		if En and TgN ~= "" then
+			local Tgt = P:FindFirstChild(TgN)
+			if Tgt and Tgt.Character and Tgt.Character:FindFirstChild("Humanoid") and Tgt.Character.Humanoid.Health > 0 then
+				local char = LP.Character
+				local tChar = Tgt.Character
+				if char and char:FindFirstChild("HumanoidRootPart") and tChar:FindFirstChild("HumanoidRootPart") then
+					local hrp = char.HumanoidRootPart
+					local tHrp = tChar.HumanoidRootPart
+					local startPos = hrp.CFrame
+					hrp.CFrame = tHrp.CFrame * CFrame.new(0, -5.35, 0)
+					sethiddenproperty(hrp, "PhysicsRepRootPart", tHrp)
+					while En and Tgt.Character and Tgt.Character:FindFirstChild("Humanoid") and Tgt.Character.Humanoid.Health > 0 do
+						RL:FireServer(Tgt)
+						hrp.CFrame = tHrp.CFrame * CFrame.new(0, -5.35, 0)
+						RS.Heartbeat:Wait()
 					end
-				end
-				if ohrp ~= hrp then
-					if ohrp and ohrp.CFrame.Position == ohrp.CFrame.Position then
-						go = ohrp.CFrame
-					end
-					ohrp, ocf = hrp, nil
-				end
-				if go then
-					if not ocf then ocf = hrp.CFrame end
-					local dist = (ocf.Position - go.Position).Magnitude
-					local adv = dt * S
-					if adv < dist then
-						ocf = ocf:Lerp(go, adv / dist)
-					else
-						ocf, go = go, nil
-					end
-					hrp.CFrame = ocf
-					hrp.AssemblyLinearVelocity, hrp.AssemblyAngularVelocity = Vector3.zero, Vector3.zero
+					hrp.CFrame = startPos
+					task.wait(30)
 				end
 			end
 		end
