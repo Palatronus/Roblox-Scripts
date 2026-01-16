@@ -25,40 +25,39 @@ BT.MouseButton1Click:Connect(function()
 	BT.Text, BT.BackgroundColor3 = En and "Toggle: ON" or "Toggle: OFF", En and Color3.new(0, 0.5, 0) or Color3.new(0.2, 0.2, 0.2)
 end)
 task.spawn(function()
-	local nextJump, glueReady = 0, 0
+	local nextJump, glueReady, chaseWait = 0, 0, 0
 	while true do
 		task.wait()
 		if En and TgN ~= "" then
 			local Tgt = P:FindFirstChild(TgN)
-			if Tgt and Tgt.Character and Tgt.Character:FindFirstChild("Humanoid") and Tgt.Character.Humanoid.Health > 0 then
-				local tChar = Tgt.Character
-				local tHrp = tChar:FindFirstChild("HumanoidRootPart")
-				if tHrp then
-					CL.Text = "Killing..."
-					while En and Tgt.Parent and Tgt.Character and Tgt.Character:FindFirstChild("Humanoid") and Tgt.Character.Humanoid.Health > 0 do
-						local char = LP.Character
-						local hrp = char and char:FindFirstChild("HumanoidRootPart")
-						if hrp then
-							local dist = (hrp.Position - tHrp.Position).Magnitude
-							if dist >= 50 then
-								glueReady = 0
-								if tick() >= nextJump then
-									hrp.CFrame = hrp.CFrame + (tHrp.Position - hrp.Position).Unit * 50
-									nextJump = tick() + 1
-								end
-							else
-								if glueReady == 0 then glueReady = tick() + 1 end
-								if tick() >= glueReady then
-									hrp.CFrame = tHrp.CFrame * CFrame.new(0, -5.35, 0)
-									sethiddenproperty(hrp, "PhysicsRepRootPart", tHrp)
-									RL:FireServer(Tgt)
-								end
+			if Tgt then
+				CL.Text = "Tracking..."
+				while En and Tgt.Parent and TgN == Tgt.Name do
+					local char, tChar = LP.Character, Tgt.Character
+					local hrp, tHrp = char and char:FindFirstChild("HumanoidRootPart"), tChar and tChar:FindFirstChild("HumanoidRootPart")
+					local tH = tChar and tChar:FindFirstChild("Humanoid")
+					if hrp and tHrp and tH and tH.Health > 0 then
+						local dist = (hrp.Position - tHrp.Position).Magnitude
+						if dist >= 50 then
+							if glueReady ~= 0 then chaseWait = tick() + 1 end
+							glueReady = 0
+							if tick() >= nextJump and tick() >= chaseWait then
+								hrp.CFrame = hrp.CFrame + (tHrp.Position - hrp.Position).Unit * 50
+								nextJump = tick() + 1
+							end
+						else
+							chaseWait = 0
+							if glueReady == 0 then glueReady = tick() + 1 end
+							if tick() >= glueReady then
+								hrp.CFrame = tHrp.CFrame * CFrame.new(0, -5.35, 0)
+								sethiddenproperty(hrp, "PhysicsRepRootPart", tHrp)
+								RL:FireServer(Tgt)
 							end
 						end
-						RS.Heartbeat:Wait()
 					end
-					CL.Text = "Ready"
+					RS.Heartbeat:Wait()
 				end
+				CL.Text = "Ready"
 			end
 		end
 	end
