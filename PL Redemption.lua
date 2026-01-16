@@ -34,20 +34,15 @@ task.spawn(function()
 					local sPos = nil
 					CL.Text = "Killing..."
 					while En and Tgt.Parent and Tgt.Character and Tgt.Character:FindFirstChild("Humanoid") and Tgt.Character.Humanoid.Health > 0 do
-						RS.Heartbeat:Wait()
 						local char = LP.Character
 						local hrp = char and char:FindFirstChild("HumanoidRootPart")
 						if hrp then
 							if not sPos then sPos = hrp.CFrame end
-							local dist = (hrp.Position - tHrp.Position).Magnitude
-							if dist >= 100 then
-								hrp.CFrame = hrp.CFrame + (tHrp.Position - hrp.Position).Unit * 4
-							else
-								hrp.CFrame = tHrp.CFrame * CFrame.new(0, -5.35, 0)
-								sethiddenproperty(hrp, "PhysicsRepRootPart", tHrp)
-								RL:FireServer(Tgt)
-							end
+							hrp.CFrame = tHrp.CFrame * CFrame.new(0, -5.35, 0)
+							sethiddenproperty(hrp, "PhysicsRepRootPart", tHrp)
+							RL:FireServer(Tgt)
 						end
+						RS.Heartbeat:Wait()
 					end
 					local char = LP.Character
 					local hrp = char and char:FindFirstChild("HumanoidRootPart")
