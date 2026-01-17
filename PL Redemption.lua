@@ -52,7 +52,7 @@ task.spawn(function()
 							end
 							lP, lT = thrp.Position, tick()
 						end
-						local goal = thrp.CFrame * CFrame.new(0, -6, 0)
+						local goal = thrp.CFrame * CFrame.new(0, -6.5, 0)
 						local d = (hrp.Position - goal.Position).Magnitude
 						if d >= 50 then
 							if gR ~= 0 then cW = tick() + 1 CL.Text = "Waiting..." end
