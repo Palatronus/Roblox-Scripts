@@ -25,7 +25,8 @@ BT.MouseButton1Click:Connect(function()
 	BT.Text, BT.BackgroundColor3 = En and "Toggle: ON" or "Toggle: OFF", En and Color3.new(0, 0.5, 0) or Color3.new(0.2, 0.2, 0.2)
 end)
 task.spawn(function()
-	local nJ, gR, cW = 0, 0, 0
+	local nJ, gR, cW, rp = 0, 0, 0, RaycastParams.new()
+	rp.FilterType = Enum.RaycastFilterType.Exclude
 	while true do
 		task.wait()
 		if En and TgN ~= "" then
@@ -36,7 +37,10 @@ task.spawn(function()
 					local c, tc = LP.Character, Tgt.Character
 					local hrp, thrp = c and c:FindFirstChild("HumanoidRootPart"), tc and tc:FindFirstChild("HumanoidRootPart")
 					local th, hum = tc and tc:FindFirstChild("Humanoid"), c and c:FindFirstChild("Humanoid")
-					if hum and hrp and not workspace:Raycast(hrp.Position, Vector3.new(0, -50, 0)) then hum.Health = 0 end
+					if hum and hrp then
+						rp.FilterDescendantsInstances = {c}
+						if not workspace:Raycast(hrp.Position, Vector3.new(0, -50, 0), rp) then hum.Health = 0 end
+					end
 					if hrp and thrp and th and th.Health > 0 then
 						local dT = tick() - lT
 						if dT > 0.1 then
