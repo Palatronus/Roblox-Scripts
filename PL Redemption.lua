@@ -1,5 +1,4 @@
 local script_source = [[
-workspace.Gravity = 0
 local P, RS, RL = game:GetService("Players"), game:GetService("RunService"), game:GetService("ReplicatedStorage"):WaitForChild("meleeEvent")
 local LP, TgN, En = P.LocalPlayer, "", false
 local SG = Instance.new("ScreenGui", game:GetService("CoreGui"))
@@ -11,10 +10,10 @@ BT.Size, BT.Position, BT.Text, BT.BackgroundColor3, BT.TextColor3 = UDim2.new(1,
 CL.Size, CL.Position, CL.Text, CL.BackgroundColor3, CL.TextColor3 = UDim2.new(1, 0, 0.34, 0), UDim2.new(0, 0, 0.66, 0), "Ready", Color3.new(0.15, 0.15, 0.15), Color3.new(1, 1, 1)
 TB.FocusLost:Connect(function(EP)
 	if not EP then return end
-	local i = TB.Text:lower()
-	if i == "" then TgN = "" return end
+	local input = TB.Text:lower()
+	if input == "" then TgN = "" return end
 	for _, v in P:GetPlayers() do
-		if v ~= LP and (v.Name:lower():find(i) or v.DisplayName:lower():find(i)) then
+		if v ~= LP and (v.Name:lower():find(input) or v.DisplayName:lower():find(input)) then
 			TgN, TB.Text = v.Name, v.Name
 			break
 		end
@@ -25,43 +24,45 @@ BT.MouseButton1Click:Connect(function()
 	BT.Text, BT.BackgroundColor3 = En and "Toggle: ON" or "Toggle: OFF", En and Color3.new(0, 0.5, 0) or Color3.new(0.2, 0.2, 0.2)
 end)
 task.spawn(function()
-	local nJ, gR, cW = 0, 0, 0
+	local nextJump, glueReady, chaseWait = 0, 0, 0
 	while true do
 		task.wait()
 		if En and TgN ~= "" then
 			local Tgt = P:FindFirstChild(TgN)
 			if Tgt then
 				while En and Tgt.Parent and TgN == Tgt.Name do
-					local c, tc = LP.Character, Tgt.Character
-					local hrp, thrp = c and c:FindFirstChild("HumanoidRootPart"), tc and tc:FindFirstChild("HumanoidRootPart")
-					local th, hum = tc and tc:FindFirstChild("Humanoid"), c and c:FindFirstChild("Humanoid")
-					if hrp and thrp and th and th.Health > 0 then
-						if hum then hum:SetStateEnabled(Enum.HumanoidStateType.Seated, false) hum.Sit = false end
-						local goal = thrp.CFrame * CFrame.new(0, -6.5, 0)
-						local d = (hrp.Position - goal.Position).Magnitude
-						if d >= 40 then
-							if gR ~= 0 then cW = tick() + 1 CL.Text = "Waiting..." end
-							gR = 0
-							if tick() >= nJ and tick() >= cW then
+					local char, tChar = LP.Character, Tgt.Character
+					local hrp, tHrp = char and char:FindFirstChild("HumanoidRootPart"), tChar and tChar:FindFirstChild("HumanoidRootPart")
+					local tH = tChar and tChar:FindFirstChild("Humanoid")
+					if hrp and tHrp and tH and tH.Health > 0 then
+						local goal = tHrp.CFrame * CFrame.new(0, -6.5, 0)
+						local dist = (hrp.Position - goal.Position).Magnitude
+						if dist >= 50 then
+							if glueReady ~= 0 then 
+								chaseWait = tick() + 1
+								CL.Text = "Waiting..."
+							end
+							glueReady = 0
+							if tick() >= nextJump and tick() >= chaseWait then
 								CL.Text = "Chasing..."
-								hrp.CFrame = hrp.CFrame + (goal.Position - hrp.Position).Unit * 40
-								nJ = tick() + 1.5
+								hrp.CFrame = hrp.CFrame + (goal.Position - hrp.Position).Unit * 50
+								nextJump = tick() + 1
 							end
 						else
 							RL:FireServer(Tgt)
-							cW = 0
-							if gR == 0 then gR = tick() + 1 end
-							if tick() >= gR then
+							chaseWait = 0
+							if glueReady == 0 then glueReady = tick() + 1 end
+							if tick() >= glueReady then
 								CL.Text = "Killing..."
 								hrp.CFrame = goal
-								sethiddenproperty(hrp, "PhysicsRepRootPart", thrp)
+								sethiddenproperty(hrp, "PhysicsRepRootPart", tHrp)
 							else
 								CL.Text = "Locking..."
 							end
 						end
 					else
 						CL.Text = "Respawn/Team Change..."
-						gR, cW = 0, 0
+						glueReady, chaseWait = 0, 0
 					end
 					RS.Heartbeat:Wait()
 				end
