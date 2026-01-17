@@ -41,7 +41,7 @@ task.spawn(function()
 						local f = {}
 						for _, v in c:GetChildren() do if v:IsA("BasePart") and v.Name ~= "Head" then f[#f+1] = v end end
 						rp.FilterDescendantsInstances = f
-						if not workspace:Raycast(hrp.Position, Vector3.new(0, -200, 0), rp) then hum.Health = 0 end
+						if not workspace:Raycast(hrp.Position + Vector3.new(0, 10, 0), Vector3.new(0, -210, 0), rp) then hum.Health = 0 end
 					end
 					if hrp and thrp and th and th.Health > 0 then
 						local dT = tick() - lT
