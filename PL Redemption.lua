@@ -31,12 +31,21 @@ task.spawn(function()
 		if En and TgN ~= "" then
 			local Tgt = P:FindFirstChild(TgN)
 			if Tgt then
+				local lP, lT = Vector3.zero, 0
 				while En and Tgt.Parent and TgN == Tgt.Name do
 					local c, tc = LP.Character, Tgt.Character
 					local hrp, thrp = c and c:FindFirstChild("HumanoidRootPart"), tc and tc:FindFirstChild("HumanoidRootPart")
 					local th, hum = tc and tc:FindFirstChild("Humanoid"), c and c:FindFirstChild("Humanoid")
 					if hum and hrp and not workspace:Raycast(hrp.Position, Vector3.new(0, -50, 0)) then hum.Health = 0 end
 					if hrp and thrp and th and th.Health > 0 then
+						local dT = tick() - lT
+						if dT > 0.1 then
+							if (thrp.Position - lP).Magnitude / dT > 50 then 
+								gR = 0 
+								sethiddenproperty(hrp, "PhysicsRepRootPart", nil)
+							end
+							lP, lT = thrp.Position, tick()
+						end
 						local goal = thrp.CFrame * CFrame.new(0, -6.5, 0)
 						local d = (hrp.Position - goal.Position).Magnitude
 						if d >= 50 then
