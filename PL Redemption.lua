@@ -25,7 +25,7 @@ BT.MouseButton1Click:Connect(function()
 	BT.Text, BT.BackgroundColor3 = En and "Toggle: ON" or "Toggle: OFF", En and Color3.new(0, 0.5, 0) or Color3.new(0.2, 0.2, 0.2)
 end)
 task.spawn(function()
-	local nextJump, glueReady, chaseWait = 0, 0, 0
+	local nextJump, glueReady, chaseWait, lTP, lTC = 0, 0, 0, Vector3.zero, 0
 	while true do
 		task.wait()
 		if En and TgN ~= "" then
@@ -39,10 +39,7 @@ task.spawn(function()
 						local goal = tHrp.CFrame * CFrame.new(0, -6.5, 0)
 						local dist = (hrp.Position - goal.Position).Magnitude
 						if dist >= 50 then
-							if glueReady ~= 0 then 
-								chaseWait = tick() + 1
-								CL.Text = "Waiting..."
-							end
+							if glueReady ~= 0 then chaseWait = tick() + 1 CL.Text = "Waiting..." end
 							glueReady = 0
 							if tick() >= nextJump and tick() >= chaseWait then
 								CL.Text = "Chasing..."
@@ -52,11 +49,20 @@ task.spawn(function()
 						else
 							RL:FireServer(Tgt)
 							chaseWait = 0
-							if glueReady == 0 then glueReady = tick() + 1 end
+							if glueReady == 0 then glueReady, lTP, lTC = tick() + 1, tHrp.Position, tick() end
 							if tick() >= glueReady then
-								CL.Text = "Killing..."
-								hrp.CFrame = goal
-								sethiddenproperty(hrp, "PhysicsRepRootPart", tHrp)
+								if tick() - lTC >= 1 then
+									if (tHrp.Position - lTP).Magnitude > 50 then
+										glueReady, chaseWait = 0, tick() + 1
+										CL.Text = "Waiting..."
+									end
+									lTP, lTC = tHrp.Position, tick()
+								end
+								if glueReady ~= 0 then
+									CL.Text = "Killing..."
+									hrp.CFrame = goal
+									sethiddenproperty(hrp, "PhysicsRepRootPart", tHrp)
+								end
 							else
 								CL.Text = "Locking..."
 							end
