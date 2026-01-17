@@ -38,7 +38,9 @@ task.spawn(function()
 					local hrp, thrp = c and c:FindFirstChild("HumanoidRootPart"), tc and tc:FindFirstChild("HumanoidRootPart")
 					local th, hum = tc and tc:FindFirstChild("Humanoid"), c and c:FindFirstChild("Humanoid")
 					if hum and hrp then
-						rp.FilterDescendantsInstances = {c}
+						local f = {}
+						for _, v in c:GetChildren() do if v:IsA("BasePart") and v.Name ~= "Head" then f[#f+1] = v end end
+						rp.FilterDescendantsInstances = f
 						if not workspace:Raycast(hrp.Position, Vector3.new(0, -200, 0), rp) then hum.Health = 0 end
 					end
 					if hrp and thrp and th and th.Health > 0 then
