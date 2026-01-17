@@ -39,7 +39,7 @@ task.spawn(function()
 					local th, hum = tc and tc:FindFirstChild("Humanoid"), c and c:FindFirstChild("Humanoid")
 					if hum and hrp then
 						rp.FilterDescendantsInstances = {c}
-						if not workspace:Raycast(hrp.Position, Vector3.new(0, -100, 0), rp) then hum.Health = 0 end
+						if not workspace:Raycast(hrp.Position, Vector3.new(0, -200, 0), rp) then hum.Health = 0 end
 					end
 					if hrp and thrp and th and th.Health > 0 then
 						local dT = tick() - lT
