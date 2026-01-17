@@ -60,7 +60,7 @@ task.spawn(function()
 							if tick() >= nJ and tick() >= cW then
 								CL.Text = "Chasing..."
 								hrp.CFrame = hrp.CFrame + (goal.Position - hrp.Position).Unit * 50
-								nJ = tick() + 1
+								nJ = tick() + 2
 							end
 						else
 							RL:FireServer(Tgt)
