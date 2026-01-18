@@ -1,90 +1,49 @@
-local script_source = [[
+local plrs, rs, rep = game:GetService("Players"), game:GetService("RunService"), game:GetService("ReplicatedStorage")
 workspace.Gravity = 0
-local P, RS, RL = game:GetService("Players"), game:GetService("RunService"), game:GetService("ReplicatedStorage"):WaitForChild("meleeEvent")
-local LP, TgN, En = P.LocalPlayer, "", false
-local SG = Instance.new("ScreenGui", game:GetService("CoreGui"))
-local F = Instance.new("Frame", SG)
-F.Size, F.Position, F.BackgroundColor3 = UDim2.new(0, 150, 0, 90), UDim2.new(0.5, -75, 0.1, 0), Color3.new(0.1, 0.1, 0.1)
-local TB, BT, CL = Instance.new("TextBox", F), Instance.new("TextButton", F), Instance.new("TextLabel", F)
-TB.Size, TB.Position, TB.PlaceholderText, TB.Text = UDim2.new(1, 0, 0.33, 0), UDim2.new(0, 0, 0, 0), "Player Name", ""
-BT.Size, BT.Position, BT.Text, BT.BackgroundColor3, BT.TextColor3 = UDim2.new(1, 0, 0.33, 0), UDim2.new(0, 0, 0.33, 0), "Toggle: OFF", Color3.new(0.2, 0.2, 0.2), Color3.new(1, 1, 1)
-CL.Size, CL.Position, CL.Text, CL.BackgroundColor3, CL.TextColor3 = UDim2.new(1, 0, 0.34, 0), UDim2.new(0, 0, 0.66, 0), "Ready", Color3.new(0.15, 0.15, 0.15), Color3.new(1, 1, 1)
-TB.FocusLost:Connect(function(EP)
-	if not EP then return end
-	local i = TB.Text:lower()
-	if i == "" then TgN = "" return end
-	for _, v in P:GetPlayers() do
-		if v ~= LP and (v.Name:lower():find(i) or v.DisplayName:lower():find(i)) then
-			TgN, TB.Text = v.Name, v.Name
-			break
-		end
-	end
+local evt, lp = rep:WaitForChild("meleeEvent"), plrs.LocalPlayer
+local on, tgn, tgt, idle = false, "", nil, CFrame.new(888.61, 41.10, 2353.52)
+local sg = Instance.new("ScreenGui", game:GetService("CoreGui"))
+local f = Instance.new("Frame", sg)
+f.Size, f.Position, f.BackgroundColor3 = UDim2.new(0, 150, 0, 90), UDim2.new(0.5, -75, 0.1, 0), Color3.new(0.1, 0.1, 0.1)
+local tb = Instance.new("TextBox", f)
+tb.Size, tb.Position, tb.PlaceholderText, tb.Text = UDim2.new(1, 0, 0.33, 0), UDim2.new(0, 0, 0, 0), "Player Name", ""
+local bt = Instance.new("TextButton", f)
+bt.Size, bt.Position, bt.Text, bt.BackgroundColor3, bt.TextColor3 = UDim2.new(1, 0, 0.33, 0), UDim2.new(0, 0, 0.33, 0), "Toggle: OFF", Color3.new(0.2, 0.2, 0.2), Color3.new(1, 1, 1)
+local cl = Instance.new("TextLabel", f)
+cl.Size, cl.Position, cl.Text, cl.BackgroundColor3, cl.TextColor3 = UDim2.new(1, 0, 0.34, 0), UDim2.new(0, 0, 0.66, 0), "Ready", Color3.new(0.15, 0.15, 0.15), Color3.new(1, 1, 1)
+tb.FocusLost:Connect(function(ep)
+    if not ep or tb.Text == "" then tgn, tgt = "", nil return end
+    local inp = tb.Text:lower()
+    for _, v in pairs(plrs:GetPlayers()) do
+        if v ~= lp and (v.Name:lower():find(inp) or v.DisplayName:lower():find(inp)) then
+            tgn, tgt, tb.Text = v.Name, v, v.Name
+            break
+        end
+    end
 end)
-BT.MouseButton1Click:Connect(function()
-	En = not En
-	BT.Text, BT.BackgroundColor3 = En and "Toggle: ON" or "Toggle: OFF", En and Color3.new(0, 0.5, 0) or Color3.new(0.2, 0.2, 0.2)
+bt.MouseButton1Click:Connect(function()
+    on = not on
+    bt.Text, bt.BackgroundColor3 = on and "Toggle: ON" or "Toggle: OFF", on and Color3.new(0, 0.5, 0) or Color3.new(0.2, 0.2, 0.2)
+    if not on then cl.Text = "Ready" end
 end)
-task.spawn(function()
-	local nJ, gR, cW, rp = 0, 0, 0, RaycastParams.new()
-	rp.FilterType = Enum.RaycastFilterType.Exclude
-	while true do
-		task.wait()
-		if En and TgN ~= "" then
-			local Tgt = P:FindFirstChild(TgN)
-			if Tgt then
-				local lP, lT = Vector3.zero, 0
-				while En and Tgt.Parent and TgN == Tgt.Name do
-					local c, tc = LP.Character, Tgt.Character
-					local hrp, thrp = c and c:FindFirstChild("HumanoidRootPart"), tc and tc:FindFirstChild("HumanoidRootPart")
-					local th, hum = tc and tc:FindFirstChild("Humanoid"), c and c:FindFirstChild("Humanoid")
-					if hum and hrp then
-						local f = {}
-						for _, v in c:GetChildren() do if v:IsA("BasePart") and v.Name ~= "Head" then f[#f+1] = v end end
-						rp.FilterDescendantsInstances = f
-						if not workspace:Raycast(hrp.Position + Vector3.new(0, 50, 0), Vector3.new(0, -500, 0), rp) then hum.Health = 0 end
-					end
-					if hrp and thrp and th and th.Health > 0 then
-						local dT = tick() - lT
-						if dT > 0.1 then
-							if (thrp.Position - lP).Magnitude / dT > 50 then 
-								gR = 0 
-								sethiddenproperty(hrp, "PhysicsRepRootPart", nil)
-							end
-							lP, lT = thrp.Position, tick()
-						end
-						local goal = thrp.CFrame * CFrame.new(0, -6.5, 0)
-						local d = (hrp.Position - goal.Position).Magnitude
-						if d >= 50 then
-							if gR ~= 0 then cW = tick() + 1 CL.Text = "Waiting..." end
-							gR = 0
-							if tick() >= nJ and tick() >= cW then
-								CL.Text = "Chasing..."
-								hrp.CFrame = hrp.CFrame + (goal.Position - hrp.Position).Unit * 50
-								nJ = tick() + 2
-							end
-						else
-							RL:FireServer(Tgt)
-							cW = 0
-							if gR == 0 then gR = tick() + 1 end
-							if tick() >= gR then
-								CL.Text = "Killing..."
-								hrp.CFrame = goal
-								sethiddenproperty(hrp, "PhysicsRepRootPart", thrp)
-							else
-								CL.Text = "Locking..."
-							end
-						end
-					else
-						CL.Text = "Respawn/Team Change..."
-						gR, cW = 0, 0
-					end
-					RS.Heartbeat:Wait()
-				end
-			end
-			CL.Text = "Ready"
-		end
-	end
+rs.Heartbeat:Connect(function()
+    local chr = lp.Character
+    local hrp = chr and chr:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+    if tgn ~= "" and (not tgt or not tgt.Parent) then tgt = plrs:FindFirstChild(tgn) end
+    if on and tgt and tgt.Character then
+        local tchr, hum = tgt.Character, chr:FindFirstChild("Humanoid")
+        local thrp, thum = tchr:FindFirstChild("HumanoidRootPart"), tchr:FindFirstChild("Humanoid")
+        if thrp and thum and hum then
+            if thum.Health > 0 then
+                cl.Text, hrp.CFrame, hrp.Velocity = "Killing...", thrp.CFrame * CFrame.new(0, -9, 0), Vector3.new(0,0,0)
+                evt:FireServer(tgt)
+                if sethiddenproperty then sethiddenproperty(hrp, "PhysicsRepRootPart", thrp) end
+            else
+                task.delay(4, function() if hum then hum.Health = 0 end end)
+            end
+        end
+    else
+        hrp.CFrame, hrp.Velocity = idle, Vector3.new(0,0,0)
+    end
 end)
-]]
-if queue_on_teleport then queue_on_teleport(script_source) end
-loadstring(script_source)()
