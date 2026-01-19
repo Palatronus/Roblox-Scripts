@@ -43,11 +43,14 @@ rs.Heartbeat:Connect(function()
                 task.delay(4, function()
                     if hum then
                         hum.Health = 0
-                        if not lp.Team or lp.Team.Name ~= "Inmates" then
-                            local r = rep:WaitForChild("Remotes"):WaitForChild("RequestTeamChange")
-                            r:InvokeServer(tms:WaitForChild("Neutral"))
-                            r:InvokeServer(tms:WaitForChild("Inmates"))
-                        end
+                        task.spawn(function()
+                            while task.wait(0.5) do
+                                if lp.Team and lp.Team.Name == "Inmates" then break end
+                                local r = rep:WaitForChild("Remotes"):WaitForChild("RequestTeamChange")
+                                r:InvokeServer(tms:WaitForChild("Neutral"))
+                                r:InvokeServer(tms:WaitForChild("Inmates"))
+                            end
+                        end)
                     end
                 end)
             end
