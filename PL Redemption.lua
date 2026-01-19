@@ -1,7 +1,7 @@
 local plrs, rs, rep, tms = game:GetService("Players"), game:GetService("RunService"), game:GetService("ReplicatedStorage"), game:GetService("Teams")
 workspace.Gravity = 0
 local evt, lp = rep:WaitForChild("meleeEvent"), plrs.LocalPlayer
-local on, tgn, tgt, idle = false, "", nil, CFrame.new(888.61, 41.10, 2353.52)
+local on, tgn, tgt, idle, hr = false, "", nil, CFrame.new(888.61, 41.10, 2353.52), false
 local sg = Instance.new("ScreenGui", game:GetService("CoreGui"))
 local f = Instance.new("Frame", sg)
 f.Size, f.Position, f.BackgroundColor3 = UDim2.new(0, 150, 0, 90), UDim2.new(0.5, -75, 0.1, 0), Color3.new(0.1, 0.1, 0.1)
@@ -28,20 +28,20 @@ bt.MouseButton1Click:Connect(function()
 end)
 rs.Heartbeat:Connect(function()
     local chr = lp.Character
-    local hrp = chr and chr:FindFirstChild("HumanoidRootPart")
-    if not hrp then return end
+    local hrp, hum = chr and chr:FindFirstChild("HumanoidRootPart"), chr and chr:FindFirstChild("Humanoid")
     if tgn ~= "" and (not tgt or not tgt.Parent) then tgt = plrs:FindFirstChild(tgn) end
     if on and tgt and tgt.Character then
-        local tchr, hum = tgt.Character, chr:FindFirstChild("Humanoid")
+        hr = false
+        local tchr = tgt.Character
         local thrp, thum = tchr:FindFirstChild("HumanoidRootPart"), tchr:FindFirstChild("Humanoid")
-        if thrp and thum and hum then
+        if hrp and thrp and thum and hum then
             if thum.Health > 0 then
                 cl.Text, hrp.CFrame, hrp.Velocity = "Killing...", thrp.CFrame * CFrame.new(0, -9, 0), Vector3.new(0,0,0)
                 evt:FireServer(tgt)
                 if sethiddenproperty then sethiddenproperty(hrp, "PhysicsRepRootPart", thrp) end
             else
                 task.delay(4, function()
-                    if hum then
+                    if hum and hum.Health > 0 then
                         hum.Health = 0
                         task.spawn(function()
                             while task.wait(0.5) do
@@ -56,6 +56,10 @@ rs.Heartbeat:Connect(function()
             end
         end
     else
-        hrp.CFrame, hrp.Velocity = idle, Vector3.new(0,0,0)
+        if not hr and hum then
+            hum.Health = 0
+            hr = true
+        end
+        if hrp then hrp.CFrame, hrp.Velocity = idle, Vector3.new(0,0,0) end
     end
 end)
