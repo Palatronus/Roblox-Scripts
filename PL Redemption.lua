@@ -1,4 +1,4 @@
-local plrs, rs, rep = game:GetService("Players"), game:GetService("RunService"), game:GetService("ReplicatedStorage")
+local plrs, rs, rep, tms = game:GetService("Players"), game:GetService("RunService"), game:GetService("ReplicatedStorage"), game:GetService("Teams")
 workspace.Gravity = 0
 local evt, lp = rep:WaitForChild("meleeEvent"), plrs.LocalPlayer
 local on, tgn, tgt, idle = false, "", nil, CFrame.new(888.61, 41.10, 2353.52)
@@ -40,7 +40,16 @@ rs.Heartbeat:Connect(function()
                 evt:FireServer(tgt)
                 if sethiddenproperty then sethiddenproperty(hrp, "PhysicsRepRootPart", thrp) end
             else
-                task.delay(4, function() if hum then hum.Health = 0 end end)
+                task.delay(4, function()
+                    if hum then
+                        hum.Health = 0
+                        if not lp.Team or lp.Team.Name ~= "Inmates" then
+                            local r = rep:WaitForChild("Remotes"):WaitForChild("RequestTeamChange")
+                            r:InvokeServer(tms:WaitForChild("Neutral"))
+                            r:InvokeServer(tms:WaitForChild("Inmates"))
+                        end
+                    end
+                end)
             end
         end
     else
