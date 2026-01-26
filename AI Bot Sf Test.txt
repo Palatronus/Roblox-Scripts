@@ -150,6 +150,9 @@ local Agent = PathfindingService:CreatePath({
 	Costs = {
 		AIWalk = 1,
 		AIVoid = math.huge,
+	},
+	PathSettings = {
+		SupportPartialPath = true
 	}
 })
 local function AgentComputeAsync(start, finish)
